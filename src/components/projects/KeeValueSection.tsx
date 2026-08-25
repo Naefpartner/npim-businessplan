@@ -430,11 +430,13 @@ function FeldZeile({ feld }: { feld: KeeFeld }) {
 // ── Eine Zeile der Kostenberechnung ──────────────────────────────────────────
 
 function KostenZeile({
-  zeile: z, canWrite, onSetFeld,
+  zeile: z, canWrite, onSetFeld, klapp,
 }: {
   zeile: AnlagekostenZeile
   canWrite: boolean
   onSetFeld: (feld: keyof ErgaenzungDoc, wert: number | null) => void
+  /** Nur auf der Zeile, die Unterpositionen führt (BKP 2). */
+  klapp?: { offen: boolean; anzahl: number; onToggle: () => void }
 }) {
   const unter = z.ebene === 1
   const eingebbar = z.quelle === 'ergaenzung' && z.feld != null
@@ -444,7 +446,26 @@ function KostenZeile({
       {/* Unterpositionen stehen bündig zu den Hauptgruppen — sie heben sich
           allein durch die hellere Schrift ab, nicht durch Einzug. */}
       <td className="py-1.5 pr-3 tabular-nums text-slate-500">{z.code}</td>
-      <td className={cn('py-1.5 pr-3', !unter && 'font-medium text-slate-800')}>{z.label}</td>
+      <td className={cn('py-1.5 pr-3', !unter && 'font-medium text-slate-800')}>
+        {klapp ? (
+          <button
+            type="button"
+            onClick={klapp.onToggle}
+            aria-expanded={klapp.offen}
+            className="inline-flex items-center gap-1 transition hover:text-slate-950"
+          >
+            {klapp.offen
+              ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+            {z.label}
+            {!klapp.offen && (
+              <span className="text-xs font-normal text-slate-400">
+                ({klapp.anzahl} Positionen)
+              </span>
+            )}
+          </button>
+        ) : z.label}
+      </td>
 
       {/* Ansatz: Eingabefeld plus die Bezugsgrösse im Klartext. */}
       <td className="py-1.5 pr-4 whitespace-nowrap">
@@ -543,6 +564,10 @@ function ImportErgebnis({
   // Hauptgruppen 0, 7, 8 und die Eigentümerkosten in 9.
   const { zeilen, totalNetto, totalBrutto, bezugsGfM2 } = anlagekostenZeilen(imp, erg, bezug)
 
+  // Unterpositionen von BKP 2 — offen, damit sich am Bisherigen nichts ändert.
+  const [unterOffen, setUnterOffen] = useState(true)
+  const anzahlUnter = zeilen.filter((z) => z.ebene === 1).length
+
   // keeValue rundet seine Zeilen einzeln; die Summe der importierten
   // Hauptgruppen kann deshalb um wenige Franken vom ausgewiesenen Total
   // abweichen. Wir weisen die Differenz aus, statt sie stillschweigend zu glätten.
@@ -581,14 +606,19 @@ function ImportErgebnis({
               </tr>
             </thead>
             <tbody>
-              {zeilen.map((z) => (
-                <KostenZeile
-                  key={`${z.quelle}-${z.code}-${z.label}`}
-                  zeile={z}
-                  canWrite={canWrite}
-                  onSetFeld={onSetFeld}
-                />
-              ))}
+              {zeilen
+                .filter((z) => z.ebene === 0 || unterOffen)
+                .map((z) => (
+                  <KostenZeile
+                    key={`${z.quelle}-${z.code}-${z.label}`}
+                    zeile={z}
+                    canWrite={canWrite}
+                    onSetFeld={onSetFeld}
+                    klapp={z.code === '2' && z.ebene === 0 && anzahlUnter > 0
+                      ? { offen: unterOffen, anzahl: anzahlUnter, onToggle: () => setUnterOffen((o) => !o) }
+                      : undefined}
+                  />
+                ))}
               <tr className="border-t-2 border-slate-300 font-semibold">
                 <td className="py-2 pr-3" colSpan={3}>Anlagekosten</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalNetto)}</td>
