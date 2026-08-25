@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import {
   parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen, anlagekostenZeilen,
   type ErgaenzungDoc, type AnlagekostenZeile, type GeschossZaehlung,
+  type AnlagekostenBezug,
 } from '@/lib/keevalue'
 import { useKeeValueErgaenzung } from '@/hooks/useKeeValueErgaenzung'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
@@ -83,6 +84,7 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
   // Verkaufserlös — gleiche Semantik wie bei den Katalogpositionen 710–740.
   const bezug = useMemo(() => ({
     gsfTotal,
+    gfM2: ermittleKeeValueMengen(buildings, gsfTotal).gfM2,
     ertragBasis: Object.values(ertragProNutzung(buildings)).reduce((s, v) => s + v, 0),
     mwstSatz,
   }), [gsfTotal, buildings, mwstSatz])
@@ -440,36 +442,40 @@ function KostenZeile({
   return (
     <tr className={cn('border-b border-slate-50', unter && 'text-slate-500')}>
       <td className={cn('py-1.5 pr-3 tabular-nums text-slate-500', unter && 'pl-4')}>{z.code}</td>
-      <td className={cn('py-1.5 pr-3', unter ? 'pl-2' : 'font-medium text-slate-800')}>
-        {z.label}
-        {z.basisText && (
-          <span className="ml-2 text-xs font-normal text-slate-400">{z.basisText}</span>
-        )}
+      <td className={cn('py-1.5 pr-3', unter ? 'pl-2' : 'font-medium text-slate-800')}>{z.label}</td>
+
+      {/* Ansatz: Eingabefeld plus die Bezugsgrösse im Klartext. */}
+      <td className="py-1.5 pr-4 whitespace-nowrap">
+        {eingebbar ? (
+          <span className="inline-flex items-baseline gap-1.5">
+            <AnsatzEingabe
+              wert={z.ansatzWert ?? null}
+              einheit={z.ansatzEinheit ?? '%'}
+              disabled={!canWrite}
+              onCommit={(v) => onSetFeld(z.feld!, v)}
+            />
+            <span className="text-xs text-slate-400">{z.ansatzBasis}</span>
+          </span>
+        ) : z.fremdKennwert ? (
+          <span className="text-xs text-slate-400">{z.fremdKennwert}</span>
+        ) : null}
       </td>
+
       <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.netto)}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.brutto)}</td>
       <td className="py-1.5 text-right tabular-nums text-slate-500">
-        {eingebbar ? (
-          <KennwertEingabe
-            wert={z.kennwert}
-            einheit={z.eingabeEinheit ?? '%'}
-            disabled={!canWrite}
-            onCommit={(v) => onSetFeld(z.feld!, v)}
-          />
-        ) : z.kennwert != null ? (
-          `${formatNumber(z.kennwert)} ${z.kennwertEinheit ?? ''}`.trim()
-        ) : '—'}
+        {z.chfProM2Gf != null ? formatNumber(Math.round(z.chfProM2Gf)) : '—'}
       </td>
     </tr>
   )
 }
 
 /**
- * Zahleneingabe für die ergänzenden Kennwerte. Prozentwerte werden als Zahl
+ * Zahleneingabe für die ergänzenden Ansätze. Prozentwerte werden als Zahl
  * angezeigt (3.5 für 3.5 %), intern aber als Faktor (0.035) geführt — gleiche
  * Konvention wie in den Anlagekosten.
  */
-function KennwertEingabe({
+function AnsatzEingabe({
   wert, einheit, disabled, onCommit,
 }: {
   wert: number | null
@@ -526,14 +532,14 @@ function ImportErgebnis({
 }: {
   imp: ReturnType<typeof parseKeeValueXlsx>
   erg: ErgaenzungDoc
-  bezug: { gsfTotal: number; ertragBasis: number; mwstSatz: number }
+  bezug: AnlagekostenBezug
   canWrite: boolean
   onSetFeld: (feld: keyof ErgaenzungDoc, wert: number | null) => void
 }) {
   // Vollständige Anlagekosten: die keeValue-Hauptgruppen (Honorare als 6,
   // Unterpositionen eingerückt unter BKP 2) plus die hier erfassten
   // Hauptgruppen 0, 7, 8 und die Eigentümerkosten in 9.
-  const { zeilen, totalNetto, totalBrutto } = anlagekostenZeilen(imp, erg, bezug)
+  const { zeilen, totalNetto, totalBrutto, bezugsGfM2 } = anlagekostenZeilen(imp, erg, bezug)
 
   // keeValue rundet seine Zeilen einzeln; die Summe der importierten
   // Hauptgruppen kann deshalb um wenige Franken vom ausgewiesenen Total
@@ -549,19 +555,27 @@ function ImportErgebnis({
         <h3 className="text-sm font-medium text-slate-700">Anlagekosten</h3>
         <p className="mb-3 mt-0.5 text-xs text-slate-500">
           BKP 1–6 aus keeValue — die Position 29 „Honorare" ist aus BKP 2 herausgelöst und bildet
-          die Hauptgruppe 6. BKP 0, 7, 8 und die Eigentümerkosten in 9 werden hier erfasst;
-          die Prozentsätze rechnen auf den Netto-Beträgen.
+          die Hauptgruppe 6. BKP 0, 7, 8, die Reserve und die Eigentümerkosten in 9 werden über den
+          Ansatz erfasst; die Prozentsätze rechnen auf den Netto-Beträgen.
         </p>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2 pr-3 font-medium">BKP</th>
                 <th className="py-2 pr-3 font-medium">Bezeichnung</th>
+                <th className="py-2 pr-4 font-medium">Ansatz</th>
                 <th className="py-2 pr-3 text-right font-medium">exkl. MwSt.</th>
                 <th className="py-2 pr-3 text-right font-medium">inkl. MwSt.</th>
-                <th className="py-2 text-right font-medium">Kennwert</th>
+                <th className="py-2 text-right font-medium">
+                  CHF/m² GF
+                  {bezugsGfM2 != null && (
+                    <span className="ml-1 font-normal normal-case tracking-normal text-slate-400">
+                      ({formatNumber(bezugsGfM2)} m²)
+                    </span>
+                  )}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -574,16 +588,20 @@ function ImportErgebnis({
                 />
               ))}
               <tr className="border-t-2 border-slate-300 font-semibold">
-                <td className="py-2 pr-3" colSpan={2}>Anlagekosten</td>
+                <td className="py-2 pr-3" colSpan={3}>Anlagekosten</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalNetto)}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalBrutto)}</td>
-                <td />
+                <td className="py-2 text-right tabular-nums">
+                  {bezugsGfM2 ? formatNumber(Math.round(totalBrutto / bezugsGfM2)) : '—'}
+                </td>
               </tr>
               <tr className="text-xs text-slate-400">
-                <td className="pt-1 pr-3" colSpan={2}>davon Erstellungskosten keeValue</td>
+                <td className="pt-1 pr-3" colSpan={3}>davon Erstellungskosten keeValue</td>
                 <td className="pt-1 pr-3 text-right tabular-nums">{formatCurrency(imp.totalNetto)}</td>
                 <td className="pt-1 pr-3 text-right tabular-nums">{formatCurrency(imp.totalBrutto)}</td>
-                <td />
+                <td className="pt-1 text-right tabular-nums">
+                  {bezugsGfM2 ? formatNumber(Math.round(imp.totalBrutto / bezugsGfM2)) : '—'}
+                </td>
               </tr>
             </tbody>
           </table>

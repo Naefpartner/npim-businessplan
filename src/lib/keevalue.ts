@@ -62,6 +62,15 @@ export interface KeeValueImport {
   /** Terminkennwerte in Monaten — direkt für den Mittelfluss verwendbar. */
   planungszeitMonate: number | null
   bauzeitMonate: number | null
+  /**
+   * Geschossfläche GF SIA 416 (m²), auf die keeValue seine Kennwerte bezieht.
+   * Steht im Ergebnis-Blatt als „Bezugsgrösse" unter den BKP-2-Kennwerten.
+   * Wir rechnen unsere Kennwerte auf dieselbe Fläche, damit die Spalte
+   * durchgängig vergleichbar bleibt.
+   */
+  bezugsGfM2: number | null
+  /** Gebäudevolumen GV SIA 416 (m³) als Bezugsgrösse, analog. */
+  bezugsGvM3: number | null
 }
 
 export class KeeValueParseError extends Error {}
@@ -431,6 +440,32 @@ function readErgebnisse(cells: Zellen): { zeilen: KeeValueZeile[]; totalNetto: n
   return { zeilen, totalNetto, totalBrutto }
 }
 
+/**
+ * Bezugsgrössen aus dem Block „Kostenkennwerte BKP 2" am Fuss des Blatts.
+ * Aufbau: Spalte A das Kennwert-Label, Spalte E der Text „Bezugsgrösse: 2'378 m²".
+ */
+function readBezugsgroessen(cells: Zellen): { bezugsGfM2: number | null; bezugsGvM3: number | null } {
+  let gf: number | null = null
+  let gv: number | null = null
+  for (const [ref, val] of cells) {
+    if (!/^A\d+$/.test(ref)) continue
+    const menge = bezugsMenge(txt(cells, `E${rowOf(ref)}`))
+    if (menge == null) continue
+    if (/m²\s*GF/i.test(val)) gf ??= menge
+    else if (/m³\s*GV/i.test(val)) gv ??= menge
+  }
+  return { bezugsGfM2: gf, bezugsGvM3: gv }
+}
+
+/** Zahl aus „Bezugsgrösse: 2'378 m²". */
+function bezugsMenge(raw: string | null): number | null {
+  if (!raw) return null
+  const m = raw.match(/Bezugsgr[öo]sse:\s*([\d'’\s.]+)/i)
+  if (!m) return null
+  const n = Number(m[1].replace(/['’\s]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 /** Terminkennwerte am Fuss des Ergebnis-Blatts. */
 function readTermine(cells: Zellen): { planungszeitMonate: number | null; bauzeitMonate: number | null } {
   let planung: number | null = null
@@ -531,6 +566,7 @@ export function parseKeeValueXlsx(data: ArrayBuffer): KeeValueImport {
   }
   const { zeilen, totalNetto, totalBrutto } = readErgebnisse(ergebnisCells)
   const { planungszeitMonate, bauzeitMonate } = readTermine(ergebnisCells)
+  const { bezugsGfM2, bezugsGvM3 } = readBezugsgroessen(ergebnisCells)
 
   const eingabeCells = findSheet(/^Eingaben/i)
   const meta = eingabeCells
@@ -547,6 +583,8 @@ export function parseKeeValueXlsx(data: ArrayBuffer): KeeValueImport {
     totalBrutto,
     planungszeitMonate,
     bauzeitMonate,
+    bezugsGfM2,
+    bezugsGvM3,
   }
 }
 
@@ -668,6 +706,11 @@ export interface ErgaenzungDoc {
   bkp8ProzentVon1bis7: number | null
   /** BKP 9 Eigentümerkosten: Anteil an BKP 1–8. */
   bkp9ProzentVon1bis8: number | null
+  /**
+   * BKP 9 Reserve: Anteil an BKP 0–8 (Bezug wie Katalogposition 970).
+   * null = die aus keeValue importierte Reserve gilt unverändert.
+   */
+  bkp9ReserveProzentVon0bis8: number | null
 }
 
 export const LEERE_ERGAENZUNG: ErgaenzungDoc = {
@@ -675,6 +718,7 @@ export const LEERE_ERGAENZUNG: ErgaenzungDoc = {
   bkp7ProzentVonErtrag: null,
   bkp8ProzentVon1bis7: null,
   bkp9ProzentVon1bis8: null,
+  bkp9ReserveProzentVon0bis8: null,
 }
 
 /** Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB. */
@@ -683,14 +727,26 @@ export function normalizeErgaenzung(doc: Partial<ErgaenzungDoc> | null | undefin
 }
 
 export interface AnlagekostenZeile extends NaefKostenZeile {
-  /** 'keevalue' = aus dem Import, 'ergaenzung' = hier erfasster Kennwert. */
+  /** 'keevalue' = aus dem Import, 'ergaenzung' = hier erfasster Ansatz. */
   quelle: 'keevalue' | 'ergaenzung'
-  /** Welches Feld der Ergänzung diese Zeile bearbeitet. */
+  /** Welches Feld der Ergänzung dieser Ansatz bearbeitet. */
   feld?: keyof ErgaenzungDoc
-  /** Einheit des Eingabefelds, z.B. 'CHF/m²' oder '%'. */
-  eingabeEinheit?: 'CHF/m²' | '%'
-  /** Bezugsgrösse im Klartext für die UI, z.B. „GSF 2'450 m²". */
-  basisText?: string
+  /** Aktueller Wert des Ansatzes (Faktor bei %, CHF bei CHF/m²). */
+  ansatzWert?: number | null
+  /** Einheit des Ansatzes. */
+  ansatzEinheit?: 'CHF/m²' | '%'
+  /** Woraus gerechnet wird, im Klartext — z.B. „von BKP 1–7 8'950'919 CHF". */
+  ansatzBasis?: string
+  /**
+   * Kennwert in CHF/m² GF inkl. MwSt, einheitlich für jede Zeile gerechnet.
+   * null, wenn keine GF-Bezugsgrösse bekannt ist.
+   */
+  chfProM2Gf: number | null
+  /**
+   * Ursprünglicher keeValue-Kennwert, falls er sich NICHT auf die GF bezieht
+   * (BKP 4 rechnet auf der BUF). Sonst leer — die GF-Spalte zeigt ihn ohnehin.
+   */
+  fremdKennwert?: string
 }
 
 export interface AnlagekostenErgebnis {
@@ -701,11 +757,15 @@ export interface AnlagekostenErgebnis {
   /** Die keeValue-Erstellungskosten als Teilsumme — zur Einordnung. */
   erstellungskostenNetto: number
   erstellungskostenBrutto: number
+  /** Geschossfläche (m²), auf die die Kennwertspalte rechnet. */
+  bezugsGfM2: number | null
 }
 
 export interface AnlagekostenBezug {
   /** Grundstücksfläche (m²) aus den Parzellen. */
   gsfTotal: number
+  /** Geschossfläche (m²) aus dem Mengengerüst — Rückfall für die Kennwerte. */
+  gfM2: number
   /** Jahresertrag bzw. Verkaufserlös der Variante (Basis für BKP 7). */
   ertragBasis: number
   /** Globaler MwSt-Satz der Variante, z.B. 0.081. */
@@ -750,14 +810,16 @@ export function anlagekostenZeilen(
     kennwert: erg.bkp0ChfProM2Gsf,
     kennwertEinheit: 'CHF/m² GSF',
     ebene: 0,
+    chfProM2Gf: null, // wird unten für alle Zeilen einheitlich gesetzt
     quelle: 'ergaenzung',
     feld: 'bkp0ChfProM2Gsf',
-    eingabeEinheit: 'CHF/m²',
-    basisText: `GSF ${formatMenge(bezug.gsfTotal)} m²`,
+    ansatzWert: erg.bkp0ChfProM2Gsf,
+    ansatzEinheit: 'CHF/m²',
+    ansatzBasis: `× GSF ${formatMenge(bezug.gsfTotal)} m²`,
   })
 
   // ─── BKP 1–6 aus keeValue ───────────────────────────────────────────────
-  for (const z of kvRest) zeilen.push({ ...z, quelle: 'keevalue' })
+  for (const z of kvRest) zeilen.push({ ...z, quelle: 'keevalue', chfProM2Gf: null })
 
   // ─── BKP 7 Vermarktung — % vom Ertrag / Verkaufserlös ───────────────────
   const bkp7Netto = (erg.bkp7ProzentVonErtrag ?? 0) * bezug.ertragBasis
@@ -769,10 +831,12 @@ export function anlagekostenZeilen(
     kennwert: erg.bkp7ProzentVonErtrag,
     kennwertEinheit: '%',
     ebene: 0,
+    chfProM2Gf: null,
     quelle: 'ergaenzung',
     feld: 'bkp7ProzentVonErtrag',
-    eingabeEinheit: '%',
-    basisText: `Ertrag / Verkaufserlös ${formatMenge(bezug.ertragBasis)} CHF`,
+    ansatzWert: erg.bkp7ProzentVonErtrag,
+    ansatzEinheit: '%',
+    ansatzBasis: `von Ertrag / Verkaufserlös ${formatMenge(bezug.ertragBasis)} CHF`,
   })
 
   // ─── BKP 8 Entwicklungskosten — % von BKP 1–7 ───────────────────────────
@@ -786,15 +850,41 @@ export function anlagekostenZeilen(
     kennwert: erg.bkp8ProzentVon1bis7,
     kennwertEinheit: '%',
     ebene: 0,
+    chfProM2Gf: null,
     quelle: 'ergaenzung',
     feld: 'bkp8ProzentVon1bis7',
-    eingabeEinheit: '%',
-    basisText: `BKP 1–7 ${formatMenge(basis1bis7)} CHF`,
+    ansatzWert: erg.bkp8ProzentVon1bis7,
+    ansatzEinheit: '%',
+    ansatzBasis: `von BKP 1–7 ${formatMenge(basis1bis7)} CHF`,
   })
 
-  // ─── BKP 9: Reserve aus keeValue, dann die Eigentümerkosten ─────────────
-  if (reserve) zeilen.push({ ...reserve, quelle: 'keevalue' })
+  // ─── BKP 9 Reserve ──────────────────────────────────────────────────────
+  // Mit Prozentsatz wird die Reserve auf BKP 0–8 gerechnet (Bezug wie
+  // Katalogposition 970) und ersetzt den keeValue-Wert. Ohne Prozentsatz gilt
+  // die importierte Reserve unverändert.
+  const basis0bis8 = summeHauptgruppen(zeilen, 0, 8)
+  const reserveProzent = erg.bkp9ReserveProzentVon0bis8
+  const reserveNetto = reserveProzent != null ? reserveProzent * basis0bis8 : (reserve?.netto ?? 0)
+  zeilen.push({
+    code: '9',
+    label: 'Reserve',
+    netto: reserveNetto,
+    brutto: reserveProzent != null ? mitMwst(reserveNetto) : (reserve?.brutto ?? 0),
+    kennwert: reserveProzent,
+    kennwertEinheit: '%',
+    ebene: 0,
+    chfProM2Gf: null,
+    quelle: 'ergaenzung',
+    feld: 'bkp9ReserveProzentVon0bis8',
+    ansatzWert: reserveProzent,
+    ansatzEinheit: '%',
+    ansatzBasis: reserveProzent != null
+      ? `von BKP 0–8 ${formatMenge(basis0bis8)} CHF`
+      : 'leer = Reserve aus keeValue',
+  })
 
+  // ─── BKP 9 Eigentümerkosten — % von BKP 1–8 ─────────────────────────────
+  // Basis ohne die Reserve, weil die selbst in Hauptgruppe 9 liegt.
   const basis1bis8 = summeHauptgruppen(zeilen, 1, 8)
   const bkp9Netto = (erg.bkp9ProzentVon1bis8 ?? 0) * basis1bis8
   zeilen.push({
@@ -805,11 +895,27 @@ export function anlagekostenZeilen(
     kennwert: erg.bkp9ProzentVon1bis8,
     kennwertEinheit: '%',
     ebene: 0,
+    chfProM2Gf: null,
     quelle: 'ergaenzung',
     feld: 'bkp9ProzentVon1bis8',
-    eingabeEinheit: '%',
-    basisText: `BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
+    ansatzWert: erg.bkp9ProzentVon1bis8,
+    ansatzEinheit: '%',
+    ansatzBasis: `von BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
   })
+
+  // ─── Kennwerte einheitlich über die GF ──────────────────────────────────
+  // Bezug ist die GF, auf die keeValue selbst rechnet; fehlt sie im Blatt,
+  // greift die GF aus dem Mengengerüst. Brutto-basiert wie bei keeValue.
+  const gf = imp.bezugsGfM2 ?? (bezug.gfM2 > 0 ? bezug.gfM2 : null)
+  for (const z of zeilen) {
+    z.chfProM2Gf = gf && gf > 0 ? z.brutto / gf : null
+    // Kennwerte auf anderer Bezugsgrösse (BKP 4 rechnet auf der BUF) erhalten,
+    // sonst ginge die Information des Imports verloren.
+    if (z.quelle === 'keevalue' && z.kennwert != null && z.kennwertEinheit
+        && !/m²\s*GF/i.test(z.kennwertEinheit)) {
+      z.fremdKennwert = `${formatMenge(z.kennwert)} ${z.kennwertEinheit}`
+    }
+  }
 
   const hauptgruppen = zeilen.filter((z) => z.ebene === 0)
   return {
@@ -818,6 +924,7 @@ export function anlagekostenZeilen(
     totalBrutto: hauptgruppen.reduce((s, z) => s + z.brutto, 0),
     erstellungskostenNetto: imp.totalNetto,
     erstellungskostenBrutto: imp.totalBrutto,
+    bezugsGfM2: gf,
   }
 }
 

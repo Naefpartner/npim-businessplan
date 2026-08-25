@@ -7,7 +7,8 @@
 --   BKP 0  Grundstück        — CHF/m² GSF, Menge aus den Parzellen
 --   BKP 7  Vermarktung       — % vom Ertrag bzw. Verkaufserlös der Variante
 --   BKP 8  Entwicklungskosten— % von BKP 1–7
---   BKP 9  Eigentümerkosten  — % von BKP 1–8 (zusätzlich zur keeValue-Reserve)
+--   BKP 9  Eigentümerkosten  — % von BKP 1–8
+--   BKP 9  Reserve           — % von BKP 0–8; leer = Reserve aus keeValue
 --
 -- Diese vier Kennwerte werden hier je Variante gehalten. Bewusst NICHT in
 -- variant_keevalue_import, weil ein neuer Excel-Upload jene Zeile ersetzt — die
