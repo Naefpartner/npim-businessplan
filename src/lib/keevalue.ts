@@ -17,6 +17,8 @@
 
 import { unzipSync, strFromU8 } from 'fflate'
 import { isGarageNutzung } from '@/lib/bkp2'
+import { BKP_POSITIONEN } from '@/lib/bkpKatalog'
+import type { BkpErgebnis, PositionResult } from '@/lib/bkpBerechnung'
 import type { BuildingMietflaeche, BuildingMieteinheit, VariantBuilding } from '@/types'
 
 /** Eine Ergebniszeile des Blatts „Ergebnisse Erstellungskosten". */
@@ -942,6 +944,65 @@ function summeHauptgruppen(zeilen: AnlagekostenZeile[], von: number, bis: number
 /** Ganzzahl mit Tausender-Hochkomma — nur für die Basistexte in der UI. */
 function formatMenge(n: number): string {
   return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'")
+}
+
+/**
+ * Übersetzt die keeValue-Anlagekosten in ein BkpErgebnis, wie es die Engine in
+ * lib/bkpBerechnung.ts liefert. Damit können Wirtschaftlichkeit, Rendite und
+ * Kostenmiete unverändert weiterrechnen, egal welche Erfassungsmethode gewählt
+ * ist — sie sehen in beiden Fällen dieselbe Struktur.
+ *
+ * `anteil` verteilt das Variantentotal auf eine Eigentumsart (0..1). keeValue
+ * kennt keine Eigentumsarten — die Aufteilung erfolgt beim Aufrufer, üblich
+ * nach VMF-Anteil.
+ *
+ * Abgebildet werden die Hauptgruppensummen sowie die Position 010
+ * (Grundstückerwerb), die von Kostenmiete, Rendite, WBF und Honorarrechner als
+ * Landanteil gelesen wird. Einzelpositionen darüber hinaus kennt die Methode
+ * naturgemäss nicht.
+ */
+export function alsBkpErgebnis(erg: AnlagekostenErgebnis, anteil: number): BkpErgebnis {
+  const nettoHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  let grundstueckNetto = 0
+  let grundstueckMwst = 0
+
+  for (const z of erg.zeilen) {
+    if (z.ebene !== 0) continue // Unterpositionen stecken in BKP 2
+    const hg = Number(z.code)
+    if (!Number.isFinite(hg) || hg < 0 || hg > 9) continue
+    const netto = z.netto * anteil
+    const mwst = (z.brutto - z.netto) * anteil
+    nettoHg[hg] += netto
+    mwstHg[hg] += mwst
+    if (hg === 0) { grundstueckNetto += netto; grundstueckMwst += mwst }
+  }
+
+  const pos010 = BKP_POSITIONEN.find((p) => p.code === '010')!
+  return {
+    positionen: {
+      '010': {
+        position: pos010,
+        status: 'beruecksichtigt',
+        kennwert: null,
+        betragOverride: null,
+        menge: null,
+        mengeEinheit: 'm² GSF',
+        preisEinheit: 'CHF/m²',
+        betragNetto: grundstueckNetto,
+        mwstAnwenden: grundstueckMwst > 0,
+        mwstSatz: grundstueckNetto > 0 ? grundstueckMwst / grundstueckNetto : 0,
+        mwstBetrag: grundstueckMwst,
+        betragBrutto: grundstueckNetto + grundstueckMwst,
+        berechnungs_info: 'aus keeValue',
+      } satisfies PositionResult,
+    },
+    hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
+    hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
+    totalNetto: erg.totalNetto * anteil,
+    totalMwst: (erg.totalBrutto - erg.totalNetto) * anteil,
+    totalBrutto: erg.totalBrutto * anteil,
+  }
 }
 
 /** Ein Betrag je Naef-Hauptgruppe. */

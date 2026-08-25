@@ -58,9 +58,10 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
   const instandsetzung = p.instandsetzungProM2 * totalVmf
   const liegenschaftserfolg = mietertragNetto - instandsetzung
 
-  // Anlagekosten Renditeobjekt (konsolidiert) brutto.
+  // Anlagekosten Renditeobjekt (konsolidiert) brutto — aus der Erfassungsmethode,
+  // die in den Anlagekosten gewählt ist (Detailkatalog oder keeValue).
   const { investition, erstellung } = useMemo(() => {
-    const erg = ak.konsolidiert.get(EIG)?.ergebnis
+    const erg = ak.konsolidiertEffektiv.get(EIG)
     if (!erg) return { investition: 0, erstellung: 0 }
     let inv = 0
     for (let c = 0; c <= 9; c++) {
@@ -72,7 +73,7 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
     const p010 = erg.positionen['010']
     const land = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
     return { investition: inv, erstellung: inv - land }
-  }, [ak.konsolidiert])
+  }, [ak.konsolidiertEffektiv])
 
   const bruttorendite = investition > 0 ? mietertragSoll / investition : 0
   const nettorendite = investition > 0 ? liegenschaftserfolg / investition : 0

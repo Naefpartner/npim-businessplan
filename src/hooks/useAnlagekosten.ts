@@ -15,10 +15,13 @@ import {
 } from '@/lib/bkpBlocks'
 import {
   eigentumsartForBuilding,
-  type ProjectVariant, type Eigentumsart, type PauschalPosten,
+  type ProjectVariant, type Eigentumsart, type PauschalPosten, type KostenMethode,
 } from '@/types'
 import { fetchVariant } from '@/hooks/useVariants'
 import { useHonorar } from '@/hooks/useHonorar'
+import { useKeeValueImport } from '@/hooks/useKeeValueImport'
+import { useKeeValueErgaenzung } from '@/hooks/useKeeValueErgaenzung'
+import { anlagekostenZeilen, alsBkpErgebnis, ermittleKeeValueMengen } from '@/lib/keevalue'
 
 // Sortierschlüssel aus der Positionsnummer (führende Ziffern); ohne Nummer ans Ende.
 export function posSortKey(p: BkpPosition): number {
@@ -238,6 +241,56 @@ export function useAnlagekosten(
     if (!error) setVariant({ ...variant, mwst_satz: newSatz })
   }, [variantId, variant])
 
+  // ── Anlagekosten gemäss gewählter Erfassungsmethode ────────────────────────
+  // Die Wirtschaftlichkeit soll mit den Kosten der angewählten Methode rechnen,
+  // nicht zwingend mit dem Detailkatalog. `konsolidiert` bleibt der Detailstand
+  // (die Anlagekosten-Tabelle lebt davon); `konsolidiertEffektiv` ist der Stand,
+  // auf dem gerechnet wird.
+  const keeValueImport = useKeeValueImport(variantId)
+  const keeValueErgaenzung = useKeeValueErgaenzung(variantId)
+  const kostenMethode: KostenMethode = variant?.kosten_methode ?? 'detail'
+  const keeValueAktiv = kostenMethode === 'keevalue' && keeValueImport.imp != null
+
+  // VMF je Eigentumsart — Verteilschlüssel für das keeValue-Variantentotal.
+  const vmfByEig = useMemo(() => {
+    const m = new Map<Eigentumsart, number>()
+    for (const b of buildings) {
+      const eig = eigentumsartForBuilding(b.use_type)
+      const vmf = b.mietflaechen.reduce((a, mf) => a + (mf.flaeche_m2 || 0), 0)
+      m.set(eig, (m.get(eig) ?? 0) + vmf)
+    }
+    return m
+  }, [buildings])
+
+  const konsolidiertEffektiv = useMemo(() => {
+    const map = new Map<Eigentumsart, BkpErgebnis>()
+    if (!keeValueAktiv || !keeValueImport.imp) {
+      for (const eig of presentEig) {
+        const erg = konsolidiert.get(eig)?.ergebnis
+        if (erg) map.set(eig, erg)
+      }
+      return map
+    }
+    const ertragBasis = presentEig.reduce(
+      (s, eig) => s + Object.values(ertragProNutzungByEig.get(eig) ?? {}).reduce((a, v) => a + v, 0), 0)
+    const gesamt = anlagekostenZeilen(keeValueImport.imp, keeValueErgaenzung.doc, {
+      gsfTotal,
+      gfM2: ermittleKeeValueMengen(buildings, gsfTotal).gfM2,
+      ertragBasis,
+      mwstSatz,
+    })
+    for (const eig of presentEig) {
+      // Ohne VMF (z.B. reine Parkierung) gleichmässig verteilen, damit die
+      // Kosten nicht verschwinden.
+      const anteil = totalVmf > 0
+        ? (vmfByEig.get(eig) ?? 0) / totalVmf
+        : (presentEig.length ? 1 / presentEig.length : 0)
+      map.set(eig, alsBkpErgebnis(gesamt, anteil))
+    }
+    return map
+  }, [keeValueAktiv, keeValueImport.imp, keeValueErgaenzung.doc, presentEig, konsolidiert,
+      buildings, gsfTotal, mwstSatz, totalVmf, vmfByEig, ertragProNutzungByEig])
+
   // Gesamttotal (inkl. MwSt) über alle Eigentumsarten.
   const grandTotalBrutto = presentEig.reduce((s, eig) => s + (konsolidiert.get(eig)?.ergebnis.totalBrutto ?? 0), 0)
 
@@ -249,6 +302,7 @@ export function useAnlagekosten(
     buildings, etappen, presentEig, gsfTotal, totalVmf,
     blockList, positionsByEig, typForByEig,
     blockErgebnisse, konsolidiert, grandTotalBrutto,
+    konsolidiertEffektiv, kostenMethode, keeValueAktiv,
     aggregateFlags, hasOhneEtappe, totalAllocatedGsf, gsfMismatch,
     getDetail, defaultShare,
     bkpKosten, custom, gsfAlloc, bkp2Aggregat,

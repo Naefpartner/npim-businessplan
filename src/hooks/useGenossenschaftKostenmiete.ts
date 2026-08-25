@@ -38,7 +38,7 @@ export function useGenossenschaftKostenmiete(variantId: string): GenossenschaftK
   return useMemo(() => {
     // Konsolidiert über alle Etappen — identisch zum Reiter «Konsolidiert» der
     // Kostenmiete-Sektion, dessen Wohnungsmieten der Massstab sind.
-    const erg = ak.konsolidiert.get(EIG)?.ergebnis
+    const erg = ak.konsolidiertEffektiv.get(EIG)
     const { vmf, wohnenFlaeche, wohnungen, ertragsNutzungen } = sammleKostenmieteMengen(ak.buildings, null)
     const kons = erg && wohnenFlaeche > 0
       ? berechneKostenmiete(basisFromErgebnis(erg, vmf, wohnenFlaeche, wohnungen), params, ertragsNutzungen)
@@ -49,5 +49,5 @@ export function useGenossenschaftKostenmiete(variantId: string): GenossenschaftK
       konsolidiertProM2Jahr: kons?.proM2Jahr ?? null,
       loading,
     }
-  }, [ak.buildings, ak.konsolidiert, params, wbf.punkte, loading])
+  }, [ak.buildings, ak.konsolidiertEffektiv, params, wbf.punkte, loading])
 }
