@@ -7,7 +7,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGsfAllocation } from '@/hooks/useGsfAllocation'
 import { useBkpKosten, type BkpPatch, type BkpScope } from '@/hooks/useBkpKosten'
 import { useBkpCustomPositions } from '@/hooks/useBkpCustomPositions'
+import { useKostenMethode } from '@/hooks/useKostenMethode'
 import { posSortKey } from '@/hooks/useAnlagekosten'
+import { KostenMethodeKacheln } from '@/components/projects/KostenMethodeKacheln'
+import { KeeValueSection } from '@/components/projects/KeeValueSection'
+import { BenchmarkKostenSection } from '@/components/projects/BenchmarkKostenSection'
 import { VariantDataProvider, useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { fetchAnlagekostenVergleich, type VergleichWert } from '@/lib/anlagekostenVergleich'
 import { Info } from 'lucide-react'
@@ -99,6 +103,8 @@ export function AnlagekostenSection({
   const [activeTab, setActiveTab] = useState<string>(
     () => (viewKey && typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`${viewKey}:tab`) : null) || 'konsolidiert',
   )
+  // Erfassungsmethode der Anlagekosten (Kachelauswahl, pro Variante gespeichert).
+  const { methode, setMethode } = useKostenMethode(variantId)
   // Signal zum globalen Auf-/Zuklappen aller Hauptgruppen.
   const [collapseAll, setCollapseAll] = useState<{ collapsed: boolean; tick: number }>({ collapsed: false, tick: 0 })
 
@@ -185,6 +191,12 @@ export function AnlagekostenSection({
         </div>
       ) : (
         <div className="space-y-6 p-5">
+      {/* Erfassungsmethode — nur variantenbezogen wählbar. Ohne Variante
+          (Projektsicht) bleibt es beim Detailkatalog. */}
+      {variantId && (
+        <KostenMethodeKacheln methode={methode} onChange={setMethode} disabled={!canWrite} />
+      )}
+
       {/* Globale Parameter */}
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-3 mb-3">
@@ -202,6 +214,12 @@ export function AnlagekostenSection({
         </div>
       </section>
 
+      {variantId && methode === 'benchmark' && <BenchmarkKostenSection />}
+      {variantId && methode === 'keevalue' && (
+        <KeeValueSection projectId={projektId} variantId={variantId} />
+      )}
+
+      {(!variantId || methode === 'detail') && (<>
       {hasOhneEtappe && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -299,6 +317,7 @@ export function AnlagekostenSection({
           })}
         </div>
       )}
+      </>)}
         </div>
       ))}
     </section>

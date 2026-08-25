@@ -95,7 +95,36 @@ export interface ProjectVariant {
   snapshot_taken_at: string | null
   /** Globaler MwSt-Satz für die Anlagekosten-Berechnung (z.B. 0.081 = 8.1%) */
   mwst_satz: number
+  /** Gewählte Erfassungsmethode der Anlagekosten (Kachelauswahl im Reiter). */
+  kosten_methode: KostenMethode
   created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Erfassungsmethode der Anlagekosten je Variante (Migration 059):
+ *   'benchmark' — Grobschätzung über Benchmarks BKP 0–9
+ *   'keevalue'  — Erstellungskosten BKP 1–5 aus dem Onlinetool keevalue.ch
+ *   'detail'    — Detailkatalog mit Positionsraster (Standard)
+ */
+export type KostenMethode = 'benchmark' | 'keevalue' | 'detail'
+
+export const KOSTEN_METHODE_LABEL: Record<KostenMethode, string> = {
+  benchmark: 'Benchmarks BKP 0–9',
+  keevalue:  'keeValue',
+  detail:    'Detailkatalog',
+}
+
+/** Gespeicherter keeValue-Excel-Import einer Variante. `doc` = KeeValueImport. */
+export interface VariantKeeValueImport {
+  id: string
+  variant_id: string
+  file_name: string | null
+  preisstand: string | null
+  version: string | null
+  doc: unknown
+  imported_by: string | null
   created_at: string
   updated_at: string
 }
