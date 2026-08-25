@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+
+@layer base {
+  :root {
+    /* Hintergrund & Karten */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Primärfarbe: Blau (Finanz-App) */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Sekundär & Akzent */
+    --secondary: 215 20% 95%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 215 20% 95%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 214 32% 91%;
+    --accent-foreground: 222 47% 11%;
+
+    /* Fehler */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Rahmen & Inputs */
+    --border: 215 20% 89%;
+    --input: 215 20% 89%;
+    --ring: 217 91% 60%;
+
+    /* Radius */
+    --radius: 0.625rem;
+
+    /* Charts */
+    --chart-1: 217 91% 60%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  select, option, optgroup, input, textarea, button {
+    font-family: inherit;
+  }
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────────────────────────── */
+
+.dark { color-scheme: dark; }
+
+/* Hintergründe */
+.dark .bg-white          { background-color: #1e293b; }
+.dark .bg-slate-50       { background-color: #0f172a; }
+.dark .bg-slate-100      { background-color: #1e293b; }
+.dark .bg-slate-200      { background-color: #334155; }
+
+/* Borders */
+.dark .border-slate-100  { border-color: #334155; }
+.dark .border-slate-200  { border-color: #334155; }
+.dark .divide-slate-100 > * + * { border-color: #334155; }
+.dark .border-t-2        { border-color: #475569; }
+
+/* Text */
+.dark .text-slate-900    { color: #f1f5f9; }
+.dark .text-slate-800    { color: #e2e8f0; }
+.dark .text-slate-700    { color: #cbd5e1; }
+.dark .text-slate-600    { color: #94a3b8; }
+.dark .text-slate-500    { color: #64748b; }
+.dark .text-slate-400    { color: #475569; }
+.dark .text-slate-300    { color: #334155; }
+
+/* Interaktionen */
+.dark .hover\:bg-slate-50:hover  { background-color: #1e293b; }
+.dark .hover\:bg-slate-100:hover { background-color: #334155; }
+.dark .group:hover .group-hover\:text-blue-600 { color: #93c5fd; }
+
+/* Blue Akzent (aktive Nav, Badges) */
+.dark .bg-blue-50        { background-color: #172554; }
+.dark .text-blue-700     { color: #93c5fd; }
+.dark .text-blue-600     { color: #93c5fd; }
+.dark .border-blue-300   { border-color: #1d4ed8; }
+
+/* Tabelle tfoot */
+.dark .bg-slate-50.font-semibold { background-color: #1e293b; }
+.dark tfoot tr           { background-color: #1e293b; }
+
+/* Scrollbar */
+.dark ::-webkit-scrollbar-track { background: #0f172a; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+
+/* Number-Inputs ohne Spinner-Pfeile */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinner {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Inputs in Mieteinheit-Zeilen auf weiß (statt globalem hellgrau) */
+.inputs-on-white input:not([disabled]),
+.inputs-on-white textarea:not([disabled]) {
+  background-color: #ffffff;
+}

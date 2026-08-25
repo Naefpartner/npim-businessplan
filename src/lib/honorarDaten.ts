@@ -1,0 +1,106 @@
+// AUTO-GENERIERT aus «Planerhonorare Vorlage.xlsx» — nicht von Hand ändern.
+// SIA-Honorarberechnung: Disziplinen, BKP-Faktoren, Phasen, Konstanten.
+
+export interface HonorarDisziplin { id: string; label: string; sia: string; tl: number; z1: number; z2: number; n: number; r: number; u: number; i: number; s: number; h: number }
+export const DISZIPLINEN: HonorarDisziplin[] = [
+  { id: "architekt", label: "Architekt", sia: "SIA 102", tl: 0.585, z1: 0.062, z2: 10.58, n: 1, r: 1, u: 1, i: 1, s: 1, h: 135 },
+  { id: "baumanagement", label: "Baumanagement", sia: "SIA 102", tl: 0.415, z1: 0.062, z2: 10.58, n: 1, r: 1, u: 1, i: 1, s: 1, h: 135 },
+  { id: "bauingenieur", label: "Bauingenieur", sia: "SIA 103", tl: 1, z1: 0.075, z2: 7.23, n: 0.8, r: 1, u: 1, i: 0.9, s: 1, h: 130 },
+  { id: "landschaft", label: "Landschaftsarchitekt", sia: "SIA 105", tl: 1, z1: 0.062, z2: 10.58, n: 1, r: 1, u: 1, i: 1, s: 1, h: 135 },
+  { id: "elektro", label: "Elektroplaner", sia: "SIA 108", tl: 1, z1: 0.066, z2: 11.28, n: 0.75, r: 1, u: 1, i: 0.9, s: 1, h: 130 },
+  { id: "hlkk", label: "HLKK", sia: "SIA 108", tl: 1, z1: 0.066, z2: 11.28, n: 0.75, r: 1, u: 1, i: 0.9, s: 1, h: 130 },
+  { id: "sanitaer", label: "Sanit\u00e4r", sia: "SIA 108", tl: 1, z1: 0.066, z2: 11.28, n: 0.75, r: 1, u: 1, i: 0.9, s: 1, h: 130 },
+  { id: "fachkoordination", label: "Fachkoordination", sia: "SIA 108", tl: 1, z1: 0.066, z2: 11.28, n: 0.75, r: 0.2, u: 1, i: 0.9, s: 1, h: 130 },
+  { id: "ga23", label: "Geb\u00e4udeautomation 23", sia: "SIA 108", tl: 1, z1: 0.066, z2: 11.28, n: 0.75, r: 1, u: 1, i: 0.9, s: 1, h: 0 },
+  { id: "ga24", label: "Geb\u00e4udeautomation 24", sia: "SIA 108", tl: 1, z1: 0.066, z2: 11.28, n: 0.75, r: 1, u: 1, i: 0.9, s: 1, h: 0 },
+]
+
+export interface PauschalDisziplin { id: string; label: string }
+export const PAUSCHAL_DISZIPLINEN: PauschalDisziplin[] = [
+  { id: "bauphysik", label: "Bauphysik" },
+  { id: "brandschutz", label: "Brandschutzplaner" },
+  { id: "werkleitungen", label: "Werkleitungen" },
+  { id: "nachhaltigkeit", label: "Nachhaltigkeit" },
+  { id: "retension", label: "Retension" },
+  { id: "baumexperte", label: "Baumexperte" },
+  { id: "fassade", label: "Fassadenplaner" },
+  { id: "signaletik", label: "Signaletikplaner" },
+  { id: "xx", label: "Diverses" },
+]
+
+export interface BkpZeile { code: string; label: string; gruppe?: boolean; anlagekosten?: number; factors?: Record<string, number> }
+export const BKP_ZEILEN: BkpZeile[] = [
+  { gruppe: true, code: "0", label: "Grundst\u00fcck" },
+  { code: "052", label: "Erschliessung durch Kanalisationsleitungen", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "053", label: "Erschliessung durch Elektroleitungen", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1, elektro: 0.5 } },
+  { code: "054", label: "Erschliessung durch Sanit\u00e4rleitungen", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1, sanitaer: 0.5 } },
+  { code: "06", label: "Erschliessung durch Verkehrsanlagen", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1 } },
+  { gruppe: true, code: "1", label: "Vorbereitungsarbeiten" },
+  { code: "10", label: "Bestandesaufnahmen, Baugrunduntersuchungen", anlagekosten: 48645, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "11", label: "R\u00e4umungen, Terrainvorbereitungen (ohne Altlastensanierung)", anlagekosten: 508070, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "113", label: "Altlastensanierung", anlagekosten: 0, factors: { architekt: 0.5, baumanagement: 0.5 } },
+  { code: "12", label: "Sicherungen Provisorien", anlagekosten: 140530, factors: { architekt: 1, baumanagement: 1, bauingenieur: 0.5 } },
+  { code: "13", label: "Gemeinsame Baustelleneinrichtung", anlagekosten: 578335, factors: { architekt: 1, baumanagement: 1, bauingenieur: 0.25 } },
+  { code: "14", label: "Anpassung an bestehende Bauten", anlagekosten: 37835, factors: { architekt: 1, baumanagement: 1, bauingenieur: 1 } },
+  { code: "15", label: "Anpassungen an bestehende Erschliessungsanlagen", anlagekosten: 221605, factors: { architekt: 1, baumanagement: 1, elektro: 0.5, sanitaer: 0.5, fachkoordination: 1 } },
+  { code: "16", label: "Anpassung an bestehenden Verkehrsanlagen", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "17", label: "Spezialtiefbau (spezielle Fundation, Baugrubensicherung)", anlagekosten: 54050, factors: { architekt: 1, baumanagement: 1, bauingenieur: 1 } },
+  { gruppe: true, code: "2", label: "Geb\u00e4ude" },
+  { code: "20", label: "Baugrube", anlagekosten: 497260, factors: { architekt: 0.5, baumanagement: 0.5, bauingenieur: 1 } },
+  { code: "21", label: "Rohnbau 1 (Rest)", anlagekosten: 2091735, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "21", label: "Rohnbau 1 (Tragwerkskonstruktion)", anlagekosten: 7064335, factors: { architekt: 1, baumanagement: 1, bauingenieur: 1 } },
+  { code: "22", label: "Rohnbau 2 (Fenster, T\u00fcren, Bedachungen)", anlagekosten: 2097140, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "23", label: "Elektroanlagen (exkl. Geb\u00e4udeautomation)", anlagekosten: 1902560, factors: { architekt: 1, baumanagement: 1, elektro: 1, fachkoordination: 1 } },
+  { code: "23", label: "Geb\u00e4udeautomation", anlagekosten: 43240, factors: { architekt: 1, baumanagement: 1, elektro: 1, fachkoordination: 1 } },
+  { code: "24", label: "HLKK-Anlagen (exkl. Geb\u00e4udeautomation)", anlagekosten: 1589070, factors: { architekt: 1, baumanagement: 1, hlkk: 1, fachkoordination: 1 } },
+  { code: "24", label: "Geb\u00e4udeautomation", anlagekosten: 43240, factors: { architekt: 1, baumanagement: 1, hlkk: 1, fachkoordination: 1 } },
+  { code: "25", label: "Sanit\u00e4ranlagen und K\u00fccheneinrichtungen", anlagekosten: 1470160, factors: { architekt: 1, baumanagement: 1, sanitaer: 1, fachkoordination: 1 } },
+  { code: "258", label: "K\u00fccheneinrichtungen", anlagekosten: 740485, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "26", label: "Transportanlagen, Lageranlagen", anlagekosten: 275655, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "27", label: "Ausbau 1", anlagekosten: 1507995, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "28", label: "Ausbau 2", anlagekosten: 1140455, factors: { architekt: 1, baumanagement: 1 } },
+  { gruppe: true, code: "3", label: "Betriebseinrichtungen" },
+  { code: "3", label: "Betriebseinrichtungen", anlagekosten: 0, factors: { architekt: 0.5, baumanagement: 0.5 } },
+  { gruppe: true, code: "4", label: "Umgebung" },
+  { code: "4", label: "Terraingestaltung", anlagekosten: 0, factors: { architekt: 0.5, baumanagement: 0.5, landschaft: 1 } },
+  { code: "41", label: "Roh- und Ausbauarbeiten (Tragwerk wie St\u00fctzmauern, Schleppplatten)", anlagekosten: 205390, factors: { architekt: 1, baumanagement: 1, bauingenieur: 1, landschaft: 0.5 } },
+  { code: "41", label: "Roh- und Ausbauarbeiten (Rest)", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1, landschaft: 0.5 } },
+  { code: "42", label: "Gartenanlagen inkl. Oberfl\u00e4chenentw\u00e4sserung", anlagekosten: 978305, factors: { architekt: 0.5, baumanagement: 0.5, landschaft: 1 } },
+  { code: "443", label: "Elektroinstallationen  und Leitungen", anlagekosten: 102695, factors: { architekt: 0.5, baumanagement: 0.5, landschaft: 0.5, elektro: 1, fachkoordination: 1 } },
+  { code: "445", label: "Sanit\u00e4rinstallationen und Leitungen", anlagekosten: 0, factors: { architekt: 0.5, baumanagement: 0.5, landschaft: 0.5, fachkoordination: 1 } },
+  { gruppe: true, code: "5", label: "Baunebenkosten" },
+  { code: "50-56", label: "Baunebenkosten", anlagekosten: 664815, factors: {} },
+  { code: "51", label: "Bewilligungen, Geb\u00fchren", anlagekosten: 0, factors: {} },
+  { code: "52", label: "Dokumentation und Pr\u00e4sentation", anlagekosten: 0, factors: {} },
+  { code: "53", label: "Versicherungen", anlagekosten: 0, factors: {} },
+  { code: "54", label: "Finanzierung", anlagekosten: 0, factors: {} },
+  { code: "58, 6", label: "R\u00fcckstellungen und Reserven", anlagekosten: 886420, factors: {} },
+  { gruppe: true, code: "6", label: "Vermietung, Mieter, Vermarktung, Verkauf" },
+  { code: "6", label: "Vermietung, Mieter, Vermarktung, Verkauf", anlagekosten: 0, factors: {} },
+  { gruppe: true, code: "9", label: "Ausstattung" },
+  { code: "90", label: "M\u00f6bel (nur vom Planer entworfene M\u00f6bel)", anlagekosten: 0, factors: { architekt: 1, baumanagement: 1 } },
+  { code: "90", label: "M\u00f6bel (Bestellungen von fertigen M\u00f6beln)", anlagekosten: 10810, factors: { architekt: 0.5, baumanagement: 0.5 } },
+]
+
+export interface PhasenZeile { gruppe: string; gruppeLabel: string; label: string; prozent: Record<string, number>; pauschal: Record<string, number> }
+export const PHASEN: PhasenZeile[] = [
+  { gruppe: "31", gruppeLabel: "Vorprojekt", label: "L\u00f6sungsm\u00f6glichkeiten/Grobkostensch\u00e4tzung", prozent: { architekt: 0.025, baumanagement: 0.005, bauingenieur: 0.08, landschaft: 0.04, elektro: 0.06, hlkk: 0.1, sanitaer: 0.06, fachkoordination: 0.1, ga23: 0.09, ga24: 0.09 }, pauschal: { bauphysik: 11200, brandschutz: 10500, werkleitungen: 16700 } },
+  { gruppe: "31", gruppeLabel: "Vorprojekt", label: "Vorprojekt/Kostensch\u00e4tzung", prozent: { architekt: 0.045, baumanagement: 0.015, landschaft: 0.08 }, pauschal: {} },
+  { gruppe: "32", gruppeLabel: "Bauprojekt", label: "Bauprojekt", prozent: { architekt: 0.13, bauingenieur: 0.22, landschaft: 0.1, elektro: 0.17, hlkk: 0.19, sanitaer: 0.19, fachkoordination: 0.3, ga23: 0.19, ga24: 0.19 }, pauschal: { bauphysik: 16300, brandschutz: 24250, werkleitungen: 8300 } },
+  { gruppe: "32", gruppeLabel: "Bauprojekt", label: "Detailstudien", prozent: { architekt: 0.04, landschaft: 0.04 }, pauschal: {} },
+  { gruppe: "32", gruppeLabel: "Bauprojekt", label: "Kostenvoranschlag", prozent: { baumanagement: 0.04, landschaft: 0.04 }, pauschal: {} },
+  { gruppe: "33", gruppeLabel: "Bewilligungsverfahren", label: "Baueingabe", prozent: { architekt: 0.015, bauingenieur: 0.02, landschaft: 0.015 }, pauschal: {} },
+  { gruppe: "33", gruppeLabel: "Bewilligungsverfahren", label: "Auflagenerledigung", prozent: { architekt: 0.01, landschaft: 0.01, elektro: 0.01, hlkk: 0.01, sanitaer: 0.01, ga23: 0.01, ga24: 0.01 }, pauschal: { brandschutz: 3200 } },
+  { gruppe: "41", gruppeLabel: "Ausschreibung", label: "Ausschreibungspl\u00e4ne", prozent: { architekt: 0.1, bauingenieur: 0.1, landschaft: 0.1, elektro: 0.21, hlkk: 0.23, sanitaer: 0.23, fachkoordination: 0.15, ga23: 0.26, ga24: 0.26 }, pauschal: { bauphysik: 2500, brandschutz: 3550 } },
+  { gruppe: "41", gruppeLabel: "Ausschreibung", label: "Ausschreibung und Vergabe", prozent: { baumanagement: 0.08, landschaft: 0.08 }, pauschal: {} },
+  { gruppe: "51", gruppeLabel: "Ausf\u00fchrungsprojekt", label: "Ausf\u00fchrungspl\u00e4ne", prozent: { architekt: 0.15, bauingenieur: 0.18, landschaft: 0.15, elektro: 0.27, hlkk: 0.23, sanitaer: 0.23, fachkoordination: 0.25, ga23: 0.2, ga24: 0.2 }, pauschal: { brandschutz: 24000 } },
+  { gruppe: "51", gruppeLabel: "Ausf\u00fchrungsprojekt", label: "Werkvertr\u00e4ge", prozent: { baumanagement: 0.01, bauingenieur: 0.3, landschaft: 0.01 }, pauschal: {} },
+  { gruppe: "52", gruppeLabel: "Ausf\u00fchrung", label: "Gestalterische Leitung", prozent: { architekt: 0.06, bauingenieur: 0.07, landschaft: 0.06, elektro: 0.18, hlkk: 0.14, sanitaer: 0.18, fachkoordination: 0.15 }, pauschal: { bauphysik: 1000, brandschutz: 20500 } },
+  { gruppe: "52", gruppeLabel: "Ausf\u00fchrung", label: "Bauleitung und Kostenkontrolle", prozent: { baumanagement: 0.23, landschaft: 0.23, ga23: 0.13, ga24: 0.13 }, pauschal: {} },
+  { gruppe: "53", gruppeLabel: "Inbetriebnahme,", label: "Inbetriebnahme", prozent: { baumanagement: 0.01, bauingenieur: 0.03, landschaft: 0.01, elektro: 0.1, hlkk: 0.1, sanitaer: 0.1, fachkoordination: 0.05, ga23: 0.12, ga24: 0.12 }, pauschal: {} },
+  { gruppe: "53", gruppeLabel: "Inbetriebnahme,", label: "Dokumentation \u00fcber das Bauwerk", prozent: { architekt: 0.01, landschaft: 0.01 }, pauschal: {} },
+  { gruppe: "53", gruppeLabel: "Inbetriebnahme,", label: "Leitung der Garantiearbeiten", prozent: { baumanagement: 0.015, landschaft: 0.015 }, pauschal: {} },
+  { gruppe: "53", gruppeLabel: "Inbetriebnahme,", label: "Schlussabrechnung", prozent: { baumanagement: 0.01, landschaft: 0.01 }, pauschal: {} },
+]
+
+export const HONORAR_KONSTANTEN = { mwst: 0.081, nebenkosten: 0.04, gpZuschlag: 0.05 }
