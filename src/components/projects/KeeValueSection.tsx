@@ -67,7 +67,7 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
 
   // ── Werte aus dem Mengengerüst ─────────────────────────────────────────────
   const felder = useMemo<KeeFeld[]>(() => {
-    const mengen = ermittleKeeValueMengen(buildings)
+    const mengen = ermittleKeeValueMengen(buildings, gsfTotal)
     const { gfM2: gf, gvM3: gv } = mengen
     const nutzungen = [...new Set(buildings.map((b) => b.nutzung_haupt).filter(Boolean))] as string[]
     const adresse = [project?.strasse, project?.hausnummer].filter(Boolean).join(' ').trim()
@@ -122,14 +122,17 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
           : 'Keine unterirdisch erfasste Parking-Fläche im Mengengerüst.',
       },
       {
-        label: 'Grundstücksfläche (Kontext)',
-        wert: gsfTotal > 0 ? `${formatNumber(gsfTotal)} m²` : null,
-        copyWert: gsfTotal > 0 ? String(Math.round(gsfTotal)) : undefined,
-        hinweis: 'Kein keeValue-Feld — als Anhalt für die bearbeitete Umgebungsfläche BUF.',
+        label: 'Bearbeitete Umgebungsfläche BUF',
+        wert: mengen.bufM2 != null ? `${formatNumber(mengen.bufM2)} m²` : null,
+        copyWert: mengen.bufM2 != null ? String(Math.round(mengen.bufM2)) : undefined,
+        hinweis: mengen.bufM2 != null
+          ? `Parzellen ${formatNumber(gsfTotal)} m² abzüglich Erdgeschossflächen ${formatNumber(mengen.egFlaecheM2)} m².`
+          : gsfTotal > 0
+            ? 'Keine Zeile als Erdgeschoss bezeichnet — Geschoss in „Mengen und Erträge" auf EG setzen.'
+            : 'Keine Parzellenfläche erfasst.',
       },
       // Diese Angaben führt der Businessplan (noch) nicht. Bewusst sichtbar
       // gelassen, damit klar ist, was in keeValue von Hand zu setzen ist.
-      { label: 'Bearbeitete Umgebungsfläche BUF', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Anzahl Geschosse über Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Anzahl Geschosse unter Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Transportanlagen Vertikalaufzüge', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },

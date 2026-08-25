@@ -70,8 +70,22 @@ export class KeeValueParseError extends Error {}
 
 /** Nur die Felder, die für die keeValue-Mengen gebraucht werden. */
 type MengenMietflaeche =
-  Pick<BuildingMietflaeche, 'nutzung' | 'unterirdisch' | 'gf_m2' | 'volumen_m3' | 'anzahl'>
+  Pick<BuildingMietflaeche, 'nutzung' | 'unterirdisch' | 'gf_m2' | 'volumen_m3' | 'anzahl'
+    | 'geschoss_bezeichnung'>
   & { mieteinheiten?: Pick<BuildingMieteinheit, 'anzahl'>[] }
+
+/**
+ * Erkennt eine Erdgeschoss-Zeile an der Geschossbezeichnung. Das Feld ist
+ * Freitext (Platzhalter „EG / 1.OG"), deshalb wird tolerant geprüft: Punkte
+ * fallen weg, Gross-/Kleinschreibung egal, Zusätze nach dem Kürzel erlaubt
+ * („EG Nord"). „1.OG" und „UG" dürfen dabei nicht mitgehen — daher die
+ * Verankerung am Anfang plus Wortgrenze.
+ */
+export function istErdgeschoss(bezeichnung: string | null | undefined): boolean {
+  if (!bezeichnung) return false
+  const s = bezeichnung.trim().toLowerCase().replace(/\./g, '')
+  return /^(eg|erdgeschoss)\b/.test(s)
+}
 
 type MengenGebaeude =
   Pick<VariantBuilding, 'geschossflaeche_m2' | 'volumen_m3'>
@@ -89,6 +103,14 @@ export interface KeeValueMengen {
   /** Anzahl Parkplätze in unterirdisch erfassten Parking-/Garagenflächen. */
   parkplaetzeUnterirdisch: number
   anzahlGebaeude: number
+  /** Σ Geschossfläche der als Erdgeschoss bezeichneten Zeilen = Gebäude-Fussabdruck. */
+  egFlaecheM2: number
+  /**
+   * Bearbeitete Umgebungsfläche = Parzellenfläche minus Fussabdruck.
+   * null, wenn keine Zeile als Erdgeschoss bezeichnet ist — dann wäre die BUF
+   * gleich der ganzen Parzelle und damit irreführend.
+   */
+  bufM2: number | null
 }
 
 /**
@@ -101,8 +123,14 @@ export interface KeeValueMengen {
  * Für Flächen mit erfassten Mieteinheiten zählt deren Summe, weil das
  * Mietflächen-Aggregat einem Sync-Lag unterliegen kann (gleiche Logik wie in
  * aggregateMietflaechen).
+ *
+ * `gsfTotal` ist die Parzellenfläche und wird nur für die bearbeitete
+ * Umgebungsfläche gebraucht (Parzelle minus Erdgeschossflächen aller Gebäude).
  */
-export function ermittleKeeValueMengen(buildings: MengenGebaeude[]): KeeValueMengen {
+export function ermittleKeeValueMengen(
+  buildings: MengenGebaeude[],
+  gsfTotal: number,
+): KeeValueMengen {
   const anzahlVon = (m: MengenMietflaeche): number => {
     const units = m.mieteinheiten ?? []
     return units.length > 0
@@ -114,6 +142,8 @@ export function ermittleKeeValueMengen(buildings: MengenGebaeude[]): KeeValueMen
   let gvM3 = 0
   let gvUnterirdischM3 = 0
   let parkplaetzeUnterirdisch = 0
+  let egFlaecheM2 = 0
+  let hatEg = false
 
   for (const b of buildings) {
     if (b.mietflaechen.length === 0) {
@@ -130,6 +160,11 @@ export function ermittleKeeValueMengen(buildings: MengenGebaeude[]): KeeValueMen
         // Unterirdisch erfasste Parking-/Garagenfläche = Tiefgaragenplätze.
         if (isGarageNutzung(m.nutzung ?? '')) parkplaetzeUnterirdisch += anzahlVon(m)
       }
+      // Erdgeschossflächen aller Gebäude zusammen = überbaute Fläche.
+      if (istErdgeschoss(m.geschoss_bezeichnung)) {
+        hatEg = true
+        egFlaecheM2 += m.gf_m2 ?? 0
+      }
     }
   }
 
@@ -140,6 +175,10 @@ export function ermittleKeeValueMengen(buildings: MengenGebaeude[]): KeeValueMen
     anteilUnterTerrain: gvM3 > 0 ? gvUnterirdischM3 / gvM3 : null,
     parkplaetzeUnterirdisch,
     anzahlGebaeude: buildings.length,
+    egFlaecheM2,
+    // Ohne EG-Bezeichnung keine Aussage — sonst käme die ganze Parzelle als BUF
+    // heraus. Negative Werte (EG grösser als Parzelle) auf 0 begrenzen.
+    bufM2: hatEg && gsfTotal > 0 ? Math.max(0, gsfTotal - egFlaecheM2) : null,
   }
 }
 
