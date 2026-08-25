@@ -442,7 +442,7 @@ function KostenZeile({
   const eingebbar = z.quelle === 'ergaenzung' && z.feld != null
 
   return (
-    <tr className={cn('border-b border-slate-50', unter && 'text-slate-500')}>
+    <tr className={cn('border-b border-slate-50', unter && 'italic text-slate-500')}>
       {/* Unterpositionen stehen bündig zu den Hauptgruppen — sie heben sich
           allein durch die hellere Schrift ab, nicht durch Einzug. */}
       <td className="py-1.5 pr-3 tabular-nums text-slate-500">{z.code}</td>
