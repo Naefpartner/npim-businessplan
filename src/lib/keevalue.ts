@@ -453,6 +453,99 @@ export function bkp2Unterpositionen(imp: KeeValueImport): KeeValueZeile[] {
   return imp.zeilen.filter((z) => z.istUnterposition)
 }
 
+/** Eine Zeile der Kostenberechnung in unserer Hauptgruppen-Systematik. */
+export interface NaefKostenZeile {
+  /** Hauptgruppe ('1', '2', '4', '5', '6', '9') oder Unterposition ('20'…'28'). */
+  code: string
+  label: string
+  netto: number
+  brutto: number
+  kennwert: number | null
+  kennwertEinheit: string | null
+  /** 0 = Hauptgruppe, 1 = Unterposition von BKP 2. */
+  ebene: 0 | 1
+}
+
+/**
+ * Stellt den Import als Kostenberechnung in unserer Systematik dar — mit den
+ * BKP-2-Unterpositionen als eingerückte Zeilen direkt unter BKP 2.
+ *
+ * Zwei Umbuchungen gegenüber der keeValue-Nummerierung:
+ *   • Position 29 „Honorare" wird aus BKP 2 herausgelöst und zur Hauptgruppe 6
+ *     „Honorare" — unsere 6 ist die Honorargruppe, keeValue führt sie in 2.
+ *   • keeValue-Position 6 „Reserve" wandert nach Hauptgruppe 9, wo bei uns die
+ *     Reserve (Position 970) sitzt. Ohne das kollidierte sie mit den Honoraren.
+ *
+ * Die Kennwerte von BKP 2 und 29 stehen beide in CHF/m² GF und dürfen deshalb
+ * voneinander abgezogen werden. Weichen die Einheiten ab, bleibt der Kennwert
+ * der reduzierten BKP-2-Zeile leer statt falsch.
+ */
+export function naefKostenZeilen(imp: KeeValueImport): NaefKostenZeile[] {
+  const honorar = imp.zeilen.find((z) => z.code === '29') ?? null
+  const reserve = imp.zeilen.find((z) => z.code === '6' && !z.istUnterposition) ?? null
+
+  const out: NaefKostenZeile[] = []
+
+  for (const z of imp.zeilen) {
+    if (z.istUnterposition) continue
+    if (z.code === '6') continue // Reserve — kommt unten als Hauptgruppe 9
+
+    if (z.code === '2') {
+      const netto = z.netto - (honorar?.netto ?? 0)
+      const brutto = z.brutto - (honorar?.brutto ?? 0)
+      const gleicheEinheit = honorar != null
+        && z.kennwertEinheit != null
+        && z.kennwertEinheit === honorar.kennwertEinheit
+      out.push({
+        code: z.code,
+        label: z.label,
+        netto,
+        brutto,
+        kennwert: honorar == null
+          ? z.kennwert
+          : (gleicheEinheit && z.kennwert != null && honorar.kennwert != null
+              ? z.kennwert - honorar.kennwert
+              : null),
+        kennwertEinheit: z.kennwertEinheit,
+        ebene: 0,
+      })
+      // Unterpositionen direkt darunter — ohne 29, die ist jetzt Hauptgruppe 6.
+      for (const u of imp.zeilen) {
+        if (!u.istUnterposition || u.code === '29') continue
+        out.push({ ...u, ebene: 1 })
+      }
+      continue
+    }
+
+    out.push({ ...z, ebene: 0 })
+  }
+
+  if (honorar) {
+    out.push({
+      code: '6',
+      label: 'Honorare',
+      netto: honorar.netto,
+      brutto: honorar.brutto,
+      kennwert: honorar.kennwert,
+      kennwertEinheit: honorar.kennwertEinheit,
+      ebene: 0,
+    })
+  }
+  if (reserve) {
+    out.push({
+      code: '9',
+      label: 'Reserve',
+      netto: reserve.netto,
+      brutto: reserve.brutto,
+      kennwert: reserve.kennwert,
+      kennwertEinheit: reserve.kennwertEinheit,
+      ebene: 0,
+    })
+  }
+
+  return out
+}
+
 /** Ein Betrag je Naef-Hauptgruppe. */
 export type HauptgruppenBetraege = Record<number, { netto: number; brutto: number }>
 

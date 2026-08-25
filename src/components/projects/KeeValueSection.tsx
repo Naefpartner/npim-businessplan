@@ -10,10 +10,8 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { supabase } from '@/lib/supabase'
 import {
-  parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen,
-  hauptgruppenZeilen, bkp2Unterpositionen, zuNaefHauptgruppen,
+  parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen, naefKostenZeilen,
 } from '@/lib/keevalue'
-import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { CI, PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
 import type { Project } from '@/types'
@@ -379,21 +377,24 @@ function FeldZeile({ feld }: { feld: KeeFeld }) {
 // ── Darstellung des importierten Ergebnisses ─────────────────────────────────
 
 function ImportErgebnis({ imp }: { imp: ReturnType<typeof parseKeeValueXlsx> }) {
-  const hg = hauptgruppenZeilen(imp)
-  const unter = bkp2Unterpositionen(imp)
-  const naef = zuNaefHauptgruppen(imp)
-  const hgLabel = new Map(HAUPTGRUPPEN.map((h) => [h.code as number, h.label]))
+  // Kostenberechnung in unserer Systematik: Honorare als Hauptgruppe 6, Reserve
+  // in 9, die BKP-2-Unterpositionen als eingerückte Zeilen unter BKP 2.
+  const zeilen = naefKostenZeilen(imp)
 
   // keeValue rundet seine Zeilen einzeln; die Summe kann deshalb um wenige
   // Franken vom ausgewiesenen Total abweichen. Wir weisen die Differenz aus,
   // statt sie stillschweigend zu glätten.
-  const summeZeilen = hg.reduce((s, z) => s + z.netto, 0)
+  const summeZeilen = zeilen.filter((z) => z.ebene === 0).reduce((s, z) => s + z.netto, 0)
   const differenz = summeZeilen - imp.totalNetto
 
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-medium text-slate-700">Erstellungskosten aus keeValue</h3>
+        <h3 className="text-sm font-medium text-slate-700">Erstellungskosten aus keeValue</h3>
+        <p className="mb-3 mt-0.5 text-xs text-slate-500">
+          In unserer Hauptgruppen-Systematik: die keeValue-Position 29 „Honorare" ist aus BKP 2
+          herausgelöst und bildet die Hauptgruppe 6, die keeValue-Reserve steht in Hauptgruppe 9.
+        </p>
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
@@ -407,17 +408,20 @@ function ImportErgebnis({ imp }: { imp: ReturnType<typeof parseKeeValueXlsx> }) 
               </tr>
             </thead>
             <tbody>
-              {hg.map((z) => (
-                <tr key={z.code} className="border-b border-slate-50">
-                  <td className="py-1.5 pr-3 tabular-nums text-slate-500">{z.code}</td>
-                  <td className="py-1.5 pr-3 text-slate-800">{z.label}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.netto)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.brutto)}</td>
-                  <td className="py-1.5 text-right tabular-nums text-slate-500">
-                    {z.kennwert != null ? `${formatNumber(z.kennwert)} ${z.kennwertEinheit ?? ''}`.trim() : '—'}
-                  </td>
-                </tr>
-              ))}
+              {zeilen.map((z) => {
+                const unter = z.ebene === 1
+                return (
+                  <tr key={z.code} className={cn('border-b border-slate-50', unter && 'text-slate-500')}>
+                    <td className={cn('py-1.5 pr-3 tabular-nums text-slate-500', unter && 'pl-4')}>{z.code}</td>
+                    <td className={cn('py-1.5 pr-3', unter ? 'pl-2' : 'font-medium text-slate-800')}>{z.label}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.netto)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.brutto)}</td>
+                    <td className="py-1.5 text-right tabular-nums text-slate-500">
+                      {z.kennwert != null ? `${formatNumber(z.kennwert)} ${z.kennwertEinheit ?? ''}`.trim() : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
               <tr className="border-t-2 border-slate-300 font-semibold">
                 <td className="py-2 pr-3" colSpan={2}>Erstellungskosten</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(imp.totalNetto)}</td>
@@ -427,6 +431,11 @@ function ImportErgebnis({ imp }: { imp: ReturnType<typeof parseKeeValueXlsx> }) 
             </tbody>
           </table>
         </div>
+
+        <p className="mt-2 text-xs text-slate-400">
+          Nicht von keeValue abgedeckt: BKP 0 Grundstück, 3 Betriebseinrichtungen, 7 Vermarktung,
+          8 Entwicklung. Diese bleiben über den Detailkatalog bzw. die Benchmarks zu erfassen.
+        </p>
 
         {Math.abs(differenz) >= 1 && (
           <p className="mt-2 text-xs text-slate-400">
@@ -452,48 +461,6 @@ function ImportErgebnis({ imp }: { imp: ReturnType<typeof parseKeeValueXlsx> }) 
           </div>
         )}
       </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-medium text-slate-700">Zuordnung zu unseren Hauptgruppen</h3>
-        <p className="mb-3 mt-0.5 text-xs text-slate-500">
-          keeValue führt die Honorare als Position 29 innerhalb BKP 2. Sie werden hier nach
-          Hauptgruppe 6 umgehängt und von BKP 2 abgezogen, damit sie nicht doppelt zählen.
-          Die Reserve (keeValue-Position 6) wird nach Hauptgruppe 9 gebucht.
-        </p>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {Object.keys(naef).map(Number).sort((a, b) => a - b).map((code) => (
-            <div key={code} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-              <div className="text-xs text-slate-500">BKP {code} · {hgLabel.get(code) ?? ''}</div>
-              <div className="text-sm font-medium tabular-nums">{formatCurrency(naef[code].netto)}</div>
-              <div className="text-xs tabular-nums text-slate-400">{formatCurrency(naef[code].brutto)} inkl.</div>
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 text-xs text-slate-400">
-          Nicht von keeValue abgedeckt: BKP 0 Grundstück, 3 Betriebseinrichtungen, 7 Vermarktung,
-          8 Entwicklung. Diese bleiben über den Detailkatalog bzw. die Benchmarks zu erfassen.
-        </p>
-      </section>
-
-      {unter.length > 0 && (
-        <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700">
-            Unterpositionen BKP 2 ({unter.length})
-          </summary>
-          <table className="mt-3 w-full text-sm">
-            <tbody>
-              {unter.map((z) => (
-                <tr key={z.code} className="border-b border-slate-50">
-                  <td className="py-1.5 pr-3 tabular-nums text-slate-500">{z.code}</td>
-                  <td className="py-1.5 pr-3 text-slate-800">{z.label}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.netto)}</td>
-                  <td className="py-1.5 text-right tabular-nums text-slate-500">{formatCurrency(z.brutto)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      )}
     </div>
   )
 }
