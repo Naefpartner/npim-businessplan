@@ -91,6 +91,22 @@ type MengenGebaeude =
   Pick<VariantBuilding, 'geschossflaeche_m2' | 'volumen_m3'>
   & { mietflaechen: MengenMietflaeche[] }
 
+/**
+ * Geschosszählung einer Terrainlage. keeValue fragt die Geschosszahl pro Gebäude,
+ * unsere Erfassung kennt beliebig viele Gebäude — deshalb der Durchschnitt über
+ * die Gebäude, die in dieser Lage überhaupt Geschosse ausweisen.
+ */
+export interface GeschossZaehlung {
+  /** Ø Geschosse je Gebäude; null, wenn kein Gebäude solche Geschosse hat. */
+  schnitt: number | null
+  /** Summe der verschiedenen Geschosse über alle Gebäude. */
+  total: number
+  /** Anzahl Gebäude mit mindestens einem bezeichneten Geschoss dieser Lage. */
+  gebaeude: number
+  /** Zeilen dieser Lage ohne Geschossbezeichnung — nicht zählbar. */
+  ohneGeschoss: number
+}
+
 export interface KeeValueMengen {
   /** Σ Geschossfläche (m²) über alle Mietflächen. */
   gfM2: number
@@ -105,17 +121,10 @@ export interface KeeValueMengen {
   anzahlGebaeude: number
   /** Σ Geschossfläche der als Erdgeschoss bezeichneten Zeilen = Gebäude-Fussabdruck. */
   egFlaecheM2: number
-  /**
-   * Geschosse über Terrain: Ø je Gebäude, das oberirdische Geschosse ausweist.
-   * null, wenn kein Gebäude bezeichnete oberirdische Geschosse hat.
-   */
-  geschosseUeberTerrain: number | null
-  /** Summe der verschiedenen oberirdischen Geschosse über alle Gebäude. */
-  geschosseOiTotal: number
-  /** Anzahl Gebäude mit mindestens einem bezeichneten oberirdischen Geschoss. */
-  gebaeudeMitOi: number
-  /** Oberirdische Zeilen ohne Geschossbezeichnung — nicht zählbar. */
-  oiOhneGeschoss: number
+  /** Geschosse über Terrain, gezählt über die oberirdisch (oi) erfassten Zeilen. */
+  geschosseUeberTerrain: GeschossZaehlung
+  /** Geschosse unter Terrain, gezählt über die unterirdisch (ui) erfassten Zeilen. */
+  geschosseUnterTerrain: GeschossZaehlung
   /**
    * Bearbeitete Umgebungsfläche = Parzellenfläche minus Fussabdruck.
    * null, wenn keine Zeile als Erdgeschoss bezeichnet ist — dann wäre die BUF
@@ -155,9 +164,8 @@ export function ermittleKeeValueMengen(
   let parkplaetzeUnterirdisch = 0
   let egFlaecheM2 = 0
   let hatEg = false
-  let geschosseOiTotal = 0
-  let gebaeudeMitOi = 0
-  let oiOhneGeschoss = 0
+  const oi = neueZaehlung()
+  const ui = neueZaehlung()
 
   for (const b of buildings) {
     if (b.mietflaechen.length === 0) {
@@ -165,22 +173,25 @@ export function ermittleKeeValueMengen(
       gvM3 += b.volumen_m3 ?? 0
       continue
     }
-    // Verschiedene oberirdische Geschosse dieses Gebäudes. Mehrere Mietflächen
-    // im selben Geschoss (z.B. Wohnen und Gewerbe im EG) zählen einmal.
+    // Verschiedene Geschosse dieses Gebäudes je Lage. Mehrere Mietflächen im
+    // selben Geschoss (z.B. Wohnen und Gewerbe im EG) zählen einmal.
     const oiGeschosse = new Set<string>()
+    const uiGeschosse = new Set<string>()
 
     for (const m of b.mietflaechen) {
       const vol = m.volumen_m3 ?? 0
       gfM2 += m.gf_m2 ?? 0
       gvM3 += vol
+      const g = geschossSchluessel(m.geschoss_bezeichnung)
       if (m.unterirdisch) {
         gvUnterirdischM3 += vol
         // Unterirdisch erfasste Parking-/Garagenfläche = Tiefgaragenplätze.
         if (isGarageNutzung(m.nutzung ?? '')) parkplaetzeUnterirdisch += anzahlVon(m)
+        if (g) uiGeschosse.add(g)
+        else ui.ohneGeschoss++
       } else {
-        const g = geschossSchluessel(m.geschoss_bezeichnung)
         if (g) oiGeschosse.add(g)
-        else oiOhneGeschoss++
+        else oi.ohneGeschoss++
       }
       // Erdgeschossflächen aller Gebäude zusammen = überbaute Fläche.
       if (istErdgeschoss(m.geschoss_bezeichnung)) {
@@ -189,10 +200,8 @@ export function ermittleKeeValueMengen(
       }
     }
 
-    if (oiGeschosse.size > 0) {
-      geschosseOiTotal += oiGeschosse.size
-      gebaeudeMitOi++
-    }
+    if (oiGeschosse.size > 0) { oi.total += oiGeschosse.size; oi.gebaeude++ }
+    if (uiGeschosse.size > 0) { ui.total += uiGeschosse.size; ui.gebaeude++ }
   }
 
   return {
@@ -206,11 +215,18 @@ export function ermittleKeeValueMengen(
     // Ohne EG-Bezeichnung keine Aussage — sonst käme die ganze Parzelle als BUF
     // heraus. Negative Werte (EG grösser als Parzelle) auf 0 begrenzen.
     bufM2: hatEg && gsfTotal > 0 ? Math.max(0, gsfTotal - egFlaecheM2) : null,
-    geschosseOiTotal,
-    gebaeudeMitOi,
-    oiOhneGeschoss,
-    geschosseUeberTerrain: gebaeudeMitOi > 0 ? geschosseOiTotal / gebaeudeMitOi : null,
+    geschosseUeberTerrain: abschliessen(oi),
+    geschosseUnterTerrain: abschliessen(ui),
   }
+}
+
+function neueZaehlung(): GeschossZaehlung {
+  return { schnitt: null, total: 0, gebaeude: 0, ohneGeschoss: 0 }
+}
+
+/** Durchschnitt setzen, sobald alle Gebäude gezählt sind. */
+function abschliessen(z: GeschossZaehlung): GeschossZaehlung {
+  return { ...z, schnitt: z.gebaeude > 0 ? z.total / z.gebaeude : null }
 }
 
 /** Geschosskürzel am Anfang einer Bezeichnung, mit optionaler Nummer davor. */

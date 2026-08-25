@@ -11,7 +11,7 @@ import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { supabase } from '@/lib/supabase'
 import {
   parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen, anlagekostenZeilen,
-  type ErgaenzungDoc, type AnlagekostenZeile,
+  type ErgaenzungDoc, type AnlagekostenZeile, type GeschossZaehlung,
 } from '@/lib/keevalue'
 import { useKeeValueErgaenzung } from '@/hooks/useKeeValueErgaenzung'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
@@ -34,30 +34,30 @@ interface KeeFeld {
 }
 
 /**
- * Feld „Anzahl Geschosse über Terrain": Ø der oberirdischen Geschosse je
- * Gebäude, das solche ausweist. keeValue nimmt eine ganze Zahl, deshalb wird
+ * Feld „Anzahl Geschosse über/unter Terrain": Ø der Geschosse je Gebäude, das
+ * in dieser Lage welche ausweist. keeValue nimmt eine ganze Zahl, deshalb wird
  * gerundet — der ungerundete Wert und die zugrundeliegenden Zahlen stehen im
  * Hinweis, damit die Rundung nachvollziehbar bleibt.
  */
-function geschosseUeberTerrainFeld(mengen: ReturnType<typeof ermittleKeeValueMengen>): KeeFeld {
-  const label = 'Anzahl Geschosse über Terrain'
-  const { geschosseUeberTerrain: schnitt, geschosseOiTotal, gebaeudeMitOi, oiOhneGeschoss } = mengen
+function geschossFeld(z: GeschossZaehlung, lage: 'über' | 'unter'): KeeFeld {
+  const label = `Anzahl Geschosse ${lage} Terrain`
+  const adjektiv = lage === 'über' ? 'oberirdische' : 'unterirdische'
 
-  if (schnitt == null) {
+  if (z.schnitt == null) {
     return {
       label,
       wert: null,
-      hinweis: 'Keine oberirdischen Geschosse bezeichnet — Geschoss in „Mengen und Erträge" erfassen.',
+      hinweis: `Keine ${adjektiv}n Geschosse bezeichnet — Geschoss in „Mengen und Erträge" erfassen.`,
     }
   }
 
-  const gerundet = Math.round(schnitt)
+  const gerundet = Math.round(z.schnitt)
   const teile = [
-    `${geschosseOiTotal} oberirdische Geschosse in ${gebaeudeMitOi} ${gebaeudeMitOi === 1 ? 'Gebäude' : 'Gebäuden'}`,
+    `${z.total} ${adjektiv} Geschosse in ${z.gebaeude} ${z.gebaeude === 1 ? 'Gebäude' : 'Gebäuden'}`,
   ]
-  if (gerundet !== schnitt) teile.push(`Ø ${schnitt.toFixed(1)}, gerundet`)
-  if (oiOhneGeschoss > 0) {
-    teile.push(`${oiOhneGeschoss} oberirdische ${oiOhneGeschoss === 1 ? 'Zeile' : 'Zeilen'} ohne Geschossangabe nicht gezählt`)
+  if (gerundet !== z.schnitt) teile.push(`Ø ${z.schnitt.toFixed(1)}, gerundet`)
+  if (z.ohneGeschoss > 0) {
+    teile.push(`${z.ohneGeschoss} ${adjektiv} ${z.ohneGeschoss === 1 ? 'Zeile' : 'Zeilen'} ohne Geschossangabe nicht gezählt`)
   }
 
   return { label, wert: String(gerundet), copyWert: String(gerundet), hinweis: `${teile.join(' · ')}.` }
@@ -161,10 +161,9 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
             ? 'Keine Zeile als Erdgeschoss bezeichnet — Geschoss in „Mengen und Erträge" auf EG setzen.'
             : 'Keine Parzellenfläche erfasst.',
       },
-      geschosseUeberTerrainFeld(mengen),
-      // Diese Angaben führt der Businessplan (noch) nicht. Bewusst sichtbar
-      // gelassen, damit klar ist, was in keeValue von Hand zu setzen ist.
-      { label: 'Anzahl Geschosse unter Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
+      geschossFeld(mengen.geschosseUeberTerrain, 'über'),
+      geschossFeld(mengen.geschosseUnterTerrain, 'unter'),
+      // Diese Angabe führt der Businessplan nicht — laut Absprache manuell.
       { label: 'Transportanlagen Vertikalaufzüge', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
     ]
   }, [buildings, gsfTotal, project, variant])
