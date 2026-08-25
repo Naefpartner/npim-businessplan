@@ -448,15 +448,19 @@ function KostenZeile({
       <td className="py-1.5 pr-3 tabular-nums text-slate-500">{z.code}</td>
       <td className={cn('py-1.5 pr-3', !unter && 'font-medium text-slate-800')}>
         {klapp ? (
+          // Der Chevron sitzt absolut im Zwischenraum zur BKP-Spalte, damit die
+          // Bezeichnung in einer Flucht mit den übrigen Zeilen bleibt.
           <button
             type="button"
             onClick={klapp.onToggle}
             aria-expanded={klapp.offen}
-            className="inline-flex items-center gap-1 transition hover:text-slate-950"
+            className="relative inline-flex items-center gap-1.5 transition hover:text-slate-950"
           >
-            {klapp.offen
-              ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-              : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+            <span className="absolute -left-4 top-1/2 -translate-y-1/2 text-slate-400">
+              {klapp.offen
+                ? <ChevronDown className="h-3.5 w-3.5" />
+                : <ChevronRight className="h-3.5 w-3.5" />}
+            </span>
             {z.label}
             {!klapp.offen && (
               <span className="text-xs font-normal text-slate-400">
