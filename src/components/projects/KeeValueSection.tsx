@@ -34,6 +34,36 @@ interface KeeFeld {
 }
 
 /**
+ * Feld „Anzahl Geschosse über Terrain": Ø der oberirdischen Geschosse je
+ * Gebäude, das solche ausweist. keeValue nimmt eine ganze Zahl, deshalb wird
+ * gerundet — der ungerundete Wert und die zugrundeliegenden Zahlen stehen im
+ * Hinweis, damit die Rundung nachvollziehbar bleibt.
+ */
+function geschosseUeberTerrainFeld(mengen: ReturnType<typeof ermittleKeeValueMengen>): KeeFeld {
+  const label = 'Anzahl Geschosse über Terrain'
+  const { geschosseUeberTerrain: schnitt, geschosseOiTotal, gebaeudeMitOi, oiOhneGeschoss } = mengen
+
+  if (schnitt == null) {
+    return {
+      label,
+      wert: null,
+      hinweis: 'Keine oberirdischen Geschosse bezeichnet — Geschoss in „Mengen und Erträge" erfassen.',
+    }
+  }
+
+  const gerundet = Math.round(schnitt)
+  const teile = [
+    `${geschosseOiTotal} oberirdische Geschosse in ${gebaeudeMitOi} ${gebaeudeMitOi === 1 ? 'Gebäude' : 'Gebäuden'}`,
+  ]
+  if (gerundet !== schnitt) teile.push(`Ø ${schnitt.toFixed(1)}, gerundet`)
+  if (oiOhneGeschoss > 0) {
+    teile.push(`${oiOhneGeschoss} oberirdische ${oiOhneGeschoss === 1 ? 'Zeile' : 'Zeilen'} ohne Geschossangabe nicht gezählt`)
+  }
+
+  return { label, wert: String(gerundet), copyWert: String(gerundet), hinweis: `${teile.join(' · ')}.` }
+}
+
+/**
  * Erfassungsbereich für die Methode „keeValue".
  *
  * keeValue setzt `Content-Security-Policy: frame-ancestors 'self'` und lässt
@@ -131,9 +161,9 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
             ? 'Keine Zeile als Erdgeschoss bezeichnet — Geschoss in „Mengen und Erträge" auf EG setzen.'
             : 'Keine Parzellenfläche erfasst.',
       },
+      geschosseUeberTerrainFeld(mengen),
       // Diese Angaben führt der Businessplan (noch) nicht. Bewusst sichtbar
       // gelassen, damit klar ist, was in keeValue von Hand zu setzen ist.
-      { label: 'Anzahl Geschosse über Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Anzahl Geschosse unter Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Transportanlagen Vertikalaufzüge', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
     ]

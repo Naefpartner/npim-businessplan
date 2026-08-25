@@ -106,6 +106,17 @@ export interface KeeValueMengen {
   /** Σ Geschossfläche der als Erdgeschoss bezeichneten Zeilen = Gebäude-Fussabdruck. */
   egFlaecheM2: number
   /**
+   * Geschosse über Terrain: Ø je Gebäude, das oberirdische Geschosse ausweist.
+   * null, wenn kein Gebäude bezeichnete oberirdische Geschosse hat.
+   */
+  geschosseUeberTerrain: number | null
+  /** Summe der verschiedenen oberirdischen Geschosse über alle Gebäude. */
+  geschosseOiTotal: number
+  /** Anzahl Gebäude mit mindestens einem bezeichneten oberirdischen Geschoss. */
+  gebaeudeMitOi: number
+  /** Oberirdische Zeilen ohne Geschossbezeichnung — nicht zählbar. */
+  oiOhneGeschoss: number
+  /**
    * Bearbeitete Umgebungsfläche = Parzellenfläche minus Fussabdruck.
    * null, wenn keine Zeile als Erdgeschoss bezeichnet ist — dann wäre die BUF
    * gleich der ganzen Parzelle und damit irreführend.
@@ -144,6 +155,9 @@ export function ermittleKeeValueMengen(
   let parkplaetzeUnterirdisch = 0
   let egFlaecheM2 = 0
   let hatEg = false
+  let geschosseOiTotal = 0
+  let gebaeudeMitOi = 0
+  let oiOhneGeschoss = 0
 
   for (const b of buildings) {
     if (b.mietflaechen.length === 0) {
@@ -151,6 +165,10 @@ export function ermittleKeeValueMengen(
       gvM3 += b.volumen_m3 ?? 0
       continue
     }
+    // Verschiedene oberirdische Geschosse dieses Gebäudes. Mehrere Mietflächen
+    // im selben Geschoss (z.B. Wohnen und Gewerbe im EG) zählen einmal.
+    const oiGeschosse = new Set<string>()
+
     for (const m of b.mietflaechen) {
       const vol = m.volumen_m3 ?? 0
       gfM2 += m.gf_m2 ?? 0
@@ -159,12 +177,21 @@ export function ermittleKeeValueMengen(
         gvUnterirdischM3 += vol
         // Unterirdisch erfasste Parking-/Garagenfläche = Tiefgaragenplätze.
         if (isGarageNutzung(m.nutzung ?? '')) parkplaetzeUnterirdisch += anzahlVon(m)
+      } else {
+        const g = geschossSchluessel(m.geschoss_bezeichnung)
+        if (g) oiGeschosse.add(g)
+        else oiOhneGeschoss++
       }
       // Erdgeschossflächen aller Gebäude zusammen = überbaute Fläche.
       if (istErdgeschoss(m.geschoss_bezeichnung)) {
         hatEg = true
         egFlaecheM2 += m.gf_m2 ?? 0
       }
+    }
+
+    if (oiGeschosse.size > 0) {
+      geschosseOiTotal += oiGeschosse.size
+      gebaeudeMitOi++
     }
   }
 
@@ -179,7 +206,32 @@ export function ermittleKeeValueMengen(
     // Ohne EG-Bezeichnung keine Aussage — sonst käme die ganze Parzelle als BUF
     // heraus. Negative Werte (EG grösser als Parzelle) auf 0 begrenzen.
     bufM2: hatEg && gsfTotal > 0 ? Math.max(0, gsfTotal - egFlaecheM2) : null,
+    geschosseOiTotal,
+    gebaeudeMitOi,
+    oiOhneGeschoss,
+    geschosseUeberTerrain: gebaeudeMitOi > 0 ? geschosseOiTotal / gebaeudeMitOi : null,
   }
+}
+
+/** Geschosskürzel am Anfang einer Bezeichnung, mit optionaler Nummer davor. */
+const GESCHOSS_KUERZEL =
+  /^(\d*\s*(?:erdgeschoss|untergeschoss|obergeschoss|dachgeschoss|attika|eg|og|ug|dg|ag))\b/
+
+/**
+ * Vergleichsschlüssel einer Geschossbezeichnung, damit dasselbe Geschoss nicht
+ * mehrfach gezählt wird. Zwei Fälle werden zusammengeführt:
+ *   • Schreibvarianten — „1.OG", „1. OG" und „1 OG" ergeben denselben Schlüssel.
+ *   • Zusätze hinter dem Kürzel — „EG Nord" und „EG Gewerbe" gelten als „eg",
+ *     denn ein nach Flügel oder Nutzung aufgeteiltes Geschoss bleibt eines.
+ * Bezeichnungen ohne erkennbares Kürzel (z.B. „Hochparterre") bleiben, wie sie
+ * sind. Leere Bezeichnungen liefern null — die sind nicht zählbar.
+ */
+function geschossSchluessel(bezeichnung: string | null | undefined): string | null {
+  if (!bezeichnung) return null
+  const s = bezeichnung.trim().toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ')
+  if (!s) return null
+  const treffer = s.match(GESCHOSS_KUERZEL)
+  return (treffer ? treffer[1] : s).replace(/\s+/g, '')
 }
 
 // ── XLSX-Grundlagen ──────────────────────────────────────────────────────────
