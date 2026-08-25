@@ -282,8 +282,8 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
         </div>
       </UnterKapitel>
 
-      {/* ══ Anlagekosten ═════════════════════════════════════════════════ */}
-      <UnterKapitel titel="Anlagekosten" icon={Coins} defaultExpanded>
+      {/* ══ Kostenberechnung ═════════════════════════════════════════════ */}
+      <UnterKapitel titel="Kostenberechnung" icon={Coins} defaultExpanded>
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" /> Wird geladen…
@@ -292,7 +292,7 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
           <ImportErgebnis imp={imp} />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-            Noch kein Ergebnis-Excel eingelesen — die Anlagekosten erscheinen hier,
+            Noch kein Ergebnis-Excel eingelesen — die Kostenberechnung erscheint hier,
             sobald der Import unter „Datenerfassung" erfolgt ist.
           </div>
         )}
