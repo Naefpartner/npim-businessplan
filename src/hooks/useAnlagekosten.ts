@@ -15,12 +15,13 @@ import {
 } from '@/lib/bkpBlocks'
 import {
   eigentumsartForBuilding,
-  type ProjectVariant, type Eigentumsart, type PauschalPosten, type KostenMethode,
+  type ProjectVariant, type Eigentumsart, type PauschalPosten,
 } from '@/types'
 import { fetchVariant } from '@/hooks/useVariants'
 import { useHonorar } from '@/hooks/useHonorar'
 import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { useKeeValueErgaenzung } from '@/hooks/useKeeValueErgaenzung'
+import { useKostenMethode } from '@/hooks/useKostenMethode'
 import { anlagekostenZeilen, alsBkpErgebnis, ermittleKeeValueMengen } from '@/lib/keevalue'
 
 // Sortierschlüssel aus der Positionsnummer (führende Ziffern); ohne Nummer ans Ende.
@@ -248,7 +249,10 @@ export function useAnlagekosten(
   // auf dem gerechnet wird.
   const keeValueImport = useKeeValueImport(variantId)
   const keeValueErgaenzung = useKeeValueErgaenzung(variantId)
-  const kostenMethode: KostenMethode = variant?.kosten_methode ?? 'detail'
+  // Die Methode wird hier gehalten, nicht aus dem einmalig geladenen `variant`
+  // gelesen — sonst bliebe sie nach dem Umschalten der Kachel stehen, bis die
+  // Seite neu geladen wird. Die Kachel schreibt über denselben Hook.
+  const { methode: kostenMethode, setMethode: setKostenMethode } = useKostenMethode(variantId)
   const keeValueAktiv = kostenMethode === 'keevalue' && keeValueImport.imp != null
 
   // VMF je Eigentumsart — Verteilschlüssel für das keeValue-Variantentotal.
@@ -302,7 +306,7 @@ export function useAnlagekosten(
     buildings, etappen, presentEig, gsfTotal, totalVmf,
     blockList, positionsByEig, typForByEig,
     blockErgebnisse, konsolidiert, grandTotalBrutto,
-    konsolidiertEffektiv, kostenMethode, keeValueAktiv,
+    konsolidiertEffektiv, kostenMethode, setKostenMethode, keeValueAktiv,
     aggregateFlags, hasOhneEtappe, totalAllocatedGsf, gsfMismatch,
     getDetail, defaultShare,
     bkpKosten, custom, gsfAlloc, bkp2Aggregat,
