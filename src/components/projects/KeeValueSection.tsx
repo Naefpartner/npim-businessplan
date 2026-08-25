@@ -9,7 +9,7 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { supabase } from '@/lib/supabase'
 import {
-  parseKeeValueXlsx, KeeValueParseError,
+  parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen,
   hauptgruppenZeilen, bkp2Unterpositionen, zuNaefHauptgruppen,
 } from '@/lib/keevalue'
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
@@ -55,8 +55,8 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
 
   // ── Werte aus dem Mengengerüst ─────────────────────────────────────────────
   const felder = useMemo<KeeFeld[]>(() => {
-    const gf = buildings.reduce((s, b) => s + (b.geschossflaeche_m2 ?? 0), 0)
-    const gv = buildings.reduce((s, b) => s + (b.volumen_m3 ?? 0), 0)
+    const mengen = ermittleKeeValueMengen(buildings)
+    const { gfM2: gf, gvM3: gv } = mengen
     const nutzungen = [...new Set(buildings.map((b) => b.nutzung_haupt).filter(Boolean))] as string[]
     const adresse = [project?.strasse, project?.hausnummer].filter(Boolean).join(' ').trim()
     const plzOrt = [project?.plz, project?.ort].filter(Boolean).join(' ').trim()
@@ -85,9 +85,29 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
         hinweis: gv > 0 ? undefined : 'Volumen in „Mengen und Erträge" erfassen.',
       },
       {
+        label: 'Anteil Gebäudevolumen unter Terrain',
+        wert: mengen.anteilUnterTerrain != null
+          ? `${(mengen.anteilUnterTerrain * 100).toFixed(2)} %`
+          : null,
+        copyWert: mengen.anteilUnterTerrain != null
+          ? (mengen.anteilUnterTerrain * 100).toFixed(2)
+          : undefined,
+        hinweis: mengen.anteilUnterTerrain != null
+          ? `${formatNumber(mengen.gvUnterirdischM3)} m³ von ${formatNumber(gv)} m³ als unterirdisch erfasst.`
+          : 'Volumen in „Mengen und Erträge" erfassen.',
+      },
+      {
         label: 'Anzahl Gebäude',
         wert: buildings.length > 0 ? String(buildings.length) : null,
         copyWert: String(buildings.length),
+      },
+      {
+        label: 'Anzahl unterirdische Parkplätze',
+        wert: String(mengen.parkplaetzeUnterirdisch),
+        copyWert: String(mengen.parkplaetzeUnterirdisch),
+        hinweis: mengen.parkplaetzeUnterirdisch > 0
+          ? 'Aus den als unterirdisch erfassten Parking-/Garagenflächen.'
+          : 'Keine unterirdisch erfasste Parking-Fläche im Mengengerüst.',
       },
       {
         label: 'Grundstücksfläche (Kontext)',
@@ -97,11 +117,9 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
       },
       // Diese Angaben führt der Businessplan (noch) nicht. Bewusst sichtbar
       // gelassen, damit klar ist, was in keeValue von Hand zu setzen ist.
-      { label: 'Anteil Gebäudevolumen unter Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Bearbeitete Umgebungsfläche BUF', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Anzahl Geschosse über Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Anzahl Geschosse unter Terrain', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
-      { label: 'Anzahl unterirdische Parkplätze', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
       { label: 'Transportanlagen Vertikalaufzüge', wert: null, hinweis: 'Im Businessplan nicht erfasst — in keeValue direkt eingeben.' },
     ]
   }, [buildings, gsfTotal, project, variant])

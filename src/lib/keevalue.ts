@@ -16,6 +16,8 @@
 // den Betrag von BKP 2 ab — sonst würden Honorare doppelt gezählt.
 
 import { unzipSync, strFromU8 } from 'fflate'
+import { isGarageNutzung } from '@/lib/bkp2'
+import type { BuildingMietflaeche, BuildingMieteinheit, VariantBuilding } from '@/types'
 
 /** Eine Ergebniszeile des Blatts „Ergebnisse Erstellungskosten". */
 export interface KeeValueZeile {
@@ -63,6 +65,83 @@ export interface KeeValueImport {
 }
 
 export class KeeValueParseError extends Error {}
+
+// ── Mengen aus dem Businessplan für das keeValue-Eingabeformular ─────────────
+
+/** Nur die Felder, die für die keeValue-Mengen gebraucht werden. */
+type MengenMietflaeche =
+  Pick<BuildingMietflaeche, 'nutzung' | 'unterirdisch' | 'gf_m2' | 'volumen_m3' | 'anzahl'>
+  & { mieteinheiten?: Pick<BuildingMieteinheit, 'anzahl'>[] }
+
+type MengenGebaeude =
+  Pick<VariantBuilding, 'geschossflaeche_m2' | 'volumen_m3'>
+  & { mietflaechen: MengenMietflaeche[] }
+
+export interface KeeValueMengen {
+  /** Σ Geschossfläche (m²) über alle Mietflächen. */
+  gfM2: number
+  /** Σ Gebäudevolumen (m³) über alle Mietflächen. */
+  gvM3: number
+  /** Anteil davon unter Terrain (0..1); null wenn kein Volumen erfasst ist. */
+  anteilUnterTerrain: number | null
+  /** Volumen unter Terrain (m³) — Grundlage des Anteils. */
+  gvUnterirdischM3: number
+  /** Anzahl Parkplätze in unterirdisch erfassten Parking-/Garagenflächen. */
+  parkplaetzeUnterirdisch: number
+  anzahlGebaeude: number
+}
+
+/**
+ * Leitet die Mengenangaben des keeValue-Formulars aus dem Mengengerüst ab.
+ *
+ * Gerechnet wird über die Mietflächen, nicht über die Gebäude-Aggregate — so
+ * wie es auch die BKP-2-Aggregation (lib/bkp2.ts) tut. Nur wenn ein Gebäude gar
+ * keine Mietflächen hat, greifen wir auf dessen eigene Werte zurück.
+ *
+ * Für Flächen mit erfassten Mieteinheiten zählt deren Summe, weil das
+ * Mietflächen-Aggregat einem Sync-Lag unterliegen kann (gleiche Logik wie in
+ * aggregateMietflaechen).
+ */
+export function ermittleKeeValueMengen(buildings: MengenGebaeude[]): KeeValueMengen {
+  const anzahlVon = (m: MengenMietflaeche): number => {
+    const units = m.mieteinheiten ?? []
+    return units.length > 0
+      ? units.reduce((s, u) => s + (u.anzahl ?? 1), 0)
+      : (m.anzahl ?? 0)
+  }
+
+  let gfM2 = 0
+  let gvM3 = 0
+  let gvUnterirdischM3 = 0
+  let parkplaetzeUnterirdisch = 0
+
+  for (const b of buildings) {
+    if (b.mietflaechen.length === 0) {
+      gfM2 += b.geschossflaeche_m2 ?? 0
+      gvM3 += b.volumen_m3 ?? 0
+      continue
+    }
+    for (const m of b.mietflaechen) {
+      const vol = m.volumen_m3 ?? 0
+      gfM2 += m.gf_m2 ?? 0
+      gvM3 += vol
+      if (m.unterirdisch) {
+        gvUnterirdischM3 += vol
+        // Unterirdisch erfasste Parking-/Garagenfläche = Tiefgaragenplätze.
+        if (isGarageNutzung(m.nutzung ?? '')) parkplaetzeUnterirdisch += anzahlVon(m)
+      }
+    }
+  }
+
+  return {
+    gfM2,
+    gvM3,
+    gvUnterirdischM3,
+    anteilUnterTerrain: gvM3 > 0 ? gvUnterirdischM3 / gvM3 : null,
+    parkplaetzeUnterirdisch,
+    anzahlGebaeude: buildings.length,
+  }
+}
 
 // ── XLSX-Grundlagen ──────────────────────────────────────────────────────────
 
