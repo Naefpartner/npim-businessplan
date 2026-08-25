@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Globe, ExternalLink, Upload, Check, Copy, AlertCircle, Loader2,
-  FileSpreadsheet, Trash2, ArrowRight,
+  FileSpreadsheet, Trash2, ArrowRight, ChevronDown, ChevronRight,
+  ClipboardList, Coins,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
@@ -13,7 +14,7 @@ import {
   hauptgruppenZeilen, bkp2Unterpositionen, zuNaefHauptgruppen,
 } from '@/lib/keevalue'
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
-import { PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
+import { CI, PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
 import type { Project } from '@/types'
 
@@ -169,124 +170,166 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
   }, [verarbeite])
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      {/* ── Links: Werte aus dem Businessplan ────────────────────────────── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-1 flex items-center gap-2">
-          <ArrowRight className="h-4 w-4 text-slate-400" />
-          <h3 className="text-sm font-medium text-slate-700">Daten für keeValue</h3>
-        </div>
-        <p className="mb-4 text-xs text-slate-500">
-          Werte aus dem Mengengerüst dieser Variante, in der Reihenfolge des keeValue-Eingabeformulars.
-        </p>
-
-        <dl className="divide-y divide-slate-100">
-          {felder.map((f) => (
-            <FeldZeile key={f.label} feld={f} />
-          ))}
-        </dl>
-      </section>
-
-      {/* ── Rechts: Tool öffnen und Ergebnis einlesen ────────────────────── */}
-      <div className="space-y-5">
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-1 flex items-center gap-2">
-            <Globe className="h-4 w-4 text-slate-400" />
-            <h3 className="text-sm font-medium text-slate-700">keeValue bearbeiten</h3>
-          </div>
-          <p className="mb-4 text-xs text-slate-500">
-            Öffnet keevalue.ch in einem zweiten Fenster auf der rechten Bildschirmhälfte.
-            Ein Einbetten in diese Seite lässt keeValue nicht zu.
-          </p>
-          <Button type="button" onClick={oeffneKeeValue} className="gap-2">
-            <ExternalLink className="h-4 w-4" />
-            keeValue öffnen
-          </Button>
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-1 flex items-center gap-2">
-            <FileSpreadsheet className="h-4 w-4 text-slate-400" />
-            <h3 className="text-sm font-medium text-slate-700">Ergebnis-Excel einlesen</h3>
-          </div>
-          <p className="mb-4 text-xs text-slate-500">
-            Den unveränderten Excel-Export aus keeValue ablegen. Gelesen wird das Blatt
-            „Ergebnisse Erstellungskosten" (BKP 1–5).
-          </p>
-
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={canWrite ? onDrop : undefined}
-            onClick={() => canWrite && fileRef.current?.click()}
-            className={cn(
-              'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition',
-              dragOver ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50',
-              !canWrite && 'cursor-not-allowed opacity-60',
-            )}
-            style={dragOver ? { borderColor: PRIMARY_DARK, backgroundColor: PRIMARY_LIGHT } : undefined}
-          >
-            {busy ? (
-              <><Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                <span className="mt-2 text-sm text-slate-500">Wird eingelesen…</span></>
-            ) : importiert ? (
-              <><Check className="h-5 w-5" style={{ color: PRIMARY_DARK }} />
-                <span className="mt-2 text-sm font-medium" style={{ color: PRIMARY_DARK }}>Import übernommen</span></>
-            ) : (
-              <><Upload className="h-5 w-5 text-slate-400" />
-                <span className="mt-2 text-sm text-slate-600">Excel hier ablegen oder klicken</span>
-                <span className="mt-0.5 text-xs text-slate-400">.xlsx aus keeValue</span></>
-            )}
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) void verarbeite(file)
-              e.target.value = ''
-            }}
-          />
-
-          {importFehler && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{importFehler}</span>
+    <div className="space-y-4">
+      {/* ══ Datenerfassung ═══════════════════════════════════════════════ */}
+      <UnterKapitel titel="Datenerfassung" icon={ClipboardList} defaultExpanded>
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* ── Links: Werte aus dem Businessplan ────────────────────────────── */}
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-1 flex items-center gap-2">
+              <ArrowRight className="h-4 w-4 text-slate-400" />
+              <h3 className="text-sm font-medium text-slate-700">Daten für keeValue</h3>
             </div>
-          )}
+            <p className="mb-4 text-xs text-slate-500">
+              Werte aus dem Mengengerüst dieser Variante, in der Reihenfolge des keeValue-Eingabeformulars.
+            </p>
 
-          {row && (
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-              <span className="font-medium text-slate-600">{row.file_name}</span>
-              {row.version && <span>Version {row.version}</span>}
-              {row.preisstand && <span>Preisstand {row.preisstand}</span>}
-              {canWrite && (
-                <button
-                  type="button"
-                  onClick={() => void remove()}
-                  className="ml-auto inline-flex items-center gap-1 text-slate-400 transition hover:text-red-600"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Import entfernen
-                </button>
+            <dl className="divide-y divide-slate-100">
+              {felder.map((f) => (
+                <FeldZeile key={f.label} feld={f} />
+              ))}
+            </dl>
+          </section>
+
+          {/* ── Rechts: Tool öffnen und Ergebnis einlesen ────────────────────── */}
+          <div className="space-y-5">
+            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-1 flex items-center gap-2">
+                <Globe className="h-4 w-4 text-slate-400" />
+                <h3 className="text-sm font-medium text-slate-700">keeValue bearbeiten</h3>
+              </div>
+              <p className="mb-4 text-xs text-slate-500">
+                Öffnet keevalue.ch in einem zweiten Fenster auf der rechten Bildschirmhälfte.
+                Ein Einbetten in diese Seite lässt keeValue nicht zu.
+              </p>
+              <Button type="button" onClick={oeffneKeeValue} className="gap-2">
+                <ExternalLink className="h-4 w-4" />
+                keeValue öffnen
+              </Button>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-1 flex items-center gap-2">
+                <FileSpreadsheet className="h-4 w-4 text-slate-400" />
+                <h3 className="text-sm font-medium text-slate-700">Ergebnis-Excel einlesen</h3>
+              </div>
+              <p className="mb-4 text-xs text-slate-500">
+                Den unveränderten Excel-Export aus keeValue ablegen. Gelesen wird das Blatt
+                „Ergebnisse Erstellungskosten" (BKP 1–5).
+              </p>
+
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={canWrite ? onDrop : undefined}
+                onClick={() => canWrite && fileRef.current?.click()}
+                className={cn(
+                  'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition',
+                  dragOver ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50',
+                  !canWrite && 'cursor-not-allowed opacity-60',
+                )}
+                style={dragOver ? { borderColor: PRIMARY_DARK, backgroundColor: PRIMARY_LIGHT } : undefined}
+              >
+                {busy ? (
+                  <><Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                    <span className="mt-2 text-sm text-slate-500">Wird eingelesen…</span></>
+                ) : importiert ? (
+                  <><Check className="h-5 w-5" style={{ color: PRIMARY_DARK }} />
+                    <span className="mt-2 text-sm font-medium" style={{ color: PRIMARY_DARK }}>Import übernommen</span></>
+                ) : (
+                  <><Upload className="h-5 w-5 text-slate-400" />
+                    <span className="mt-2 text-sm text-slate-600">Excel hier ablegen oder klicken</span>
+                    <span className="mt-0.5 text-xs text-slate-400">.xlsx aus keeValue</span></>
+                )}
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void verarbeite(file)
+                  e.target.value = ''
+                }}
+              />
+
+              {importFehler && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{importFehler}</span>
+                </div>
               )}
-            </div>
-          )}
-        </section>
-      </div>
 
-      {/* ── Ergebnis über die volle Breite ───────────────────────────────── */}
-      {loading ? (
-        <div className="lg:col-span-2 flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Wird geladen…
+              {row && (
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <span className="font-medium text-slate-600">{row.file_name}</span>
+                  {row.version && <span>Version {row.version}</span>}
+                  {row.preisstand && <span>Preisstand {row.preisstand}</span>}
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => void remove()}
+                      className="ml-auto inline-flex items-center gap-1 text-slate-400 transition hover:text-red-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Import entfernen
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
         </div>
-      ) : imp ? (
-        <div className="lg:col-span-2">
+      </UnterKapitel>
+
+      {/* ══ Anlagekosten ═════════════════════════════════════════════════ */}
+      <UnterKapitel titel="Anlagekosten" icon={Coins} defaultExpanded>
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Wird geladen…
+          </div>
+        ) : imp ? (
           <ImportErgebnis imp={imp} />
-        </div>
-      ) : null}
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+            Noch kein Ergebnis-Excel eingelesen — die Anlagekosten erscheinen hier,
+            sobald der Import unter „Datenerfassung" erfolgt ist.
+          </div>
+        )}
+      </UnterKapitel>
     </div>
+  )
+}
+
+// ── Kapitel innerhalb der keeValue-Methode ───────────────────────────────────
+
+/**
+ * Aufklappbares Unterkapitel mit Kupfer-Kopfleiste — eine Stufe heller als der
+ * Kupfer-7-Header der Anlagekosten, damit die Hierarchie ablesbar bleibt.
+ */
+function UnterKapitel({
+  titel, icon: Icon, defaultExpanded = false, children,
+}: {
+  titel: string
+  icon: typeof Coins
+  defaultExpanded?: boolean
+  children: ReactNode
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        style={{ backgroundColor: CI.kupfer[5] }}
+        className="flex w-full items-center gap-2 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:brightness-95"
+      >
+        {expanded ? <ChevronDown className="h-4 w-4 text-slate-700" /> : <ChevronRight className="h-4 w-4 text-slate-700" />}
+        <Icon className="h-4 w-4 text-slate-700" />
+        <span>{titel}</span>
+      </button>
+      {expanded && <div className="p-5">{children}</div>}
+    </section>
   )
 }
 
