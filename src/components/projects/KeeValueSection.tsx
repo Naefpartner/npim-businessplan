@@ -441,8 +441,10 @@ function KostenZeile({
 
   return (
     <tr className={cn('border-b border-slate-50', unter && 'text-slate-500')}>
-      <td className={cn('py-1.5 pr-3 tabular-nums text-slate-500', unter && 'pl-4')}>{z.code}</td>
-      <td className={cn('py-1.5 pr-3', unter ? 'pl-2' : 'font-medium text-slate-800')}>{z.label}</td>
+      {/* Unterpositionen stehen bündig zu den Hauptgruppen — sie heben sich
+          allein durch die hellere Schrift ab, nicht durch Einzug. */}
+      <td className="py-1.5 pr-3 tabular-nums text-slate-500">{z.code}</td>
+      <td className={cn('py-1.5 pr-3', !unter && 'font-medium text-slate-800')}>{z.label}</td>
 
       {/* Ansatz: Eingabefeld plus die Bezugsgrösse im Klartext. */}
       <td className="py-1.5 pr-4 whitespace-nowrap">
