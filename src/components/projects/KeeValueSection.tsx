@@ -10,8 +10,11 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { supabase } from '@/lib/supabase'
 import {
-  parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen, naefKostenZeilen,
+  parseKeeValueXlsx, KeeValueParseError, ermittleKeeValueMengen, anlagekostenZeilen,
+  type ErgaenzungDoc, type AnlagekostenZeile,
 } from '@/lib/keevalue'
+import { useKeeValueErgaenzung } from '@/hooks/useKeeValueErgaenzung'
+import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { CI, PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
 import type { Project } from '@/types'
@@ -41,8 +44,18 @@ interface KeeFeld {
  */
 export function KeeValueSection({ projectId, variantId }: { projectId: string; variantId: string }) {
   const { canWrite } = useAuth()
-  const { buildings, gsfTotal, variant } = useAnlagekostenShared()
+  const { buildings, gsfTotal, variant, mwstSatz } = useAnlagekostenShared()
   const { row, imp, loading, save, remove } = useKeeValueImport(variantId)
+  const ergaenzung = useKeeValueErgaenzung(variantId)
+
+  // Bezugsgrössen der ergänzenden Hauptgruppen. Der Ertrag ist bei Rendite-/
+  // Genossenschaftsobjekten der Jahresmietertrag, bei Verkaufsobjekten der
+  // Verkaufserlös — gleiche Semantik wie bei den Katalogpositionen 710–740.
+  const bezug = useMemo(() => ({
+    gsfTotal,
+    ertragBasis: Object.values(ertragProNutzung(buildings)).reduce((s, v) => s + v, 0),
+    mwstSatz,
+  }), [gsfTotal, buildings, mwstSatz])
 
   const [project, setProject] = useState<Project | null>(null)
   useEffect(() => {
@@ -287,7 +300,13 @@ export function KeeValueSection({ projectId, variantId }: { projectId: string; v
             <Loader2 className="h-4 w-4 animate-spin" /> Wird geladen…
           </div>
         ) : imp ? (
-          <ImportErgebnis imp={imp} />
+          <ImportErgebnis
+            imp={imp}
+            erg={ergaenzung.doc}
+            bezug={bezug}
+            canWrite={canWrite}
+            onSetFeld={ergaenzung.setFeld}
+          />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
             Noch kein Ergebnis-Excel eingelesen — die Kostenberechnung erscheint hier,
@@ -374,30 +393,136 @@ function FeldZeile({ feld }: { feld: KeeFeld }) {
   )
 }
 
+// ── Eine Zeile der Kostenberechnung ──────────────────────────────────────────
+
+function KostenZeile({
+  zeile: z, canWrite, onSetFeld,
+}: {
+  zeile: AnlagekostenZeile
+  canWrite: boolean
+  onSetFeld: (feld: keyof ErgaenzungDoc, wert: number | null) => void
+}) {
+  const unter = z.ebene === 1
+  const eingebbar = z.quelle === 'ergaenzung' && z.feld != null
+
+  return (
+    <tr className={cn('border-b border-slate-50', unter && 'text-slate-500')}>
+      <td className={cn('py-1.5 pr-3 tabular-nums text-slate-500', unter && 'pl-4')}>{z.code}</td>
+      <td className={cn('py-1.5 pr-3', unter ? 'pl-2' : 'font-medium text-slate-800')}>
+        {z.label}
+        {z.basisText && (
+          <span className="ml-2 text-xs font-normal text-slate-400">{z.basisText}</span>
+        )}
+      </td>
+      <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.netto)}</td>
+      <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.brutto)}</td>
+      <td className="py-1.5 text-right tabular-nums text-slate-500">
+        {eingebbar ? (
+          <KennwertEingabe
+            wert={z.kennwert}
+            einheit={z.eingabeEinheit ?? '%'}
+            disabled={!canWrite}
+            onCommit={(v) => onSetFeld(z.feld!, v)}
+          />
+        ) : z.kennwert != null ? (
+          `${formatNumber(z.kennwert)} ${z.kennwertEinheit ?? ''}`.trim()
+        ) : '—'}
+      </td>
+    </tr>
+  )
+}
+
+/**
+ * Zahleneingabe für die ergänzenden Kennwerte. Prozentwerte werden als Zahl
+ * angezeigt (3.5 für 3.5 %), intern aber als Faktor (0.035) geführt — gleiche
+ * Konvention wie in den Anlagekosten.
+ */
+function KennwertEingabe({
+  wert, einheit, disabled, onCommit,
+}: {
+  wert: number | null
+  einheit: 'CHF/m²' | '%'
+  disabled: boolean
+  onCommit: (wert: number | null) => void
+}) {
+  const istProzent = einheit === '%'
+  const anzeige = (w: number | null) =>
+    w == null ? '' : String(istProzent ? Number((w * 100).toFixed(4)) : w)
+
+  const [text, setText] = useState(() => anzeige(wert))
+  const [fokus, setFokus] = useState(false)
+  // Externe Änderungen (Laden, Rollback nach Speicherfehler) übernehmen —
+  // aber nie während der Eingabe, sonst springt der Cursor.
+  useEffect(() => { if (!fokus) setText(anzeige(wert)) }, [wert, fokus])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const commit = () => {
+    setFokus(false)
+    const roh = text.trim().replace(/'/g, '').replace(',', '.')
+    if (roh === '') { onCommit(null); return }
+    const n = Number(roh)
+    if (!Number.isFinite(n)) { setText(anzeige(wert)); return }
+    onCommit(istProzent ? n / 100 : n)
+  }
+
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <input
+        type="text"
+        inputMode="decimal"
+        value={text}
+        disabled={disabled}
+        onFocus={() => setFokus(true)}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+        placeholder="—"
+        className={cn(
+          'w-20 rounded border border-slate-200 px-1.5 py-0.5 text-right text-sm tabular-nums',
+          'focus:border-slate-400 focus:outline-none',
+          disabled && 'cursor-not-allowed bg-slate-50 text-slate-400',
+        )}
+      />
+      <span className="text-xs text-slate-400">{einheit}</span>
+    </span>
+  )
+}
+
 // ── Darstellung des importierten Ergebnisses ─────────────────────────────────
 
-function ImportErgebnis({ imp }: { imp: ReturnType<typeof parseKeeValueXlsx> }) {
-  // Kostenberechnung in unserer Systematik: Honorare als Hauptgruppe 6, Reserve
-  // in 9, die BKP-2-Unterpositionen als eingerückte Zeilen unter BKP 2.
-  const zeilen = naefKostenZeilen(imp)
+function ImportErgebnis({
+  imp, erg, bezug, canWrite, onSetFeld,
+}: {
+  imp: ReturnType<typeof parseKeeValueXlsx>
+  erg: ErgaenzungDoc
+  bezug: { gsfTotal: number; ertragBasis: number; mwstSatz: number }
+  canWrite: boolean
+  onSetFeld: (feld: keyof ErgaenzungDoc, wert: number | null) => void
+}) {
+  // Vollständige Anlagekosten: die keeValue-Hauptgruppen (Honorare als 6,
+  // Unterpositionen eingerückt unter BKP 2) plus die hier erfassten
+  // Hauptgruppen 0, 7, 8 und die Eigentümerkosten in 9.
+  const { zeilen, totalNetto, totalBrutto } = anlagekostenZeilen(imp, erg, bezug)
 
-  // keeValue rundet seine Zeilen einzeln; die Summe kann deshalb um wenige
-  // Franken vom ausgewiesenen Total abweichen. Wir weisen die Differenz aus,
-  // statt sie stillschweigend zu glätten.
-  const summeZeilen = zeilen.filter((z) => z.ebene === 0).reduce((s, z) => s + z.netto, 0)
-  const differenz = summeZeilen - imp.totalNetto
+  // keeValue rundet seine Zeilen einzeln; die Summe der importierten
+  // Hauptgruppen kann deshalb um wenige Franken vom ausgewiesenen Total
+  // abweichen. Wir weisen die Differenz aus, statt sie stillschweigend zu glätten.
+  const summeKeeValue = zeilen
+    .filter((z) => z.ebene === 0 && z.quelle === 'keevalue')
+    .reduce((s, z) => s + z.netto, 0)
+  const differenz = summeKeeValue - imp.totalNetto
 
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-medium text-slate-700">Erstellungskosten aus keeValue</h3>
+        <h3 className="text-sm font-medium text-slate-700">Anlagekosten</h3>
         <p className="mb-3 mt-0.5 text-xs text-slate-500">
-          In unserer Hauptgruppen-Systematik: die keeValue-Position 29 „Honorare" ist aus BKP 2
-          herausgelöst und bildet die Hauptgruppe 6, die keeValue-Reserve steht in Hauptgruppe 9.
+          BKP 1–6 aus keeValue — die Position 29 „Honorare" ist aus BKP 2 herausgelöst und bildet
+          die Hauptgruppe 6. BKP 0, 7, 8 und die Eigentümerkosten in 9 werden hier erfasst;
+          die Prozentsätze rechnen auf den Netto-Beträgen.
         </p>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2 pr-3 font-medium">BKP</th>
@@ -408,38 +533,39 @@ function ImportErgebnis({ imp }: { imp: ReturnType<typeof parseKeeValueXlsx> }) 
               </tr>
             </thead>
             <tbody>
-              {zeilen.map((z) => {
-                const unter = z.ebene === 1
-                return (
-                  <tr key={z.code} className={cn('border-b border-slate-50', unter && 'text-slate-500')}>
-                    <td className={cn('py-1.5 pr-3 tabular-nums text-slate-500', unter && 'pl-4')}>{z.code}</td>
-                    <td className={cn('py-1.5 pr-3', unter ? 'pl-2' : 'font-medium text-slate-800')}>{z.label}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.netto)}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">{formatCurrency(z.brutto)}</td>
-                    <td className="py-1.5 text-right tabular-nums text-slate-500">
-                      {z.kennwert != null ? `${formatNumber(z.kennwert)} ${z.kennwertEinheit ?? ''}`.trim() : '—'}
-                    </td>
-                  </tr>
-                )
-              })}
+              {zeilen.map((z) => (
+                <KostenZeile
+                  key={`${z.quelle}-${z.code}-${z.label}`}
+                  zeile={z}
+                  canWrite={canWrite}
+                  onSetFeld={onSetFeld}
+                />
+              ))}
               <tr className="border-t-2 border-slate-300 font-semibold">
-                <td className="py-2 pr-3" colSpan={2}>Erstellungskosten</td>
-                <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(imp.totalNetto)}</td>
-                <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(imp.totalBrutto)}</td>
+                <td className="py-2 pr-3" colSpan={2}>Anlagekosten</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalNetto)}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalBrutto)}</td>
+                <td />
+              </tr>
+              <tr className="text-xs text-slate-400">
+                <td className="pt-1 pr-3" colSpan={2}>davon Erstellungskosten keeValue</td>
+                <td className="pt-1 pr-3 text-right tabular-nums">{formatCurrency(imp.totalNetto)}</td>
+                <td className="pt-1 pr-3 text-right tabular-nums">{formatCurrency(imp.totalBrutto)}</td>
                 <td />
               </tr>
             </tbody>
           </table>
         </div>
 
-        <p className="mt-2 text-xs text-slate-400">
-          Nicht von keeValue abgedeckt: BKP 0 Grundstück, 3 Betriebseinrichtungen, 7 Vermarktung,
-          8 Entwicklung. Diese bleiben über den Detailkatalog bzw. die Benchmarks zu erfassen.
+        <p className="mt-3 text-xs text-slate-400">
+          BKP 3 Betriebseinrichtungen deckt weder keeValue noch diese Ergänzung ab — falls nötig,
+          über den Detailkatalog erfassen. Ohne MwSt gerechnet werden Grundstück und
+          Eigentümerkosten, analog den Katalogpositionen 010 und 910/920.
         </p>
 
         {Math.abs(differenz) >= 1 && (
           <p className="mt-2 text-xs text-slate-400">
-            Rundungsdifferenz aus keeValue: Summe der Zeilen {formatCurrency(summeZeilen)} gegenüber
+            Rundungsdifferenz aus keeValue: Summe der Zeilen {formatCurrency(summeKeeValue)} gegenüber
             ausgewiesenem Total {formatCurrency(imp.totalNetto)} ({differenz > 0 ? '+' : ''}{formatCurrency(differenz)}).
           </p>
         )}

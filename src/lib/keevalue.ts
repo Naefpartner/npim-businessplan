@@ -546,6 +546,190 @@ export function naefKostenZeilen(imp: KeeValueImport): NaefKostenZeile[] {
   return out
 }
 
+// ── Vollständige Anlagekosten: keeValue plus die fehlenden Hauptgruppen ─────
+
+/**
+ * Die vier Kennwerte für die von keeValue nicht abgedeckten Hauptgruppen
+ * (Migration 060). Prozentsätze als Faktor, also 0.03 für 3 %.
+ */
+export interface ErgaenzungDoc {
+  /** BKP 0 Grundstück: CHF pro m² Grundstücksfläche. */
+  bkp0ChfProM2Gsf: number | null
+  /** BKP 7 Vermarktung: Anteil am Ertrag bzw. Verkaufserlös. */
+  bkp7ProzentVonErtrag: number | null
+  /** BKP 8 Entwicklungskosten: Anteil an BKP 1–7. */
+  bkp8ProzentVon1bis7: number | null
+  /** BKP 9 Eigentümerkosten: Anteil an BKP 1–8. */
+  bkp9ProzentVon1bis8: number | null
+}
+
+export const LEERE_ERGAENZUNG: ErgaenzungDoc = {
+  bkp0ChfProM2Gsf: null,
+  bkp7ProzentVonErtrag: null,
+  bkp8ProzentVon1bis7: null,
+  bkp9ProzentVon1bis8: null,
+}
+
+/** Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB. */
+export function normalizeErgaenzung(doc: Partial<ErgaenzungDoc> | null | undefined): ErgaenzungDoc {
+  return { ...LEERE_ERGAENZUNG, ...(doc ?? {}) }
+}
+
+export interface AnlagekostenZeile extends NaefKostenZeile {
+  /** 'keevalue' = aus dem Import, 'ergaenzung' = hier erfasster Kennwert. */
+  quelle: 'keevalue' | 'ergaenzung'
+  /** Welches Feld der Ergänzung diese Zeile bearbeitet. */
+  feld?: keyof ErgaenzungDoc
+  /** Einheit des Eingabefelds, z.B. 'CHF/m²' oder '%'. */
+  eingabeEinheit?: 'CHF/m²' | '%'
+  /** Bezugsgrösse im Klartext für die UI, z.B. „GSF 2'450 m²". */
+  basisText?: string
+}
+
+export interface AnlagekostenErgebnis {
+  zeilen: AnlagekostenZeile[]
+  /** Total über alle Hauptgruppen (ohne die Unterpositionen). */
+  totalNetto: number
+  totalBrutto: number
+  /** Die keeValue-Erstellungskosten als Teilsumme — zur Einordnung. */
+  erstellungskostenNetto: number
+  erstellungskostenBrutto: number
+}
+
+export interface AnlagekostenBezug {
+  /** Grundstücksfläche (m²) aus den Parzellen. */
+  gsfTotal: number
+  /** Jahresertrag bzw. Verkaufserlös der Variante (Basis für BKP 7). */
+  ertragBasis: number
+  /** Globaler MwSt-Satz der Variante, z.B. 0.081. */
+  mwstSatz: number
+}
+
+/**
+ * Setzt die vollständigen Anlagekosten zusammen: die importierten
+ * keeValue-Hauptgruppen plus BKP 0, 7, 8 und die Eigentümerkosten in 9.
+ *
+ * Die Prozentzeilen rechnen auf den **Netto**-Summen und legen die MwSt danach
+ * oben drauf — gleiche Konvention wie die Engine in lib/bkpBerechnung.ts.
+ * Die MwSt-Pflicht folgt dem Detailkatalog: Grundstück (010) und
+ * Eigenleistungen (910/920) sind ohne, Vermarktung (7xx) und Entwicklung (8xx)
+ * mit MwSt gerechnet.
+ *
+ * Die Basen sind kumulativ: BKP 8 bezieht sich auf 1–7 (also inklusive der
+ * gerade erst gerechneten 7), BKP 9 Eigentümerkosten auf 1–8. BKP 0 bleibt in
+ * beiden Basen aussen vor — analog zu den Katalogpositionen 810/910.
+ */
+export function anlagekostenZeilen(
+  imp: KeeValueImport,
+  erg: ErgaenzungDoc,
+  bezug: AnlagekostenBezug,
+): AnlagekostenErgebnis {
+  const kv = naefKostenZeilen(imp)
+  // Die keeValue-Reserve steht in Hauptgruppe 9 und gehört ans Ende, hinter
+  // die hier erfassten Gruppen 7 und 8.
+  const reserve = kv.find((z) => z.ebene === 0 && z.code === '9') ?? null
+  const kvRest = kv.filter((z) => z !== reserve)
+
+  const mitMwst = (netto: number) => netto * (1 + bezug.mwstSatz)
+  const zeilen: AnlagekostenZeile[] = []
+
+  // ─── BKP 0 Grundstück — Menge aus den Parzellen, ohne MwSt ───────────────
+  const bkp0Netto = (erg.bkp0ChfProM2Gsf ?? 0) * bezug.gsfTotal
+  zeilen.push({
+    code: '0',
+    label: 'Grundstück',
+    netto: bkp0Netto,
+    brutto: bkp0Netto, // Grundstückerwerb ist nicht mehrwertsteuerpflichtig
+    kennwert: erg.bkp0ChfProM2Gsf,
+    kennwertEinheit: 'CHF/m² GSF',
+    ebene: 0,
+    quelle: 'ergaenzung',
+    feld: 'bkp0ChfProM2Gsf',
+    eingabeEinheit: 'CHF/m²',
+    basisText: `GSF ${formatMenge(bezug.gsfTotal)} m²`,
+  })
+
+  // ─── BKP 1–6 aus keeValue ───────────────────────────────────────────────
+  for (const z of kvRest) zeilen.push({ ...z, quelle: 'keevalue' })
+
+  // ─── BKP 7 Vermarktung — % vom Ertrag / Verkaufserlös ───────────────────
+  const bkp7Netto = (erg.bkp7ProzentVonErtrag ?? 0) * bezug.ertragBasis
+  zeilen.push({
+    code: '7',
+    label: 'Vermarktung',
+    netto: bkp7Netto,
+    brutto: mitMwst(bkp7Netto),
+    kennwert: erg.bkp7ProzentVonErtrag,
+    kennwertEinheit: '%',
+    ebene: 0,
+    quelle: 'ergaenzung',
+    feld: 'bkp7ProzentVonErtrag',
+    eingabeEinheit: '%',
+    basisText: `Ertrag / Verkaufserlös ${formatMenge(bezug.ertragBasis)} CHF`,
+  })
+
+  // ─── BKP 8 Entwicklungskosten — % von BKP 1–7 ───────────────────────────
+  const basis1bis7 = summeHauptgruppen(zeilen, 1, 7)
+  const bkp8Netto = (erg.bkp8ProzentVon1bis7 ?? 0) * basis1bis7
+  zeilen.push({
+    code: '8',
+    label: 'Entwicklungskosten',
+    netto: bkp8Netto,
+    brutto: mitMwst(bkp8Netto),
+    kennwert: erg.bkp8ProzentVon1bis7,
+    kennwertEinheit: '%',
+    ebene: 0,
+    quelle: 'ergaenzung',
+    feld: 'bkp8ProzentVon1bis7',
+    eingabeEinheit: '%',
+    basisText: `BKP 1–7 ${formatMenge(basis1bis7)} CHF`,
+  })
+
+  // ─── BKP 9: Reserve aus keeValue, dann die Eigentümerkosten ─────────────
+  if (reserve) zeilen.push({ ...reserve, quelle: 'keevalue' })
+
+  const basis1bis8 = summeHauptgruppen(zeilen, 1, 8)
+  const bkp9Netto = (erg.bkp9ProzentVon1bis8 ?? 0) * basis1bis8
+  zeilen.push({
+    code: '9',
+    label: 'Eigentümerkosten',
+    netto: bkp9Netto,
+    brutto: bkp9Netto, // Eigenleistungen sind nicht mehrwertsteuerpflichtig
+    kennwert: erg.bkp9ProzentVon1bis8,
+    kennwertEinheit: '%',
+    ebene: 0,
+    quelle: 'ergaenzung',
+    feld: 'bkp9ProzentVon1bis8',
+    eingabeEinheit: '%',
+    basisText: `BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
+  })
+
+  const hauptgruppen = zeilen.filter((z) => z.ebene === 0)
+  return {
+    zeilen,
+    totalNetto: hauptgruppen.reduce((s, z) => s + z.netto, 0),
+    totalBrutto: hauptgruppen.reduce((s, z) => s + z.brutto, 0),
+    erstellungskostenNetto: imp.totalNetto,
+    erstellungskostenBrutto: imp.totalBrutto,
+  }
+}
+
+/** Netto-Summe der Hauptgruppen-Zeilen mit Code von..bis (Unterpositionen aussen vor). */
+function summeHauptgruppen(zeilen: AnlagekostenZeile[], von: number, bis: number): number {
+  return zeilen
+    .filter((z) => z.ebene === 0)
+    .filter((z) => {
+      const n = Number(z.code)
+      return Number.isFinite(n) && n >= von && n <= bis
+    })
+    .reduce((s, z) => s + z.netto, 0)
+}
+
+/** Ganzzahl mit Tausender-Hochkomma — nur für die Basistexte in der UI. */
+function formatMenge(n: number): string {
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'")
+}
+
 /** Ein Betrag je Naef-Hauptgruppe. */
 export type HauptgruppenBetraege = Record<number, { netto: number; brutto: number }>
 
