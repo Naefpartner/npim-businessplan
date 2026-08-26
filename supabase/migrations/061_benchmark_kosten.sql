@@ -7,10 +7,20 @@
 -- hier je Variante gehalten.
 --
 -- Als JSONB (analog variant_mittelfluss und variant_keevalue_ergaenzung), weil
--- die Hauptgruppen schrittweise dazukommen und jede eine eigene Bezugsgrösse
--- bekommt. Aufbau siehe BenchmarkDoc in lib/benchmark.ts.
---
--- Stand: BKP 0 Grundstück — CHF/m² Grundstücksfläche, Menge aus den Parzellen.
+-- jede Hauptgruppe ihre eigene Bezugsgrösse hat und BKP 2 sogar drei zur Wahl
+-- stellt. Aufbau siehe BenchmarkDoc in lib/benchmark.ts:
+--   BKP 0  Grundstück        — CHF/m² × Grundstücksfläche aus den Parzellen
+--   BKP 1  Vorbereitung      — % von BKP 2
+--   BKP 2  Gebäude           — wahlweise CHF/m² GF, CHF/m³ GV (getrennt ober-
+--                              und unterirdisch) oder CHF/m² VMF/VKF
+--   BKP 3  Betriebseinr.     — Pauschalbetrag
+--   BKP 4  Umgebung          — CHF/m² × Umgebungsfläche
+--   BKP 5  Baunebenkosten    — % von BKP 1–4
+--   BKP 6  Honorare          — % von BKP 1–4
+--   BKP 7  Vermarktung       — % vom Miet- bzw. Verkaufsertrag
+--   BKP 8  Entwicklung       — % von BKP 1–7
+--   BKP 9  Reserve           — % von BKP 0–8
+--   BKP 9  Eigentümerkosten  — % von BKP 1–8
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS variant_benchmark_kosten (

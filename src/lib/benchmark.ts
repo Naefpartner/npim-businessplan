@@ -44,8 +44,10 @@ export interface BenchmarkDoc {
   bkp7ProzentVonErtrag: number | null
   /** BKP 8 Entwicklung: Anteil an BKP 1–7. */
   bkp8ProzentVon1bis7: number | null
-  /** BKP 9 Eigentümer / Investor: Anteil an BKP 1–8. */
+  /** BKP 9 Eigentümerkosten: Anteil an BKP 1–8. */
   bkp9ProzentVon1bis8: number | null
+  /** BKP 9 Reserve: Anteil an BKP 0–8 (Bezug wie Katalogposition 970). */
+  bkp9ReserveProzentVon0bis8: number | null
 }
 
 export const LEERER_BENCHMARK: BenchmarkDoc = {
@@ -63,6 +65,7 @@ export const LEERER_BENCHMARK: BenchmarkDoc = {
   bkp7ProzentVonErtrag: null,
   bkp8ProzentVon1bis7: null,
   bkp9ProzentVon1bis8: null,
+  bkp9ReserveProzentVon0bis8: null,
 }
 
 /** Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB. */
@@ -147,7 +150,8 @@ function basisText(praefix: string, menge: number, einheit: string): string {
  *   BKP 6 Honorare      — % von BKP 1–4
  *   BKP 7 Vermarktung   — % vom Miet- bzw. Verkaufsertrag
  *   BKP 8 Entwicklung   — % von BKP 1–7
- *   BKP 9 Eigentümer    — % von BKP 1–8
+ *   BKP 9 Reserve       — % von BKP 0–8
+ *   BKP 9 Eigentümerk.  — % von BKP 1–8
  *
  * Gerechnet wird in Abhängigkeitsreihenfolge, nicht in Nummernfolge: BKP 2
  * zuerst, weil BKP 1 darauf Bezug nimmt — dieselbe Vorwärtsreferenz wie bei der
@@ -224,6 +228,11 @@ export function benchmarkZeilen(doc: BenchmarkDoc, bezug: BenchmarkBezug): Bench
   const basis1bis7 = basis1bis4 + n5 + n6 + n7
   const n8 = (doc.bkp8ProzentVon1bis7 ?? 0) * basis1bis7
   const basis1bis8 = basis1bis7 + n8
+  // Die Reserve nimmt das Grundstück mit (Bezug wie Katalogposition 970), die
+  // Eigentümerkosten nicht (wie 910/920). Beide Basen enden bei BKP 8 — was in
+  // Hauptgruppe 9 steht, bezieht sich nicht auf sich selbst.
+  const basis0bis8 = n0 + basis1bis8
+  const n9Reserve = (doc.bkp9ReserveProzentVon0bis8 ?? 0) * basis0bis8
   const n9 = (doc.bkp9ProzentVon1bis8 ?? 0) * basis1bis8
 
   const label = (c: BkpHauptgruppe) => HAUPTGRUPPEN.find((h) => h.code === c)!.label
@@ -286,7 +295,13 @@ export function benchmarkZeilen(doc: BenchmarkDoc, bezug: BenchmarkBezug): Bench
       ansatzBasis: `von BKP 1–7 ${formatMenge(basis1bis7)} CHF`,
     },
     {
-      code: 9, label: label(9), ebene: 0,
+      code: 9, label: 'Reserve', ebene: 0,
+      netto: n9Reserve, brutto: mitMwst(n9Reserve),
+      feld: 'bkp9ReserveProzentVon0bis8', ansatzWert: doc.bkp9ReserveProzentVon0bis8, ansatzEinheit: '%',
+      ansatzBasis: `von BKP 0–8 ${formatMenge(basis0bis8)} CHF`,
+    },
+    {
+      code: 9, label: 'Eigentümerkosten', ebene: 0,
       netto: n9, brutto: n9, // Eigenleistungen sind nicht MwSt-pflichtig
       feld: 'bkp9ProzentVon1bis8', ansatzWert: doc.bkp9ProzentVon1bis8, ansatzEinheit: '%',
       ansatzBasis: `von BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
