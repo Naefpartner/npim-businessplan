@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, Coins, Info } from 'lucide-react'
 import { KostenmieteSection } from '@/components/projects/KostenmieteSection'
 import { RenditeSection } from '@/components/projects/RenditeSection'
-import { IrrSection } from '@/components/projects/IrrSection'
+import { GewinnSection } from '@/components/projects/GewinnSection'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { KOSTEN_METHODE_LABEL } from '@/types'
 
 // Hauptkapitel „Wirtschaftlichkeit" (Kupfer-Header) — bündelt Kostenmiete-,
-// Rendite- und IRR-Berechnung. Die Unterkapitel tragen ihre Eigentumsart-Farbe
+// Rendite- und Gewinnberechnung. Die Unterkapitel tragen ihre Eigentumsart-Farbe
 // und sind standardmässig zugeklappt.
 export function WirtschaftlichkeitSection({ variantId, defaultExpanded = false }: {
   variantId: string
@@ -51,7 +51,7 @@ export function WirtschaftlichkeitSection({ variantId, defaultExpanded = false }
 
           <KostenmieteSection variantId={variantId} />
           <RenditeSection variantId={variantId} />
-          <IrrSection />
+          <GewinnSection />
         </div>
       )}
     </section>
