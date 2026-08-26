@@ -1,59 +1,107 @@
 import { useMemo } from 'react'
-import { BarChart3, Loader2 } from 'lucide-react'
+import { BarChart3, Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useBenchmarkKosten } from '@/hooks/useBenchmarkKosten'
 import { AnsatzEingabe } from '@/components/projects/AnsatzEingabe'
 import {
-  benchmarkZeilen, BKP2_METHODE_LABEL,
+  benchmarkZeilen, blockKey, BKP2_METHODE_LABEL,
   type Bkp2Methode, type BenchmarkZeile, type BenchmarkZahlfeld,
+  type BenchmarkBezug, type BenchmarkModus, type BenchmarkKennwerte,
 } from '@/lib/benchmark'
 import { ermittleKeeValueMengen } from '@/lib/keevalue'
-import { ertragProNutzung } from '@/lib/bkpBlocks'
+import { ertragProNutzung, gsfBlockShare } from '@/lib/bkpBlocks'
 import { EIGENTUMSART_COLOR, TOTAL_COLOR } from '@/lib/kategorieFarben'
-import { EIGENTUMSART_LABEL, type Eigentumsart } from '@/types'
+import { eigentumsartForBuilding, EIGENTUMSART_LABEL, type Eigentumsart } from '@/types'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
+
+/** Ein Erfassungsblock: der Gesamtsatz oder ein Block Etappe × Nutzungsart. */
+interface Block {
+  /** null = Gesamtsatz über die ganze Variante. */
+  key: string | null
+  titel: string
+  /** Nutzungsart des Blocks; null bei gemischtem oder Gesamtbezug. */
+  eig: Eigentumsart | null
+  bezug: BenchmarkBezug
+}
 
 /**
  * Erfassungsbereich für die Methode „Benchmarks BKP 0–9".
  *
- * Grobschätzung über einen Kennwert je Hauptgruppe, in derselben
- * Tabellenstruktur wie die keeValue-Kostenberechnung — BKP · Hauptgruppe ·
- * Ansatz · exkl. · inkl. · CHF/m² GF.
+ * Zwei Erfassungstiefen: ein Kennwertsatz für die ganze Variante, oder je ein
+ * Satz pro Etappe × Nutzungsart. Beide Stände liegen nebeneinander im
+ * Dokument, ein Wechsel verwirft also nichts.
  */
 export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
   const { canWrite } = useAuth()
-  const { buildings, gsfTotal, totalVmf, mwstSatz, presentEig } = useAnlagekostenShared()
-  const { doc, setFeld, setMethode, loading } = useBenchmarkKosten(variantId)
+  const ak = useAnlagekostenShared()
+  const { buildings, gsfTotal, totalVmf, mwstSatz, presentEig, etappen, blockList, gsfAlloc, hasOhneEtappe } = ak
+  const { doc, kennwerte, setFeld, setBkp2Methode, setModus, loading } = useBenchmarkKosten(variantId)
 
-  // Die Methode rechnet ein Variantentotal ohne Aufteilung nach Nutzungsart.
-  // Bei genau einer Nutzungsart trägt der Kopf deren Farbe, bei mehreren die
-  // neutrale Totalfarbe — sonst suggerierte die Farbe eine Zuordnung, die die
-  // Berechnung gar nicht macht.
-  const eigen: Eigentumsart[] = presentEig
-  const kopfFarbe = eigen.length === 1 ? EIGENTUMSART_COLOR[eigen[0]] : TOTAL_COLOR
-  const kopfHell = eigen.length !== 1
-  const kopfTitel = eigen.length > 0
-    ? eigen.map((e) => EIGENTUMSART_LABEL[e]).join(' · ')
-    : 'Keine Nutzungsart erfasst'
-
-  const bezug = useMemo(() => {
-    const m = ermittleKeeValueMengen(buildings, gsfTotal)
-    return {
-      gsfTotal,
-      gfM2: m.gfM2,
-      gvM3: m.gvM3,
-      gvUiM3: m.gvUnterirdischM3,
-      vmfM2: totalVmf,
-      bufM2: m.bufM2,
-      ertragBasis: Object.values(ertragProNutzung(buildings)).reduce((s, v) => s + v, 0),
-      mwstSatz,
+  // Bezugsgrössen für eine Auswahl von Gebäuden plus deren Grundstücksanteil.
+  const bezugFuer = useMemo(() => (
+    (gebaeude: typeof buildings, gsfAnteil: number): BenchmarkBezug => {
+      const m = ermittleKeeValueMengen(gebaeude, gsfAnteil)
+      return {
+        gsfTotal: gsfAnteil,
+        gfM2: m.gfM2,
+        gvM3: m.gvM3,
+        gvUiM3: m.gvUnterirdischM3,
+        vmfM2: gebaeude.reduce((s, b) => s + b.mietflaechen.reduce((a, f) => a + (f.flaeche_m2 || 0), 0), 0),
+        bufM2: m.bufM2,
+        ertragBasis: Object.values(ertragProNutzung(gebaeude)).reduce((s, v) => s + v, 0),
+        mwstSatz,
+      }
     }
-  }, [buildings, gsfTotal, totalVmf, mwstSatz])
+  ), [mwstSatz])
 
-  const { zeilen, totalNetto, totalBrutto } = useMemo(
-    () => benchmarkZeilen(doc, bezug), [doc, bezug],
+  const gesamtBezug = useMemo(
+    () => bezugFuer(buildings, gsfTotal),
+    [bezugFuer, buildings, gsfTotal],
   )
+
+  // Blöcke Etappe × Nutzungsart. Der Grundstücksanteil folgt der Aufteilung aus
+  // den Anlagekosten (gsfAlloc), ersatzweise dem VMF-Anteil — gleiche Regel wie
+  // beim Detailkatalog, damit die Landkosten in beiden Methoden gleich fallen.
+  const bloecke = useMemo<Block[]>(() => {
+    if (doc.modus === 'total') {
+      return [{
+        key: null,
+        titel: presentEig.length > 0
+          ? presentEig.map((e) => EIGENTUMSART_LABEL[e]).join(' · ')
+          : 'Keine Nutzungsart erfasst',
+        eig: presentEig.length === 1 ? presentEig[0] : null,
+        bezug: gesamtBezug,
+      }]
+    }
+    return blockList.map(({ etappeId, eig }) => {
+      const gebaeude = buildings.filter(
+        (b) => b.etappe_id === etappeId && eigentumsartForBuilding(b.use_type) === eig,
+      )
+      const blockVmfM2 = gebaeude.reduce(
+        (s, b) => s + b.mietflaechen.reduce((a, f) => a + (f.flaeche_m2 || 0), 0), 0)
+      const defaultShare = totalVmf > 0
+        ? blockVmfM2 / totalVmf
+        : (blockList.length ? 1 / blockList.length : 0)
+      const share = gsfBlockShare(gsfAlloc.get(etappeId, eig), gsfTotal, defaultShare)
+      const etappenName = etappen.find((e) => e.id === etappeId)?.name ?? 'Etappe'
+      return {
+        key: blockKey(etappeId, eig),
+        titel: `${etappenName} · ${EIGENTUMSART_LABEL[eig]}`,
+        eig,
+        bezug: bezugFuer(gebaeude, gsfTotal * share),
+      }
+    })
+  }, [doc.modus, presentEig, gesamtBezug, blockList, buildings, totalVmf, gsfAlloc, gsfTotal, etappen, bezugFuer])
+
+  // Ergebnisse je Block plus Gesamtsumme über alle Blöcke.
+  const ergebnisse = useMemo(
+    () => bloecke.map((b) => ({ block: b, erg: benchmarkZeilen(kennwerte(b.key), b.bezug) })),
+    [bloecke, kennwerte],
+  )
+  const totalNetto = ergebnisse.reduce((s, e) => s + e.erg.totalNetto, 0)
+  const totalBrutto = ergebnisse.reduce((s, e) => s + e.erg.totalBrutto, 0)
+  const gfGesamt = gesamtBezug.gfM2
 
   if (loading) {
     return (
@@ -65,31 +113,143 @@ export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-1 flex items-center gap-2">
-        <BarChart3 className="h-4 w-4 text-slate-400" />
-        <h3 className="text-sm font-medium text-slate-700">Benchmarks BKP 0–9</h3>
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-slate-400" />
+            <h3 className="text-sm font-medium text-slate-700">Benchmarks BKP 0–9</h3>
+          </div>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Grobschätzung über einen Kennwert je Hauptgruppe. Die Bezugsgrössen stammen aus
+            Parzellen und Mengengerüst; die Prozentsätze rechnen auf den Netto-Beträgen.
+          </p>
+        </div>
+        <ModusWahl modus={doc.modus} onChange={setModus} disabled={!canWrite} />
       </div>
-      <p className="mb-4 text-xs text-slate-500">
-        Grobschätzung über einen Kennwert je Hauptgruppe. Die Bezugsgrössen stammen aus Parzellen
-        und Mengengerüst; die Prozentsätze rechnen auf den Netto-Beträgen.
-      </p>
 
-      {/* Kopf mit der Nutzungsart — gleiche Bildsprache wie die
-          Eigentumsart-Blöcke des Detailkatalogs. */}
+      {doc.modus === 'aufgeteilt' && hasOhneEtappe && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Es gibt Gebäude ohne Etappen-Zuordnung — die fliessen in dieser Ansicht nicht ein.
+            Bitte in „Mengen und Erträge" einer Etappe zuordnen.
+          </span>
+        </div>
+      )}
+
+      {doc.modus === 'aufgeteilt' && bloecke.length === 0 && (
+        <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+          Keine Etappen mit Gebäuden erfasst — dafür braucht es Etappen in „Mengen und Erträge".
+        </div>
+      )}
+
+      <div className="mt-4 space-y-8">
+        {ergebnisse.map(({ block, erg }) => (
+          <BlockTabelle
+            key={block.key ?? 'gesamt'}
+            block={block}
+            zeilen={erg.zeilen}
+            netto={erg.totalNetto}
+            brutto={erg.totalBrutto}
+            kennwerte={kennwerte(block.key)}
+            canWrite={canWrite}
+            onSetFeld={(feld, wert) => setFeld(block.key, feld, wert)}
+            onSetBkp2Methode={(m) => setBkp2Methode(block.key, m)}
+          />
+        ))}
+      </div>
+
+      {/* Gesamttotal — bei Aufteilung die Summe über alle Blöcke. */}
+      {ergebnisse.length > 0 && (
+        <div className="mt-6">
+          <Totalbalken
+            titel={ergebnisse.length > 1 ? 'Gesamttotal · alle Blöcke' : 'Gesamttotal'}
+            farbe={ergebnisse.length === 1 && bloecke[0].eig
+              ? EIGENTUMSART_COLOR[bloecke[0].eig]
+              : TOTAL_COLOR}
+            hell={!(ergebnisse.length === 1 && bloecke[0].eig)}
+            netto={totalNetto}
+            brutto={totalBrutto}
+            gross
+            kennwert={gfGesamt > 0 ? totalBrutto / gfGesamt : null}
+          />
+        </div>
+      )}
+
+      <p className="mt-3 text-xs text-slate-400">
+        Ohne MwSt gerechnet werden Grundstück und Eigentümerkosten, analog den Katalogpositionen
+        010 und 910/920. BKP 0 bleibt in allen Prozentbasen aussen vor.
+      </p>
+    </section>
+  )
+}
+
+// ── Erfassungstiefe ──────────────────────────────────────────────────────────
+
+function ModusWahl({
+  modus, onChange, disabled,
+}: {
+  modus: BenchmarkModus
+  onChange: (m: BenchmarkModus) => void
+  disabled: boolean
+}) {
+  const optionen: { key: BenchmarkModus; label: string; titel: string }[] = [
+    { key: 'total', label: 'Gesamt', titel: 'Ein Kennwertsatz für die ganze Variante' },
+    { key: 'aufgeteilt', label: 'Nach Etappe & Nutzungsart', titel: 'Ein Kennwertsatz je Etappe und Nutzungsart' },
+  ]
+  return (
+    <div className="inline-flex shrink-0 rounded-lg border border-slate-200 p-0.5">
+      {optionen.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          title={o.titel}
+          disabled={disabled}
+          onClick={() => onChange(o.key)}
+          className={cn(
+            'rounded-md px-2.5 py-1 text-xs font-medium transition',
+            modus === o.key ? 'bg-[#8B6956] text-white' : 'text-slate-600 hover:bg-slate-100',
+            disabled && 'cursor-not-allowed opacity-60',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Ein Block: Kopf, Bezugsgrössen, Tabelle ──────────────────────────────────
+
+function BlockTabelle({
+  block, zeilen, netto, brutto, kennwerte, canWrite, onSetFeld, onSetBkp2Methode,
+}: {
+  block: Block
+  zeilen: BenchmarkZeile[]
+  netto: number
+  brutto: number
+  kennwerte: BenchmarkKennwerte
+  canWrite: boolean
+  onSetFeld: (feld: BenchmarkZahlfeld, wert: number | null) => void
+  onSetBkp2Methode: (m: Bkp2Methode) => void
+}) {
+  const { bezug } = block
+  return (
+    <div className="space-y-3">
       <Totalbalken
-        titel={kopfTitel}
-        farbe={kopfFarbe}
-        hell={kopfHell}
-        netto={totalNetto}
-        brutto={totalBrutto}
+        titel={block.titel}
+        farbe={block.eig ? EIGENTUMSART_COLOR[block.eig] : TOTAL_COLOR}
+        hell={!block.eig}
+        netto={netto}
+        brutto={brutto}
         gross={false}
       />
 
-      <div className="mb-4 grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-3 text-sm sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-3 text-sm sm:grid-cols-5">
         <Kennzahl label="Grundstück (GSF)" wert={`${formatNumber(bezug.gsfTotal)} m²`} />
         <Kennzahl label="Geschossfläche GF" wert={`${formatNumber(bezug.gfM2)} m²`} />
         <Kennzahl label="Gebäudevolumen GV" wert={`${formatNumber(bezug.gvM3)} m³`} />
-        <Kennzahl label="VMF / VKF total" wert={`${formatNumber(bezug.vmfM2)} m²`} />
+        <Kennzahl label="VMF / VKF" wert={`${formatNumber(bezug.vmfM2)} m²`} />
         <Kennzahl
           label="Umgebungsfläche UF"
           wert={bezug.bufM2 != null ? `${formatNumber(bezug.bufM2)} m²` : '—'}
@@ -120,41 +280,23 @@ export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
               <Zeile
                 key={`${z.code}-${z.ebene}-${z.label}`}
                 zeile={z}
-                methode={doc.bkp2Methode}
+                methode={kennwerte.bkp2Methode}
                 canWrite={canWrite}
-                onSetFeld={setFeld}
-                onSetMethode={setMethode}
+                onSetFeld={onSetFeld}
+                onSetMethode={onSetBkp2Methode}
               />
             ))}
           </tbody>
         </table>
       </div>
-
-      {/* Gesamttotal — Pendant zum Gesamttotal des Detailkatalogs. */}
-      <div className="mt-4">
-        <Totalbalken
-          titel="Gesamttotal"
-          farbe={kopfFarbe}
-          hell={kopfHell}
-          netto={totalNetto}
-          brutto={totalBrutto}
-          gross
-          kennwert={bezug.gfM2 > 0 ? totalBrutto / bezug.gfM2 : null}
-        />
-      </div>
-
-      <p className="mt-3 text-xs text-slate-400">
-        Ohne MwSt gerechnet werden Grundstück und Eigentümerkosten, analog den Katalogpositionen
-        010 und 910/920. BKP 0 bleibt in allen Prozentbasen aussen vor.
-      </p>
-    </section>
+    </div>
   )
 }
 
 /**
- * Farbiger Balken mit den Totalen — für den Kopf (Nutzungsart) und das
- * Gesamttotal am Fuss. Aufbau wie die Eigentumsart-Balken des Detailkatalogs:
- * links der Titel, rechts exkl. MwSt / MwSt / inkl. MwSt.
+ * Farbiger Balken mit den Totalen — für den Blockkopf und das Gesamttotal.
+ * Aufbau wie die Eigentumsart-Balken des Detailkatalogs: links der Titel,
+ * rechts exkl. MwSt / MwSt / inkl. MwSt.
  */
 function Totalbalken({
   titel, farbe, hell, netto, brutto, gross, kennwert,

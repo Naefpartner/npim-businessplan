@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
-  type BenchmarkDoc, type BenchmarkZahlfeld, type Bkp2Methode,
-  LEERER_BENCHMARK, normalizeBenchmark,
+  type BenchmarkDoc, type BenchmarkKennwerte, type BenchmarkZahlfeld,
+  type BenchmarkModus, type Bkp2Methode,
+  LEERE_KENNWERTE, normalizeBenchmark,
 } from '@/lib/benchmark'
+
+const LEERES_DOC: BenchmarkDoc = { modus: 'total', total: LEERE_KENNWERTE, bloecke: {} }
 
 /**
  * Lädt/speichert die Kennwerte der Benchmark-Kostenberechnung einer Variante
  * (eine JSONB-Zeile pro Variante, siehe Migration 061).
+ *
+ * Das Dokument hält beide Erfassungstiefen nebeneinander: den Gesamtsatz und
+ * die Sätze je Block. Ein Moduswechsel schaltet nur um, verwirft also nichts.
+ * `blockKey` = null adressiert den Gesamtsatz.
  */
 export function useBenchmarkKosten(variantId: string | undefined) {
-  const [doc, setDoc] = useState<BenchmarkDoc>(LEERER_BENCHMARK)
+  const [doc, setDoc] = useState<BenchmarkDoc>(LEERES_DOC)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,17 +58,43 @@ export function useBenchmarkKosten(variantId: string | undefined) {
     }
   }, [variantId, doc])
 
+  /** Kennwertsatz einer Ebene lesen — null = Gesamtsatz. */
+  const kennwerte = useCallback(
+    (key: string | null): BenchmarkKennwerte =>
+      key == null ? doc.total : (doc.bloecke[key] ?? LEERE_KENNWERTE),
+    [doc],
+  )
+
+  /** Kennwertsatz einer Ebene ändern und speichern. */
+  const aendere = useCallback(
+    (key: string | null, patch: Partial<BenchmarkKennwerte>) => {
+      if (key == null) {
+        void speichere({ ...doc, total: { ...doc.total, ...patch } })
+        return
+      }
+      const vorher = doc.bloecke[key] ?? LEERE_KENNWERTE
+      void speichere({ ...doc, bloecke: { ...doc.bloecke, [key]: { ...vorher, ...patch } } })
+    },
+    [doc, speichere],
+  )
+
   const setFeld = useCallback(
-    (feld: BenchmarkZahlfeld, wert: number | null) => void speichere({ ...doc, [feld]: wert }),
+    (key: string | null, feld: BenchmarkZahlfeld, wert: number | null) =>
+      aendere(key, { [feld]: wert } as Partial<BenchmarkKennwerte>),
+    [aendere],
+  )
+
+  /** Bezugsgrösse für BKP 2. Die Kennwerte der anderen Bezugsgrössen bleiben
+   *  stehen, damit ein versehentlicher Wechsel nichts vernichtet. */
+  const setBkp2Methode = useCallback(
+    (key: string | null, bkp2Methode: Bkp2Methode) => aendere(key, { bkp2Methode }),
+    [aendere],
+  )
+
+  const setModus = useCallback(
+    (modus: BenchmarkModus) => void speichere({ ...doc, modus }),
     [doc, speichere],
   )
 
-  /** Bezugsgrösse für BKP 2. Die Kennwerte der anderen Methoden bleiben stehen,
-   *  damit ein versehentlicher Wechsel nichts vernichtet. */
-  const setMethode = useCallback(
-    (bkp2Methode: Bkp2Methode) => void speichere({ ...doc, bkp2Methode }),
-    [doc, speichere],
-  )
-
-  return { doc, setFeld, setMethode, loading, error }
+  return { doc, kennwerte, setFeld, setBkp2Methode, setModus, loading, error }
 }

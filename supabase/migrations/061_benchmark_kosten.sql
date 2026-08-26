@@ -21,6 +21,12 @@
 --   BKP 8  Entwicklung       — % von BKP 1–7
 --   BKP 9  Eigentümerkosten  — % von BKP 1–8
 --   BKP 9  Reserve           — % von BKP 0–8
+--
+-- Das Dokument hält zwei Erfassungstiefen nebeneinander:
+--   { modus: 'total' | 'aufgeteilt',
+--     total:   { …Kennwerte… },                  -- eine Rechnung für die Variante
+--     bloecke: { '<etappe_id>::<eigentumsart>': { …Kennwerte… } } }
+-- Ein Moduswechsel schaltet nur um und verwirft nichts.
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS variant_benchmark_kosten (

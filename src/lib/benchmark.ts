@@ -16,8 +16,9 @@ export const BKP2_METHODE_LABEL: Record<Bkp2Methode, string> = {
   vmf: 'Mietfläche VMF / VKF',
 }
 
-/** Die erfassten Kennwerte je Variante (Migration 061). */
-export interface BenchmarkDoc {
+/** Ein vollständiger Kennwertsatz — gilt entweder für die ganze Variante
+ *  oder für einen Block (Etappe × Nutzungsart). */
+export interface BenchmarkKennwerte {
   /** BKP 0 Grundstück: CHF pro m² Grundstücksfläche. */
   bkp0ChfProM2Gsf: number | null
   /** BKP 1 Vorbereitungsarbeiten: Anteil an BKP 2. */
@@ -50,7 +51,7 @@ export interface BenchmarkDoc {
   bkp9ReserveProzentVon0bis8: number | null
 }
 
-export const LEERER_BENCHMARK: BenchmarkDoc = {
+export const LEERE_KENNWERTE: BenchmarkKennwerte = {
   bkp0ChfProM2Gsf: null,
   bkp1ProzentVonBkp2: null,
   bkp2Methode: 'gf',
@@ -68,16 +69,62 @@ export const LEERER_BENCHMARK: BenchmarkDoc = {
   bkp9ReserveProzentVon0bis8: null,
 }
 
-/** Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB. */
-export function normalizeBenchmark(doc: Partial<BenchmarkDoc> | null | undefined): BenchmarkDoc {
-  const roh = { ...LEERER_BENCHMARK, ...(doc ?? {}) }
+/**
+ * Erfassungstiefe der Benchmark-Methode.
+ *   'total'      — ein Kennwertsatz für die ganze Variante (Grobrechnung)
+ *   'aufgeteilt' — ein Satz je Block aus Etappe × Nutzungsart (feinere Rechnung)
+ * Beide Stände bleiben gespeichert, ein Wechsel verwirft also nichts.
+ */
+export type BenchmarkModus = 'total' | 'aufgeteilt'
+
+/** Das gespeicherte Dokument je Variante (Migration 061). */
+export interface BenchmarkDoc {
+  modus: BenchmarkModus
+  /** Kennwerte im Gesamtmodus. */
+  total: BenchmarkKennwerte
+  /** Kennwerte je Block; Schlüssel siehe blockKey(). */
+  bloecke: Record<string, BenchmarkKennwerte>
+}
+
+/** Schlüssel eines Blocks im Dokument. */
+export function blockKey(etappeId: string, eig: string): string {
+  return `${etappeId}::${eig}`
+}
+
+function normalizeKennwerte(k: Partial<BenchmarkKennwerte> | null | undefined): BenchmarkKennwerte {
+  const roh = { ...LEERE_KENNWERTE, ...(k ?? {}) }
   // Gegen ungültige Altwerte absichern — die Methode steuert die Berechnung.
   if (!['gf', 'gv', 'vmf'].includes(roh.bkp2Methode)) roh.bkp2Methode = 'gf'
   return roh
 }
 
-/** Zahlenfelder des Dokuments — nur die darf die Ansatz-Eingabe setzen. */
-export type BenchmarkZahlfeld = Exclude<keyof BenchmarkDoc, 'bkp2Methode'>
+/**
+ * Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB.
+ *
+ * Deckt auch den früheren Aufbau ab, bei dem die Kennwerte flach im Dokument
+ * lagen (vor der Aufteilung nach Etappe × Nutzungsart): fehlt `total`, werden
+ * die Felder der obersten Ebene als Gesamtsatz übernommen.
+ */
+export function normalizeBenchmark(doc: Partial<BenchmarkDoc> | null | undefined): BenchmarkDoc {
+  const roh = (doc ?? {}) as Partial<BenchmarkDoc> & Partial<BenchmarkKennwerte>
+  const total = roh.total != null
+    ? normalizeKennwerte(roh.total)
+    : normalizeKennwerte(roh as Partial<BenchmarkKennwerte>)
+
+  const bloecke: Record<string, BenchmarkKennwerte> = {}
+  for (const [key, k] of Object.entries(roh.bloecke ?? {})) {
+    bloecke[key] = normalizeKennwerte(k as Partial<BenchmarkKennwerte>)
+  }
+
+  return {
+    modus: roh.modus === 'aufgeteilt' ? 'aufgeteilt' : 'total',
+    total,
+    bloecke,
+  }
+}
+
+/** Zahlenfelder eines Kennwertsatzes — nur die darf die Ansatz-Eingabe setzen. */
+export type BenchmarkZahlfeld = Exclude<keyof BenchmarkKennwerte, 'bkp2Methode'>
 
 export interface BenchmarkZeile {
   /** Hauptgruppe; bei Unterzeilen die der übergeordneten Gruppe. */
@@ -164,7 +211,7 @@ function basisText(praefix: string, menge: number, einheit: string): string {
  * BKP 0 bleibt in allen Prozentbasen aussen vor, ebenfalls wie im Katalog, wo
  * die Positionen 810 und 910 erst bei Hauptgruppe 1 ansetzen.
  */
-export function benchmarkZeilen(doc: BenchmarkDoc, bezug: BenchmarkBezug): BenchmarkErgebnis {
+export function benchmarkZeilen(doc: BenchmarkKennwerte, bezug: BenchmarkBezug): BenchmarkErgebnis {
   const mitMwst = (netto: number) => netto * (1 + bezug.mwstSatz)
   const gvOiM3 = Math.max(0, bezug.gvM3 - bezug.gvUiM3)
 
