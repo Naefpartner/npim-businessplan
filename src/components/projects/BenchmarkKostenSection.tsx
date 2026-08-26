@@ -5,25 +5,13 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useBenchmarkKosten } from '@/hooks/useBenchmarkKosten'
 import { AnsatzEingabe } from '@/components/projects/AnsatzEingabe'
 import {
-  benchmarkZeilen, blockKey, BKP2_METHODE_LABEL,
+  benchmarkZeilen, BKP2_METHODE_LABEL,
   type Bkp2Methode, type BenchmarkZeile, type BenchmarkZahlfeld,
-  type BenchmarkBezug, type BenchmarkModus, type BenchmarkKennwerte,
+  type BenchmarkModus, type BenchmarkKennwerte,
 } from '@/lib/benchmark'
-import { ermittleKeeValueMengen } from '@/lib/keevalue'
-import { ertragProNutzung, gsfBlockShare } from '@/lib/bkpBlocks'
+import { useKostenBloecke, type KostenBlock } from '@/hooks/useKostenBloecke'
 import { EIGENTUMSART_COLOR, TOTAL_COLOR } from '@/lib/kategorieFarben'
-import { eigentumsartForBuilding, EIGENTUMSART_LABEL, type Eigentumsart } from '@/types'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
-
-/** Ein Erfassungsblock: der Gesamtsatz oder ein Block Etappe × Nutzungsart. */
-interface Block {
-  /** null = Gesamtsatz über die ganze Variante. */
-  key: string | null
-  titel: string
-  /** Nutzungsart des Blocks; null bei gemischtem oder Gesamtbezug. */
-  eig: Eigentumsart | null
-  bezug: BenchmarkBezug
-}
 
 /**
  * Erfassungsbereich für die Methode „Benchmarks BKP 0–9".
@@ -35,64 +23,10 @@ interface Block {
 export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
   const { canWrite } = useAuth()
   const ak = useAnlagekostenShared()
-  const { buildings, gsfTotal, totalVmf, mwstSatz, presentEig, etappen, blockList, gsfAlloc, hasOhneEtappe } = ak
+  const { hasOhneEtappe } = ak
   const { doc, kennwerte, setFeld, setBkp2Methode, setModus, loading } = useBenchmarkKosten(variantId)
 
-  // Bezugsgrössen für eine Auswahl von Gebäuden plus deren Grundstücksanteil.
-  const bezugFuer = useMemo(() => (
-    (gebaeude: typeof buildings, gsfAnteil: number): BenchmarkBezug => {
-      const m = ermittleKeeValueMengen(gebaeude, gsfAnteil)
-      return {
-        gsfTotal: gsfAnteil,
-        gfM2: m.gfM2,
-        gvM3: m.gvM3,
-        gvUiM3: m.gvUnterirdischM3,
-        vmfM2: gebaeude.reduce((s, b) => s + b.mietflaechen.reduce((a, f) => a + (f.flaeche_m2 || 0), 0), 0),
-        bufM2: m.bufM2,
-        ertragBasis: Object.values(ertragProNutzung(gebaeude)).reduce((s, v) => s + v, 0),
-        mwstSatz,
-      }
-    }
-  ), [mwstSatz])
-
-  const gesamtBezug = useMemo(
-    () => bezugFuer(buildings, gsfTotal),
-    [bezugFuer, buildings, gsfTotal],
-  )
-
-  // Blöcke Etappe × Nutzungsart. Der Grundstücksanteil folgt der Aufteilung aus
-  // den Anlagekosten (gsfAlloc), ersatzweise dem VMF-Anteil — gleiche Regel wie
-  // beim Detailkatalog, damit die Landkosten in beiden Methoden gleich fallen.
-  const bloecke = useMemo<Block[]>(() => {
-    if (doc.modus === 'total') {
-      return [{
-        key: null,
-        titel: presentEig.length > 0
-          ? presentEig.map((e) => EIGENTUMSART_LABEL[e]).join(' · ')
-          : 'Keine Nutzungsart erfasst',
-        eig: presentEig.length === 1 ? presentEig[0] : null,
-        bezug: gesamtBezug,
-      }]
-    }
-    return blockList.map(({ etappeId, eig }) => {
-      const gebaeude = buildings.filter(
-        (b) => b.etappe_id === etappeId && eigentumsartForBuilding(b.use_type) === eig,
-      )
-      const blockVmfM2 = gebaeude.reduce(
-        (s, b) => s + b.mietflaechen.reduce((a, f) => a + (f.flaeche_m2 || 0), 0), 0)
-      const defaultShare = totalVmf > 0
-        ? blockVmfM2 / totalVmf
-        : (blockList.length ? 1 / blockList.length : 0)
-      const share = gsfBlockShare(gsfAlloc.get(etappeId, eig), gsfTotal, defaultShare)
-      const etappenName = etappen.find((e) => e.id === etappeId)?.name ?? 'Etappe'
-      return {
-        key: blockKey(etappeId, eig),
-        titel: `${etappenName} · ${EIGENTUMSART_LABEL[eig]}`,
-        eig,
-        bezug: bezugFuer(gebaeude, gsfTotal * share),
-      }
-    })
-  }, [doc.modus, presentEig, gesamtBezug, blockList, buildings, totalVmf, gsfAlloc, gsfTotal, etappen, bezugFuer])
+  const bloecke = useKostenBloecke(doc.modus)
 
   // Ergebnisse je Block plus Gesamtsumme über alle Blöcke.
   const ergebnisse = useMemo(
@@ -101,7 +35,8 @@ export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
   )
   const totalNetto = ergebnisse.reduce((s, e) => s + e.erg.totalNetto, 0)
   const totalBrutto = ergebnisse.reduce((s, e) => s + e.erg.totalBrutto, 0)
-  const gfGesamt = gesamtBezug.gfM2
+  // Kennwertspalte des Gesamttotals über die Geschossfläche aller Blöcke.
+  const gfGesamt = bloecke.reduce((s, b) => s + b.bezug.gfM2, 0)
 
   if (loading) {
     return (
@@ -224,7 +159,7 @@ function ModusWahl({
 function BlockTabelle({
   block, zeilen, netto, brutto, kennwerte, canWrite, onSetFeld, onSetBkp2Methode,
 }: {
-  block: Block
+  block: KostenBlock
   zeilen: BenchmarkZeile[]
   netto: number
   brutto: number

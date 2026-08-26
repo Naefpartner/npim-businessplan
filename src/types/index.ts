@@ -116,10 +116,15 @@ export const KOSTEN_METHODE_LABEL: Record<KostenMethode, string> = {
   detail:    'Detailkatalog',
 }
 
-/** Gespeicherter keeValue-Excel-Import einer Variante. `doc` = KeeValueImport. */
+/**
+ * Gespeicherter keeValue-Excel-Import. `doc` = KeeValueImport.
+ * Ein Datensatz je Variante × Block (Migration 062): `block_key` ist leer für
+ * den Gesamtimport, sonst '<etappe_id>::<eigentumsart>'.
+ */
 export interface VariantKeeValueImport {
   id: string
   variant_id: string
+  block_key: string
   file_name: string | null
   preisstand: string | null
   version: string | null

@@ -723,9 +723,54 @@ export const LEERE_ERGAENZUNG: ErgaenzungDoc = {
   bkp9ReserveProzentVon0bis8: null,
 }
 
-/** Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB. */
-export function normalizeErgaenzung(doc: Partial<ErgaenzungDoc> | null | undefined): ErgaenzungDoc {
-  return { ...LEERE_ERGAENZUNG, ...(doc ?? {}) }
+/**
+ * Erfassungstiefe der keeValue-Methode — wie bei den Benchmarks:
+ *   'total'      — ein keeValue-Ergebnis für die ganze Variante
+ *   'aufgeteilt' — je Block aus Etappe × Nutzungsart ein eigenes Ergebnis,
+ *                  separat in keeValue gerechnet und separat eingelesen
+ * Beide Stände bleiben gespeichert, ein Wechsel verwirft also nichts.
+ */
+export type KeeValueModus = 'total' | 'aufgeteilt'
+
+/**
+ * Das JSONB-Dokument von variant_keevalue_ergaenzung: die Erfassungstiefe und
+ * die ergänzenden Kennwerte je Ebene. Die Excel-Importe selbst liegen daneben
+ * in variant_keevalue_import, ein Datensatz je Block (Migration 062).
+ */
+export interface ErgaenzungsDokument {
+  modus: KeeValueModus
+  /** Kennwerte im Gesamtmodus. */
+  total: ErgaenzungDoc
+  /** Kennwerte je Block; Schlüssel = blockKey() aus lib/bkpBlocks.ts. */
+  bloecke: Record<string, ErgaenzungDoc>
+}
+
+function normalizeKennwerte(k: Partial<ErgaenzungDoc> | null | undefined): ErgaenzungDoc {
+  return { ...LEERE_ERGAENZUNG, ...(k ?? {}) }
+}
+
+/**
+ * Fehlende Felder auffüllen — `doc` kommt als beliebiges JSONB aus der DB.
+ *
+ * Deckt auch den früheren Aufbau ab, bei dem die Kennwerte flach im Dokument
+ * lagen (vor der Aufteilung nach Etappe × Nutzungsart): fehlt `total`, werden
+ * die Felder der obersten Ebene als Gesamtsatz übernommen.
+ */
+export function normalizeErgaenzung(
+  doc: Partial<ErgaenzungsDokument> | null | undefined,
+): ErgaenzungsDokument {
+  const roh = (doc ?? {}) as Partial<ErgaenzungsDokument> & Partial<ErgaenzungDoc>
+  const bloecke: Record<string, ErgaenzungDoc> = {}
+  for (const [key, k] of Object.entries(roh.bloecke ?? {})) {
+    bloecke[key] = normalizeKennwerte(k as Partial<ErgaenzungDoc>)
+  }
+  return {
+    modus: roh.modus === 'aufgeteilt' ? 'aufgeteilt' : 'total',
+    total: roh.total != null
+      ? normalizeKennwerte(roh.total)
+      : normalizeKennwerte(roh as Partial<ErgaenzungDoc>),
+    bloecke,
+  }
 }
 
 export interface AnlagekostenZeile extends NaefKostenZeile {
@@ -1003,6 +1048,59 @@ export function alsBkpErgebnis(erg: AnlagekostenErgebnis, anteil: number): BkpEr
     totalNetto: erg.totalNetto * anteil,
     totalMwst: (erg.totalBrutto - erg.totalNetto) * anteil,
     totalBrutto: erg.totalBrutto * anteil,
+  }
+}
+
+/**
+ * Summiert mehrere BkpErgebnisse zu einem — etwa die Blöcke einer Nutzungsart,
+ * wenn keeValue je Etappe gerechnet wurde. Die Position 010 (Grundstück) wird
+ * mitaddiert, weil Kostenmiete und Rendite daraus den Landanteil lesen.
+ */
+export function addiereErgebnisse(teile: BkpErgebnis[]): BkpErgebnis {
+  const nettoHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  let landNetto = 0
+  let landMwst = 0
+  let totalNetto = 0
+  let totalMwst = 0
+
+  for (const t of teile) {
+    for (let c = 0; c <= 9; c++) {
+      const k = c as keyof typeof t.hauptgruppenSummenNetto
+      nettoHg[c] += t.hauptgruppenSummenNetto[k] ?? 0
+      mwstHg[c] += t.hauptgruppenSummenMwst[k] ?? 0
+    }
+    const p = t.positionen['010']
+    landNetto += p?.betragNetto ?? 0
+    landMwst += p?.mwstBetrag ?? 0
+    totalNetto += t.totalNetto
+    totalMwst += t.totalMwst
+  }
+
+  const pos010 = BKP_POSITIONEN.find((p) => p.code === '010')!
+  return {
+    positionen: {
+      '010': {
+        position: pos010,
+        status: 'beruecksichtigt',
+        kennwert: null,
+        betragOverride: null,
+        menge: null,
+        mengeEinheit: 'm² GSF',
+        preisEinheit: 'CHF/m²',
+        betragNetto: landNetto,
+        mwstAnwenden: landMwst > 0,
+        mwstSatz: landNetto > 0 ? landMwst / landNetto : 0,
+        mwstBetrag: landMwst,
+        betragBrutto: landNetto + landMwst,
+        berechnungs_info: 'Summe der keeValue-Blöcke',
+      } satisfies PositionResult,
+    },
+    hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
+    hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
+    totalNetto,
+    totalMwst,
+    totalBrutto: totalNetto + totalMwst,
   }
 }
 

@@ -5,6 +5,7 @@
 // in frühen Phasen, wenn noch kein Positionsraster gefüllt werden kann.
 
 import { HAUPTGRUPPEN, type BkpHauptgruppe } from '@/lib/bkpKatalog'
+export { blockKey } from '@/lib/bkpBlocks'
 import type { AnsatzEinheit } from '@/components/projects/AnsatzEingabe'
 
 /** Bezugsgrösse, über die BKP 2 gerechnet wird. */
@@ -84,11 +85,6 @@ export interface BenchmarkDoc {
   total: BenchmarkKennwerte
   /** Kennwerte je Block; Schlüssel siehe blockKey(). */
   bloecke: Record<string, BenchmarkKennwerte>
-}
-
-/** Schlüssel eines Blocks im Dokument. */
-export function blockKey(etappeId: string, eig: string): string {
-  return `${etappeId}::${eig}`
 }
 
 function normalizeKennwerte(k: Partial<BenchmarkKennwerte> | null | undefined): BenchmarkKennwerte {

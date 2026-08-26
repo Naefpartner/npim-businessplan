@@ -233,6 +233,15 @@ export function ertragProNutzung(buildings: BuildingLite[]): Record<string, numb
 }
 
 /**
+ * Schlüssel eines Kostenblocks (Etappe × Eigentumsart). Wird von der
+ * Benchmark- und der keeValue-Methode gleichermassen verwendet — im
+ * JSONB-Dokument wie in der Spalte block_key des keeValue-Imports.
+ */
+export function blockKey(etappeId: string, eig: Eigentumsart): string {
+  return `${etappeId}::${eig}`
+}
+
+/**
  * Block-Anteil (0..1) aus der GSF-Aufteilung. Ohne Allokation: `defaultShare`
  * (üblich VMF-anteilig, vom Aufrufer berechnet).
  */
