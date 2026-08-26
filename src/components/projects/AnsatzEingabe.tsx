@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 
-export type AnsatzEinheit = 'CHF/m²' | 'CHF/m³' | '%'
+export type AnsatzEinheit = 'CHF' | 'CHF/m²' | 'CHF/m³' | '%'
 
 /**
  * Zahleneingabe für die Kennwerte der Kostenberechnung (keeValue-Ergänzung und
@@ -48,7 +48,9 @@ export function AnsatzEingabe({
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder="—"
         className={cn(
-          'w-20 rounded border border-slate-200 px-1.5 py-0.5 text-right text-sm tabular-nums',
+          'rounded border border-slate-200 px-1.5 py-0.5 text-right text-sm tabular-nums',
+          // Pauschalbeträge werden fünf- bis siebenstellig — dafür mehr Platz.
+          einheit === 'CHF' ? 'w-28' : 'w-20',
           'focus:border-slate-400 focus:outline-none',
           disabled && 'cursor-not-allowed bg-slate-50 text-slate-400',
         )}
