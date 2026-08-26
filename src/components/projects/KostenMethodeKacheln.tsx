@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { BarChart3, Globe, Table2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
@@ -42,20 +43,25 @@ const METHODEN: MethodeMeta[] = [
  * bestimmt, welcher Erfassungsbereich in den Anlagekosten angezeigt wird.
  */
 export function KostenMethodeKacheln({
-  methode, onChange, disabled = false,
+  methode, onChange, disabled = false, kopfRechts,
 }: {
   methode: KostenMethode
   onChange: (m: KostenMethode) => void
   disabled?: boolean
+  /** Zusatzsteuerung rechts im Kopf, z.B. der MwSt-Satz der Variante. */
+  kopfRechts?: ReactNode
 }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3">
-        <h2 className="text-sm font-medium text-slate-700">Erfassungsmethode</h2>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Bestimmt, wie die Anlagekosten dieser Variante ermittelt werden. Jederzeit umschaltbar —
-          die Daten der anderen Methoden bleiben erhalten.
-        </p>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-slate-700">Erfassungsmethode</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Bestimmt, wie die Anlagekosten dieser Variante ermittelt werden. Jederzeit umschaltbar —
+            die Daten der anderen Methoden bleiben erhalten.
+          </p>
+        </div>
+        {kopfRechts}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

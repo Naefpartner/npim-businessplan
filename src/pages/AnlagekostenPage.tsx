@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, AlertCircle, ChevronDown, ChevronRight, Coins, Calculator, Plus, Trash2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -36,6 +36,22 @@ function formatInputDisplay(n: number): string {
   const digits = sign ? intPart.slice(1) : intPart
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, "'")
   return decPart != null ? `${sign}${grouped}.${decPart}` : `${sign}${grouped}`
+}
+
+/** MwSt-Satz der Variante — gilt für alle Erfassungsmethoden. */
+function MwstFeld({
+  mwstSatz, canWrite, onCommit,
+}: {
+  mwstSatz: number
+  canWrite: boolean
+  onCommit: (v: number) => void
+}) {
+  return (
+    <span className="flex items-baseline gap-2 text-sm">
+      <label className="text-xs text-slate-500">MwSt global:</label>
+      <ProzentEingabe value={mwstSatz} disabled={!canWrite} onCommit={(v) => v != null && onCommit(v)} />
+    </span>
+  )
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -93,11 +109,7 @@ export function AnlagekostenSection({
   // Prefix für die Ansichts-Persistenz (variantenspezifisch).
   const viewKey = variantId ? `ak:${variantId}` : null
   const { canWrite } = useAuth()
-  const location = useLocation()
   const [expanded, setExpanded] = useState(defaultExpanded)
-  const parzellenUrl = projektId
-    ? `/projekte/${projektId}/parzellen?return=${encodeURIComponent(location.pathname)}`
-    : undefined
 
   const [activeTab, setActiveTab] = useState<string>(
     () => (viewKey && typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`${viewKey}:tab`) : null) || 'konsolidiert',
@@ -107,7 +119,7 @@ export function AnlagekostenSection({
 
   const {
     loading, mwstSatz, setGlobalMwstSatz,
-    buildings, etappen, presentEig, gsfTotal, totalVmf,
+    buildings, etappen, presentEig, gsfTotal,
     positionsByEig, typForByEig,
     blockErgebnisse, konsolidiert,
     aggregateFlags, hasOhneEtappe, totalAllocatedGsf, gsfMismatch,
@@ -190,27 +202,20 @@ export function AnlagekostenSection({
       ) : (
         <div className="space-y-6 p-5">
       {/* Erfassungsmethode — nur variantenbezogen wählbar. Ohne Variante
-          (Projektsicht) bleibt es beim Detailkatalog. */}
-      {variantId && (
-        <KostenMethodeKacheln methode={kostenMethode} onChange={setKostenMethode} disabled={!canWrite} />
+          (Projektsicht) bleibt es beim Detailkatalog; der MwSt-Satz wird dann
+          eigenständig gezeigt, damit er in keinem Fall verschwindet. */}
+      {variantId ? (
+        <KostenMethodeKacheln
+          methode={kostenMethode}
+          onChange={setKostenMethode}
+          disabled={!canWrite}
+          kopfRechts={<MwstFeld mwstSatz={mwstSatz} canWrite={canWrite} onCommit={setGlobalMwstSatz} />}
+        />
+      ) : (
+        <div className="flex justify-end">
+          <MwstFeld mwstSatz={mwstSatz} canWrite={canWrite} onCommit={setGlobalMwstSatz} />
+        </div>
       )}
-
-      {/* Globale Parameter */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-baseline justify-between gap-3 mb-3">
-          <h2 className="text-sm font-medium text-slate-700">Globale Parameter</h2>
-          <div className="flex items-baseline gap-2 text-sm">
-            <label className="text-xs text-slate-500">MwSt global:</label>
-            <ProzentEingabe value={mwstSatz} disabled={!canWrite} onCommit={(v) => v != null && setGlobalMwstSatz(v)} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-          <Stat label="Grundstück (GSF)" value={`${formatNumber(gsfTotal)} m²`} linkTo={parzellenUrl} linkTitle="Parzellen erfassen / bearbeiten" />
-          <Stat label="VMF total" value={`${formatNumber(totalVmf)} m²`} />
-          <Stat label="Etappen" value={String(etappen.length)} />
-          <Stat label="Eigentumsarten" value={presentEig.map((e) => EIGENTUMSART_LABEL[e]).join(' · ')} />
-        </div>
-      </section>
 
       {variantId && kostenMethode === 'benchmark' && <BenchmarkKostenSection variantId={variantId} />}
       {variantId && kostenMethode === 'keevalue' && (
@@ -624,30 +629,6 @@ function GsfMengeControl({ gsfRow, canWrite }: { gsfRow: GsfRow; canWrite: boole
       {istDefault && (
         <span className="text-[9px] text-slate-400">Default {eig === 'verkaufsobjekt' ? 'VKF' : 'VMF'}</span>
       )}
-    </div>
-  )
-}
-
-function Stat({
-  label, value, linkTo, linkTitle,
-}: {
-  label: string
-  value: string
-  linkTo?: string
-  linkTitle?: string
-}) {
-  if (linkTo) {
-    return (
-      <Link to={linkTo} title={linkTitle} className="group block rounded-md p-1 -m-1 hover:bg-slate-50">
-        <div className="text-xs text-slate-500 group-hover:text-slate-700">{label}</div>
-        <div className="mt-0.5 text-base font-semibold tabular-nums text-slate-900 group-hover:text-[#8B6956] group-hover:underline">{value}</div>
-      </Link>
-    )
-  }
-  return (
-    <div>
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-0.5 text-base font-semibold text-slate-900 tabular-nums">{value}</div>
     </div>
   )
 }
