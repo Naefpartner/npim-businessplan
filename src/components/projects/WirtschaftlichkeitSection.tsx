@@ -14,7 +14,10 @@ export function WirtschaftlichkeitSection({ variantId, defaultExpanded = false }
   defaultExpanded?: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
-  const { kostenMethode, keeValueAktiv } = useAnlagekostenShared()
+  const { kostenMethode, keeValueAktiv, kostenModus } = useAnlagekostenShared()
+  const tiefe = kostenModus === 'total'
+    ? 'gesamthaft für die Variante erfasst; Etappenwerte sind nach VMF-Anteil abgeleitet'
+    : 'je Etappe und Nutzungsart erfasst'
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -33,20 +36,15 @@ export function WirtschaftlichkeitSection({ variantId, defaultExpanded = false }
           {/* Woher die Kosten stammen — sonst ist unklar, welcher Stand gerechnet wird. */}
           <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-            {keeValueAktiv ? (
-              <span>
-                Kostenbasis: <strong>keeValue</strong> — die importierten Erstellungskosten samt
-                den ergänzten Hauptgruppen, nach VMF-Anteil auf die Eigentumsarten verteilt.
-                Eine Aufteilung nach Etappen kennt die Methode nicht.
-              </span>
-            ) : kostenMethode === 'keevalue' ? (
+            {kostenMethode === 'keevalue' && !keeValueAktiv ? (
               <span>
                 Erfassungsmethode <strong>keeValue</strong> gewählt, aber noch kein Ergebnis-Excel
                 eingelesen — gerechnet wird bis dahin mit dem Detailkatalog.
               </span>
             ) : (
               <span>
-                Kostenbasis: <strong>{KOSTEN_METHODE_LABEL[kostenMethode]}</strong> aus den Anlagekosten.
+                Kostenbasis: <strong>{KOSTEN_METHODE_LABEL[kostenMethode]}</strong> aus den
+                Anlagekosten, {tiefe}.
               </span>
             )}
           </div>

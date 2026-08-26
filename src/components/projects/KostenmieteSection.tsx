@@ -102,11 +102,7 @@ export function KostenmieteSection({ variantId, defaultExpanded = false }: { var
     () => ak.etappen.filter((e) => ak.blockErgebnisse.has(`${e.id}::${EIG}`)),
     [ak.etappen, ak.blockErgebnisse],
   )
-  // Die keeValue-Methode liefert ein Variantentotal ohne Etappenaufteilung —
-  // dann gibt es nur die konsolidierte Sicht.
-  const tabs = ak.keeValueAktiv
-    ? [{ key: 'konsolidiert', label: 'Konsolidiert' }]
-    : [{ key: 'konsolidiert', label: 'Konsolidiert' }, ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name }))]
+  const tabs = [{ key: 'konsolidiert', label: 'Konsolidiert' }, ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name }))]
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
   const isKons = tabKey === 'konsolidiert'
 
@@ -115,10 +111,11 @@ export function KostenmieteSection({ variantId, defaultExpanded = false }: { var
     [ak.buildings, isKons, tabKey],
   )
 
-  // Kosten aus der in den Anlagekosten gewählten Erfassungsmethode.
+  // Kosten aus der in den Anlagekosten gewählten Erfassungsmethode — auf
+  // Etappenebene ebenso wie konsolidiert.
   const ergebnis = isKons
     ? ak.konsolidiertEffektiv.get(EIG)
-    : ak.blockErgebnisse.get(`${tabKey}::${EIG}`)
+    : ak.blockErgebnisseEffektiv.get(`${tabKey}::${EIG}`)
   const basis = useMemo(
     () => (ergebnis ? basisFromErgebnis(ergebnis, vmf, wohnenFlaeche, wohnungen) : null),
     [ergebnis, vmf, wohnenFlaeche, wohnungen],

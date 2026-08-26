@@ -23,8 +23,11 @@ import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { useKeeValueErgaenzung } from '@/hooks/useKeeValueErgaenzung'
 import { useKostenMethode } from '@/hooks/useKostenMethode'
 import {
-  anlagekostenZeilen, alsBkpErgebnis, addiereErgebnisse, ermittleKeeValueMengen,
+  anlagekostenZeilen, alsBkpErgebnis, addiereErgebnisse, skaliereErgebnis,
+  ermittleKeeValueMengen,
 } from '@/lib/keevalue'
+import { benchmarkZeilen, benchmarkAlsBkpErgebnis } from '@/lib/benchmark'
+import { useBenchmarkKosten } from '@/hooks/useBenchmarkKosten'
 import { GESAMT_KEY } from '@/hooks/useKeeValueImport'
 
 // Sortierschlüssel aus der Positionsnummer (führende Ziffern); ohne Nummer ans Ende.
@@ -252,87 +255,115 @@ export function useAnlagekosten(
   // auf dem gerechnet wird.
   const keeValueImport = useKeeValueImport(variantId)
   const keeValueErgaenzung = useKeeValueErgaenzung(variantId)
+  const benchmark = useBenchmarkKosten(variantId)
   // Die Methode wird hier gehalten, nicht aus dem einmalig geladenen `variant`
   // gelesen — sonst bliebe sie nach dem Umschalten der Kachel stehen, bis die
   // Seite neu geladen wird. Die Kachel schreibt über denselben Hook.
   const { methode: kostenMethode, setMethode: setKostenMethode } = useKostenMethode(variantId)
   const keeValueAktiv = kostenMethode === 'keevalue' && keeValueImport.hatImport
+  const benchmarkAktiv = kostenMethode === 'benchmark'
+  /** Erfassungstiefe der aktiven Methode; der Detailkatalog ist immer aufgeteilt. */
+  const kostenModus: 'total' | 'aufgeteilt' =
+    keeValueAktiv ? keeValueErgaenzung.doc.modus
+    : benchmarkAktiv ? benchmark.doc.modus
+    : 'aufgeteilt'
 
-  // VMF je Eigentumsart — Verteilschlüssel, wenn keeValue gesamthaft gerechnet
-  // wird und das Variantentotal auf die Nutzungsarten aufzuteilen ist.
-  const vmfByEig = useMemo(() => {
-    const m = new Map<Eigentumsart, number>()
-    for (const b of buildings) {
-      const eig = eigentumsartForBuilding(b.use_type)
-      const vmf = b.mietflaechen.reduce((a, mf) => a + (mf.flaeche_m2 || 0), 0)
-      m.set(eig, (m.get(eig) ?? 0) + vmf)
+  /**
+   * Anlagekosten je Block (Etappe × Nutzungsart) gemäss gewählter Methode und
+   * Erfassungstiefe. Einheitliche Grundlage für Kostenmiete, Rendite und
+   * Residualwert — die rechnen damit unabhängig von der Methode gleich.
+   *
+   * Bei Erfassung auf Gesamtebene gibt es kein Blockergebnis; das Total wird
+   * dann nach VMF-Anteil auf die Blöcke heruntergebrochen, damit sich auch
+   * dort Etappen betrachten lassen.
+   */
+  const blockErgebnisseEffektiv = useMemo(() => {
+    if (!keeValueAktiv && !benchmarkAktiv) return blockErgebnisse
+
+    const bezugFuer = (gebaeude: typeof buildings, gsf: number) => {
+      const m = ermittleKeeValueMengen(gebaeude, gsf)
+      return {
+        gsfTotal: gsf,
+        gfM2: m.gfM2,
+        gvM3: m.gvM3,
+        gvUiM3: m.gvUnterirdischM3,
+        vmfM2: gebaeude.reduce(
+          (a, b) => a + b.mietflaechen.reduce((x, mf) => x + (mf.flaeche_m2 || 0), 0), 0),
+        bufM2: m.bufM2,
+        ertragBasis: Object.values(ertragProNutzung(gebaeude)).reduce((a, v) => a + v, 0),
+        mwstSatz,
+      }
     }
-    return m
-  }, [buildings])
 
+    // Gesamtebene einmal rechnen — für den Fall, dass sie auf die Blöcke
+    // verteilt werden muss.
+    const gesamtBezug = bezugFuer(buildings, gsfTotal)
+    const gesamtErgebnis = (): BkpErgebnis | null => {
+      if (benchmarkAktiv) {
+        return benchmarkAlsBkpErgebnis(
+          benchmarkZeilen(benchmark.kennwerte(GESAMT_KEY), gesamtBezug), 1)
+      }
+      const imp = keeValueImport.imp(GESAMT_KEY)
+      if (!imp) return null
+      return alsBkpErgebnis(
+        anlagekostenZeilen(imp, keeValueErgaenzung.kennwerte(GESAMT_KEY), gesamtBezug), 1)
+    }
+    const gesamt = kostenModus === 'total' ? gesamtErgebnis() : null
+
+    const map = new Map<string, BkpErgebnis>()
+    for (const { etappeId, eig } of blockList) {
+      const gebaeude = buildings.filter(
+        (b) => b.etappe_id === etappeId && eigentumsartForBuilding(b.use_type) === eig)
+      const blockVmf = gebaeude.reduce(
+        (a, b) => a + b.mietflaechen.reduce((x, mf) => x + (mf.flaeche_m2 || 0), 0), 0)
+      const vmfAnteil = totalVmf > 0
+        ? blockVmf / totalVmf
+        : (blockList.length ? 1 / blockList.length : 0)
+
+      if (kostenModus === 'total') {
+        // Ein Variantentotal — nach VMF-Anteil auf die Blöcke verteilen.
+        if (gesamt) map.set(`${etappeId}::${eig}`, skaliereErgebnis(gesamt, vmfAnteil))
+        continue
+      }
+
+      // Aufgeteilt erfasst: der Block hat seine eigenen Kennwerte.
+      const share = gsfBlockShare(gsfAlloc.get(etappeId, eig), gsfTotal, vmfAnteil)
+      const bezug = bezugFuer(gebaeude, gsfTotal * share)
+      const key = blockKey(etappeId, eig)
+      if (benchmarkAktiv) {
+        map.set(`${etappeId}::${eig}`,
+          benchmarkAlsBkpErgebnis(benchmarkZeilen(benchmark.kennwerte(key), bezug), 1))
+      } else {
+        const imp = keeValueImport.imp(key)
+        if (imp) {
+          map.set(`${etappeId}::${eig}`,
+            alsBkpErgebnis(anlagekostenZeilen(imp, keeValueErgaenzung.kennwerte(key), bezug), 1))
+        }
+      }
+    }
+    return map
+  }, [keeValueAktiv, benchmarkAktiv, kostenModus, blockErgebnisse, blockList, buildings,
+      gsfTotal, totalVmf, mwstSatz, gsfAlloc, benchmark, keeValueImport, keeValueErgaenzung])
+
+  /** Konsolidiert je Nutzungsart — Summe der Blöcke der aktiven Methode. */
   const konsolidiertEffektiv = useMemo(() => {
     const map = new Map<Eigentumsart, BkpErgebnis>()
-    if (!keeValueAktiv) {
+    if (!keeValueAktiv && !benchmarkAktiv) {
       for (const eig of presentEig) {
         const erg = konsolidiert.get(eig)?.ergebnis
         if (erg) map.set(eig, erg)
       }
       return map
     }
-
-    const mengenFuer = (gebaeude: typeof buildings, gsf: number) => ({
-      gsfTotal: gsf,
-      gfM2: ermittleKeeValueMengen(gebaeude, gsf).gfM2,
-      ertragBasis: Object.values(ertragProNutzung(gebaeude)).reduce((a, v) => a + v, 0),
-      mwstSatz,
-    })
-
-    if (keeValueErgaenzung.doc.modus === 'aufgeteilt') {
-      // Jeder Block gehört bereits zu einer Nutzungsart — die Kosten lassen
-      // sich direkt zuordnen, ohne Verteilschlüssel. Blöcke ohne Import
-      // steuern nichts bei.
-      const summen = new Map<Eigentumsart, BkpErgebnis[]>()
-      for (const { etappeId, eig } of blockList) {
-        const key = blockKey(etappeId, eig)
-        const imp = keeValueImport.imp(key)
-        if (!imp) continue
-        const gebaeude = buildings.filter(
-          (b) => b.etappe_id === etappeId && eigentumsartForBuilding(b.use_type) === eig)
-        const blockVmf = gebaeude.reduce(
-          (a, b) => a + b.mietflaechen.reduce((x, mf) => x + (mf.flaeche_m2 || 0), 0), 0)
-        const dShare = totalVmf > 0
-          ? blockVmf / totalVmf
-          : (blockList.length ? 1 / blockList.length : 0)
-        const share = gsfBlockShare(gsfAlloc.get(etappeId, eig), gsfTotal, dShare)
-        const erg = anlagekostenZeilen(
-          imp, keeValueErgaenzung.kennwerte(key), mengenFuer(gebaeude, gsfTotal * share))
-        const liste = summen.get(eig) ?? []
-        liste.push(alsBkpErgebnis(erg, 1))
-        summen.set(eig, liste)
-      }
-      for (const eig of presentEig) {
-        const teile = summen.get(eig)
-        if (teile?.length) map.set(eig, addiereErgebnisse(teile))
-      }
-      return map
-    }
-
-    // Gesamtmodus: ein Variantentotal, nach VMF-Anteil auf die Nutzungsarten.
-    const imp = keeValueImport.imp(GESAMT_KEY)
-    if (!imp) return map
-    const gesamt = anlagekostenZeilen(
-      imp, keeValueErgaenzung.kennwerte(GESAMT_KEY), mengenFuer(buildings, gsfTotal))
     for (const eig of presentEig) {
-      // Ohne VMF (z.B. reine Parkierung) gleichmässig verteilen, damit die
-      // Kosten nicht verschwinden.
-      const anteil = totalVmf > 0
-        ? (vmfByEig.get(eig) ?? 0) / totalVmf
-        : (presentEig.length ? 1 / presentEig.length : 0)
-      map.set(eig, alsBkpErgebnis(gesamt, anteil))
+      const teile = blockList
+        .filter((b) => b.eig === eig)
+        .map((b) => blockErgebnisseEffektiv.get(`${b.etappeId}::${eig}`))
+        .filter((x): x is BkpErgebnis => !!x)
+      if (teile.length) map.set(eig, addiereErgebnisse(teile))
     }
     return map
-  }, [keeValueAktiv, keeValueImport, keeValueErgaenzung, presentEig, konsolidiert,
-      buildings, gsfTotal, mwstSatz, totalVmf, vmfByEig, blockList, gsfAlloc])
+  }, [keeValueAktiv, benchmarkAktiv, presentEig, konsolidiert, blockList, blockErgebnisseEffektiv])
 
   // Gesamttotal (inkl. MwSt) über alle Eigentumsarten.
   const grandTotalBrutto = presentEig.reduce((s, eig) => s + (konsolidiert.get(eig)?.ergebnis.totalBrutto ?? 0), 0)
@@ -345,7 +376,8 @@ export function useAnlagekosten(
     buildings, etappen, presentEig, gsfTotal, totalVmf,
     blockList, positionsByEig, typForByEig,
     blockErgebnisse, konsolidiert, grandTotalBrutto,
-    konsolidiertEffektiv, kostenMethode, setKostenMethode, keeValueAktiv,
+    konsolidiertEffektiv, blockErgebnisseEffektiv,
+    kostenMethode, setKostenMethode, keeValueAktiv, benchmarkAktiv, kostenModus,
     aggregateFlags, hasOhneEtappe, totalAllocatedGsf, gsfMismatch,
     getDetail, defaultShare,
     bkpKosten, custom, gsfAlloc, bkp2Aggregat,

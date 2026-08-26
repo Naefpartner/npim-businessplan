@@ -14,7 +14,14 @@ function isParkNutzung(n: string): boolean {
   return isGarageNutzung(n) || /\bpp\b|parkpl|parkplatz|tiefgarage|einstellh|autoeinstell|abstellplatz/i.test(n)
 }
 
-export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: string; mode?: 'rendite' | 'residual' }) {
+export function RenditeBerechnung({
+  variantId, mode = 'rendite', etappeId = null,
+}: {
+  variantId: string
+  mode?: 'rendite' | 'residual'
+  /** null = konsolidiert über alle Etappen, sonst nur diese Etappe. */
+  etappeId?: string | null
+}) {
   const ak = useAnlagekostenShared()
   const { params: p, setParams: setParamsRaw } = useRendite(variantId)
   const setParams = useUndoableSetter(p, setParamsRaw, mode === 'residual' ? 'Residualwert' : 'Renditeberechnung', `rendite:${variantId}`)
@@ -25,6 +32,7 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
     let totalVmf = 0
     for (const b of ak.buildings) {
       if (eigentumsartForBuilding(b.use_type) !== EIG) continue
+      if (etappeId != null && b.etappe_id !== etappeId) continue
       for (const mf of b.mietflaechen) {
         const fl = mf.flaeche_m2 || 0
         const anz = mf.anzahl || 0
@@ -46,7 +54,7 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
       ertraege: [...map.values()].sort((a, b) => Number(a.isPark) - Number(b.isPark) || b.ertrag - a.ertrag),
       totalVmf,
     }
-  }, [ak.buildings])
+  }, [ak.buildings, etappeId])
 
   const mietertragSoll = ertraege.reduce((s, e) => s + e.ertrag, 0)
   const leerstand = mietertragSoll * p.leerstand
@@ -61,7 +69,9 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
   // Anlagekosten Renditeobjekt (konsolidiert) brutto — aus der Erfassungsmethode,
   // die in den Anlagekosten gewählt ist (Detailkatalog oder keeValue).
   const { investition, erstellung } = useMemo(() => {
-    const erg = ak.konsolidiertEffektiv.get(EIG)
+    const erg = etappeId == null
+      ? ak.konsolidiertEffektiv.get(EIG)
+      : ak.blockErgebnisseEffektiv.get(`${etappeId}::${EIG}`)
     if (!erg) return { investition: 0, erstellung: 0 }
     let inv = 0
     for (let c = 0; c <= 9; c++) {
@@ -73,7 +83,7 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
     const p010 = erg.positionen['010']
     const land = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
     return { investition: inv, erstellung: inv - land }
-  }, [ak.konsolidiertEffektiv])
+  }, [ak.konsolidiertEffektiv, ak.blockErgebnisseEffektiv, etappeId])
 
   const bruttorendite = investition > 0 ? mietertragSoll / investition : 0
   const nettorendite = investition > 0 ? liegenschaftserfolg / investition : 0
@@ -82,7 +92,19 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
   // abzüglich Anlagekosten exkl. Grundstück (nur Pos. 010 raus) = residualer Landwert.
   const ertragswert = p.nettoKapSatz > 0 ? liegenschaftserfolg / p.nettoKapSatz : 0
   const landwert = ertragswert - erstellung
-  const landwertProM2 = ak.gsfTotal > 0 ? landwert / ak.gsfTotal : 0
+  // Grundstücksfläche des Reiters: konsolidiert die ganze Parzelle, auf
+  // Etappenebene der Anteil, der in den Landkosten dieses Blocks steckt.
+  const gsfReiter = useMemo(() => {
+    if (etappeId == null) return ak.gsfTotal
+    const erg = ak.blockErgebnisseEffektiv.get(`${etappeId}::${EIG}`)
+    const p010 = erg?.positionen['010']
+    const landBrutto = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
+    const gesamtP010 = ak.konsolidiertEffektiv.get(EIG)?.positionen['010']
+    const gesamtLand = (gesamtP010?.betragNetto ?? 0) + (gesamtP010?.mwstBetrag ?? 0)
+    return gesamtLand > 0 ? ak.gsfTotal * (landBrutto / gesamtLand) : 0
+  }, [etappeId, ak.blockErgebnisseEffektiv, ak.konsolidiertEffektiv, ak.gsfTotal])
+
+  const landwertProM2 = gsfReiter > 0 ? landwert / gsfReiter : 0
 
   return (
     <div className="space-y-6">
@@ -206,7 +228,7 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
                   <Row label="Ertragswert" chf={ertragswert} highlight />
                   <Row label="Anlagekosten exkl. Grundstück" chf={-erstellung} />
                   <Row label="Residualer Landwert" chf={landwert} highlight strong />
-                  <Row label="Grundstücksfläche (aus Anlagekosten)" satz={<span className="text-xs text-slate-500 tabular-nums">{formatNumber(ak.gsfTotal)} m²</span>} />
+                  <Row label="Grundstücksfläche (aus Anlagekosten)" satz={<span className="text-xs text-slate-500 tabular-nums">{formatNumber(gsfReiter)} m²</span>} />
                 </tbody>
               </table>
             </div>
@@ -220,7 +242,7 @@ export function RenditeBerechnung({ variantId, mode = 'rendite' }: { variantId: 
           <p className="text-[11px] text-slate-400">
             Ertragswert = Liegenschaftserfolg ÷ Nettokapitalisierungssatz; abzüglich Anlagekosten exkl. Grundstück
             (nur Pos. 010 raus, CHF {formatNumber(erstellung)}) = residualer Landwert. CHF/m² bezogen auf die Grundstücksfläche aus den
-            Anlagekosten ({formatNumber(ak.gsfTotal)} m²). Erträge/Erfolgsrechnung wie bei der Renditeberechnung.
+            Anlagekosten ({formatNumber(gsfReiter)} m²). Erträge/Erfolgsrechnung wie bei der Renditeberechnung.
           </p>
         </>
       )}

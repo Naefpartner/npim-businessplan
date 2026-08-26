@@ -1052,6 +1052,49 @@ export function alsBkpErgebnis(erg: AnlagekostenErgebnis, anteil: number): BkpEr
 }
 
 /**
+ * Skaliert ein BkpErgebnis auf einen Anteil (0..1) — etwa um ein gesamthaft
+ * erfasstes Variantentotal auf eine Etappe herunterzubrechen. Alle Beträge
+ * werden proportional gezogen, auch der Landanteil in Position 010.
+ */
+export function skaliereErgebnis(erg: BkpErgebnis, anteil: number): BkpErgebnis {
+  const nettoHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  for (let c = 0; c <= 9; c++) {
+    const k = c as keyof typeof erg.hauptgruppenSummenNetto
+    nettoHg[c] = (erg.hauptgruppenSummenNetto[k] ?? 0) * anteil
+    mwstHg[c] = (erg.hauptgruppenSummenMwst[k] ?? 0) * anteil
+  }
+  const p = erg.positionen['010']
+  const landNetto = (p?.betragNetto ?? 0) * anteil
+  const landMwst = (p?.mwstBetrag ?? 0) * anteil
+  const pos010 = BKP_POSITIONEN.find((x) => x.code === '010')!
+  return {
+    positionen: {
+      '010': {
+        position: pos010,
+        status: 'beruecksichtigt',
+        kennwert: null,
+        betragOverride: null,
+        menge: null,
+        mengeEinheit: 'm² GSF',
+        preisEinheit: 'CHF/m²',
+        betragNetto: landNetto,
+        mwstAnwenden: landMwst > 0,
+        mwstSatz: landNetto > 0 ? landMwst / landNetto : 0,
+        mwstBetrag: landMwst,
+        betragBrutto: landNetto + landMwst,
+        berechnungs_info: 'Anteil am Gesamttotal',
+      } satisfies PositionResult,
+    },
+    hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
+    hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
+    totalNetto: erg.totalNetto * anteil,
+    totalMwst: erg.totalMwst * anteil,
+    totalBrutto: erg.totalBrutto * anteil,
+  }
+}
+
+/**
  * Summiert mehrere BkpErgebnisse zu einem — etwa die Blöcke einer Nutzungsart,
  * wenn keeValue je Etappe gerechnet wurde. Die Position 010 (Grundstück) wird
  * mitaddiert, weil Kostenmiete und Rendite daraus den Landanteil lesen.

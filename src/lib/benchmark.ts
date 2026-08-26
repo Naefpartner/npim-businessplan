@@ -4,7 +4,8 @@
 // Detailkatalog kennt sie nur eine Zeile je Hauptgruppe — für Grobschätzungen
 // in frühen Phasen, wenn noch kein Positionsraster gefüllt werden kann.
 
-import { HAUPTGRUPPEN, type BkpHauptgruppe } from '@/lib/bkpKatalog'
+import { HAUPTGRUPPEN, BKP_POSITIONEN, type BkpHauptgruppe } from '@/lib/bkpKatalog'
+import type { BkpErgebnis, PositionResult } from '@/lib/bkpBerechnung'
 export { blockKey } from '@/lib/bkpBlocks'
 import type { AnsatzEinheit } from '@/components/projects/AnsatzEingabe'
 
@@ -363,5 +364,59 @@ export function benchmarkZeilen(doc: BenchmarkKennwerte, bezug: BenchmarkBezug):
     zeilen,
     totalNetto: hauptgruppen.reduce((s, z) => s + z.netto, 0),
     totalBrutto: hauptgruppen.reduce((s, z) => s + z.brutto, 0),
+  }
+}
+
+/**
+ * Übersetzt ein Benchmark-Ergebnis in ein BkpErgebnis, wie es die Engine in
+ * lib/bkpBerechnung.ts liefert — damit Wirtschaftlichkeit, Rendite und
+ * Kostenmiete unverändert weiterrechnen, egal welche Methode gewählt ist.
+ *
+ * `anteil` skaliert das Ergebnis (0..1), etwa um ein Gesamttotal auf eine
+ * Etappe herunterzubrechen. Neben den Hauptgruppensummen wird die Position 010
+ * (Grundstückerwerb) gesetzt, die Kostenmiete, Rendite, WBF und Honorarrechner
+ * als Landanteil lesen.
+ */
+export function benchmarkAlsBkpErgebnis(erg: BenchmarkErgebnis, anteil: number): BkpErgebnis {
+  const nettoHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
+  let landNetto = 0
+  let landMwst = 0
+
+  for (const z of erg.zeilen) {
+    if (z.ebene !== 0) continue // Unterzeilen stecken in ihrer Hauptgruppe
+    const netto = z.netto * anteil
+    const mwst = (z.brutto - z.netto) * anteil
+    nettoHg[z.code] += netto
+    mwstHg[z.code] += mwst
+    if (z.code === 0) { landNetto += netto; landMwst += mwst }
+  }
+
+  const pos010 = BKP_POSITIONEN.find((p) => p.code === '010')!
+  const totalNetto = erg.totalNetto * anteil
+  const totalMwst = (erg.totalBrutto - erg.totalNetto) * anteil
+  return {
+    positionen: {
+      '010': {
+        position: pos010,
+        status: 'beruecksichtigt',
+        kennwert: null,
+        betragOverride: null,
+        menge: null,
+        mengeEinheit: 'm² GSF',
+        preisEinheit: 'CHF/m²',
+        betragNetto: landNetto,
+        mwstAnwenden: landMwst > 0,
+        mwstSatz: landNetto > 0 ? landMwst / landNetto : 0,
+        mwstBetrag: landMwst,
+        betragBrutto: landNetto + landMwst,
+        berechnungs_info: 'aus den Benchmarks',
+      } satisfies PositionResult,
+    },
+    hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
+    hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
+    totalNetto,
+    totalMwst,
+    totalBrutto: totalNetto + totalMwst,
   }
 }

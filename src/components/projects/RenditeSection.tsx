@@ -17,6 +17,17 @@ export function RenditeSection({ variantId, defaultExpanded = false }: { variant
   const ak = useAnlagekostenShared()
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [mode, setMode] = useState<RenditeMode>('rendite')
+  const [activeTab, setActiveTab] = useState('konsolidiert')
+
+  // Etappen, die überhaupt Renditeobjekte enthalten — nur die sind als Reiter
+  // sinnvoll. Ohne Etappen bleibt es bei der konsolidierten Sicht.
+  const etappenMitBlock = ak.etappen.filter((e) => ak.buildings.some(
+    (b) => b.etappe_id === e.id && eigentumsartForBuilding(b.use_type) === EIG))
+  const tabs = [
+    { key: 'konsolidiert', label: 'Konsolidiert' },
+    ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name })),
+  ]
+  const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
 
   const hasRenditeobjekt = ak.buildings.some((b) => eigentumsartForBuilding(b.use_type) === EIG)
   if (!hasRenditeobjekt) return null
@@ -57,7 +68,33 @@ export function RenditeSection({ variantId, defaultExpanded = false }: { variant
             ))}
           </div>
 
-          <RenditeBerechnung variantId={variantId} mode={mode} />
+          {/* Etappenreiter — die Kosten kommen je Reiter aus der in den
+              Anlagekosten gewählten Erfassungsmethode. */}
+          {tabs.length > 1 && (
+            <div className="flex flex-wrap gap-1 border-b border-slate-200">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setActiveTab(t.key)}
+                  className={cn(
+                    'rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition',
+                    tabKey === t.key
+                      ? 'border-slate-200 bg-slate-200 text-slate-900'
+                      : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-700',
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <RenditeBerechnung
+            variantId={variantId}
+            mode={mode}
+            etappeId={tabKey === 'konsolidiert' ? null : tabKey}
+          />
         </div>
       )}
     </section>
