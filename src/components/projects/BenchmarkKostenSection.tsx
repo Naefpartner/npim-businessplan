@@ -10,6 +10,8 @@ import {
 } from '@/lib/benchmark'
 import { ermittleKeeValueMengen } from '@/lib/keevalue'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
+import { EIGENTUMSART_COLOR, TOTAL_COLOR } from '@/lib/kategorieFarben'
+import { EIGENTUMSART_LABEL, type Eigentumsart } from '@/types'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
 
 /**
@@ -21,8 +23,19 @@ import { cn, formatCurrency, formatNumber } from '@/lib/utils'
  */
 export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
   const { canWrite } = useAuth()
-  const { buildings, gsfTotal, totalVmf, mwstSatz } = useAnlagekostenShared()
+  const { buildings, gsfTotal, totalVmf, mwstSatz, presentEig } = useAnlagekostenShared()
   const { doc, setFeld, setMethode, loading } = useBenchmarkKosten(variantId)
+
+  // Die Methode rechnet ein Variantentotal ohne Aufteilung nach Nutzungsart.
+  // Bei genau einer Nutzungsart trägt der Kopf deren Farbe, bei mehreren die
+  // neutrale Totalfarbe — sonst suggerierte die Farbe eine Zuordnung, die die
+  // Berechnung gar nicht macht.
+  const eigen: Eigentumsart[] = presentEig
+  const kopfFarbe = eigen.length === 1 ? EIGENTUMSART_COLOR[eigen[0]] : TOTAL_COLOR
+  const kopfHell = eigen.length !== 1
+  const kopfTitel = eigen.length > 0
+    ? eigen.map((e) => EIGENTUMSART_LABEL[e]).join(' · ')
+    : 'Keine Nutzungsart erfasst'
 
   const bezug = useMemo(() => {
     const m = ermittleKeeValueMengen(buildings, gsfTotal)
@@ -60,6 +73,17 @@ export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
         Grobschätzung über einen Kennwert je Hauptgruppe. Die Bezugsgrössen stammen aus Parzellen
         und Mengengerüst; die Prozentsätze rechnen auf den Netto-Beträgen.
       </p>
+
+      {/* Kopf mit der Nutzungsart — gleiche Bildsprache wie die
+          Eigentumsart-Blöcke des Detailkatalogs. */}
+      <Totalbalken
+        titel={kopfTitel}
+        farbe={kopfFarbe}
+        hell={kopfHell}
+        netto={totalNetto}
+        brutto={totalBrutto}
+        gross={false}
+      />
 
       <div className="mb-4 grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-3 text-sm sm:grid-cols-5">
         <Kennzahl label="Grundstück (GSF)" wert={`${formatNumber(bezug.gsfTotal)} m²`} />
@@ -102,16 +126,21 @@ export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
                 onSetMethode={setMethode}
               />
             ))}
-            <tr className="border-t-2 border-slate-300 font-semibold">
-              <td className="py-2 pr-3" colSpan={3}>Anlagekosten</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalNetto)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(totalBrutto)}</td>
-              <td className="py-2 text-right tabular-nums">
-                {bezug.gfM2 > 0 ? formatNumber(Math.round(totalBrutto / bezug.gfM2)) : '—'}
-              </td>
-            </tr>
           </tbody>
         </table>
+      </div>
+
+      {/* Gesamttotal — Pendant zum Gesamttotal des Detailkatalogs. */}
+      <div className="mt-4">
+        <Totalbalken
+          titel="Gesamttotal"
+          farbe={kopfFarbe}
+          hell={kopfHell}
+          netto={totalNetto}
+          brutto={totalBrutto}
+          gross
+          kennwert={bezug.gfM2 > 0 ? totalBrutto / bezug.gfM2 : null}
+        />
       </div>
 
       <p className="mt-3 text-xs text-slate-400">
@@ -119,6 +148,71 @@ export function BenchmarkKostenSection({ variantId }: { variantId: string }) {
         010 und 910/920. BKP 0 bleibt in allen Prozentbasen aussen vor.
       </p>
     </section>
+  )
+}
+
+/**
+ * Farbiger Balken mit den Totalen — für den Kopf (Nutzungsart) und das
+ * Gesamttotal am Fuss. Aufbau wie die Eigentumsart-Balken des Detailkatalogs:
+ * links der Titel, rechts exkl. MwSt / MwSt / inkl. MwSt.
+ */
+function Totalbalken({
+  titel, farbe, hell, netto, brutto, gross, kennwert,
+}: {
+  titel: string
+  farbe: string
+  /** true = dunkler Grund, heller Text (neutrale Totalfarbe). */
+  hell: boolean
+  netto: number
+  brutto: number
+  gross: boolean
+  kennwert?: number | null
+}) {
+  const mikro = hell ? 'text-white/70' : 'text-slate-600'
+  const wert = hell ? 'text-white' : 'text-slate-900'
+  return (
+    <div
+      className={cn('flex flex-wrap items-end gap-y-2 rounded-lg', hell ? 'text-white' : 'text-slate-900')}
+      style={{ backgroundColor: farbe }}
+    >
+      <h4 className={cn(
+        'min-w-0 flex-1 px-3 text-sm font-semibold',
+        gross ? 'py-3 uppercase tracking-wider' : 'py-2.5',
+      )}>
+        {titel}
+      </h4>
+      <Betrag label="exkl. MWST" wert={netto} fett gross={gross} mikro={mikro} text={wert} />
+      <Betrag label="MwSt" wert={brutto - netto} gross={gross} mikro={mikro} text={hell ? 'text-white/90' : 'text-slate-700'} />
+      <Betrag label="inkl. MWST" wert={brutto} fett gross={gross} mikro={mikro} text={wert} />
+      {kennwert != null && (
+        <Betrag label="CHF/m² GF" wert={kennwert} gross={gross} mikro={mikro} text={hell ? 'text-white/90' : 'text-slate-700'} />
+      )}
+    </div>
+  )
+}
+
+function Betrag({
+  label, wert, fett = false, gross, mikro, text,
+}: {
+  label: string
+  wert: number
+  fett?: boolean
+  gross: boolean
+  mikro: string
+  text: string
+}) {
+  return (
+    <div className={cn('w-36 shrink-0 px-3 text-right tabular-nums', gross ? 'py-3' : 'py-2.5')}>
+      <div className={cn('text-[9px] uppercase leading-4 tracking-wider', mikro)}>{label}</div>
+      <div className={cn(
+        'leading-5',
+        gross ? 'text-base leading-6' : 'text-sm',
+        fett && 'font-bold',
+        text,
+      )}>
+        {formatNumber(Math.round(wert))}
+      </div>
+    </div>
   )
 }
 
