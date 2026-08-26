@@ -12,6 +12,7 @@ import { USE_TYPE_COLOR_1 } from '@/lib/kategorieFarben'
 import { berechneWbf, defaultNutzungRate } from '@/lib/wbf'
 import { useWbfZh } from '@/hooks/useWbfZh'
 import { useUndoableSetter } from '@/contexts/UndoContext'
+import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
 
 const EIG: 'genossenschaft' = 'genossenschaft'
@@ -34,7 +35,8 @@ export function WbfZhBerechnung({ variantId }: { variantId: string }) {
     () => ak.etappen.filter((e) => ak.blockErgebnisse.has(`${e.id}::${EIG}`)),
     [ak.etappen, ak.blockErgebnisse],
   )
-  const tabs = [{ key: 'konsolidiert', label: 'Konsolidiert' }, ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name }))]
+  // Ohne zweite Etappe gibt es nichts zu wählen — dann keine Reiterleiste.
+  const tabs = etappenTabs(etappenMitBlock)
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
   const isKons = tabKey === 'konsolidiert'
 
@@ -112,7 +114,7 @@ export function WbfZhBerechnung({ variantId }: { variantId: string }) {
 
   return (
     <div className="space-y-6">
-      {tabs.length > 1 && (
+      {tabs.length > 0 && (
         <div className="flex flex-wrap gap-1 border-b border-slate-200">
           {tabs.map((t) => (
             <button

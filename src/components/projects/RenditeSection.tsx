@@ -4,6 +4,7 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { EIGENTUMSART_COLOR } from '@/lib/kategorieFarben'
 import { eigentumsartForBuilding } from '@/types'
 import { RenditeBerechnung } from '@/components/projects/RenditeBerechnung'
+import { etappenTabs } from '@/lib/etappenTabs'
 import { cn } from '@/lib/utils'
 
 const EIG: 'renditeobjekt' = 'renditeobjekt'
@@ -23,10 +24,8 @@ export function RenditeSection({ variantId, defaultExpanded = false }: { variant
   // sinnvoll. Ohne Etappen bleibt es bei der konsolidierten Sicht.
   const etappenMitBlock = ak.etappen.filter((e) => ak.buildings.some(
     (b) => b.etappe_id === e.id && eigentumsartForBuilding(b.use_type) === EIG))
-  const tabs = [
-    { key: 'konsolidiert', label: 'Konsolidiert' },
-    ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name })),
-  ]
+  // Ohne zweite Etappe gibt es nichts zu wählen — dann keine Reiterleiste.
+  const tabs = etappenTabs(etappenMitBlock)
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
 
   const hasRenditeobjekt = ak.buildings.some((b) => eigentumsartForBuilding(b.use_type) === EIG)
@@ -70,7 +69,7 @@ export function RenditeSection({ variantId, defaultExpanded = false }: { variant
 
           {/* Etappenreiter — die Kosten kommen je Reiter aus der in den
               Anlagekosten gewählten Erfassungsmethode. */}
-          {tabs.length > 1 && (
+          {tabs.length > 0 && (
             <div className="flex flex-wrap gap-1 border-b border-slate-200">
               {tabs.map((t) => (
                 <button

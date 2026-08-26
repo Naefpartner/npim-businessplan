@@ -5,6 +5,7 @@ import { type BkpErgebnis } from '@/lib/bkpBerechnung'
 import { effektiveWohnungCounts, eigentumsartForBuilding, EIGENTUMSART_LABEL } from '@/types'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
 import { EIGENTUMSART_COLOR, TOTAL_COLOR } from '@/lib/kategorieFarben'
+import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
 
 interface Qty { gf: number; gv: number; vmf: number; wohnungen: number }
@@ -65,7 +66,8 @@ export function BenchmarksSection({ defaultExpanded = false }: { defaultExpanded
     () => ak.etappen.filter((e) => ak.blockList.some((b) => b.etappeId === e.id)),
     [ak.etappen, ak.blockList],
   )
-  const tabs = [{ key: 'konsolidiert', label: 'Konsolidiert' }, ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name }))]
+  // Ohne zweite Etappe gibt es nichts zu wählen — dann keine Reiterleiste.
+  const tabs = etappenTabs(etappenMitBlock)
   // Falls der aktive Tab verschwindet (Etappe entfernt), auf Konsolidiert zurück.
   const activeTab = tabs.some((t) => t.key === tab) ? tab : 'konsolidiert'
   const isKons = activeTab === 'konsolidiert'
@@ -128,7 +130,8 @@ export function BenchmarksSection({ defaultExpanded = false }: { defaultExpanded
         </div>
       ) : (
         <div className="space-y-5 p-5">
-          {/* Tab-Leiste: Konsolidiert + je Etappe */}
+          {/* Tab-Leiste: Konsolidiert + je Etappe — erst ab zwei Etappen. */}
+          {tabs.length > 0 && (
           <div className="flex flex-wrap gap-1 border-b border-slate-200">
             {tabs.map((t) => (
               <button
@@ -146,6 +149,7 @@ export function BenchmarksSection({ defaultExpanded = false }: { defaultExpanded
               </button>
             ))}
           </div>
+          )}
 
           {blocks.map((blk) => (
             <div key={blk.key} className="overflow-hidden rounded-lg border border-slate-200">

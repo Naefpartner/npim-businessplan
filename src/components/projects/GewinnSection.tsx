@@ -5,6 +5,7 @@ import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/ka
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { eigentumsartForBuilding } from '@/types'
+import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
 
 const EIG = 'verkaufsobjekt' as const
@@ -26,10 +27,8 @@ export function GewinnSection({ defaultExpanded = false }: { defaultExpanded?: b
   // Etappen, die Verkaufsobjekte enthalten — nur die sind als Reiter sinnvoll.
   const etappenMitBlock = ak.etappen.filter((e) => ak.buildings.some(
     (b) => b.etappe_id === e.id && eigentumsartForBuilding(b.use_type) === EIG))
-  const tabs = [
-    { key: 'konsolidiert', label: 'Konsolidiert' },
-    ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name })),
-  ]
+  // Ohne zweite Etappe gibt es nichts zu wählen — dann keine Reiterleiste.
+  const tabs = etappenTabs(etappenMitBlock)
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
   const etappeId = tabKey === 'konsolidiert' ? null : tabKey
 
@@ -50,7 +49,7 @@ export function GewinnSection({ defaultExpanded = false }: { defaultExpanded?: b
 
       {expanded && (
         <div className="space-y-4 p-5">
-          {tabs.length > 1 && (
+          {tabs.length > 0 && (
             <div className="flex flex-wrap gap-1 border-b border-slate-200">
               {tabs.map((t) => (
                 <button

@@ -21,6 +21,7 @@ import {
 import { type BkpErgebnis } from '@/lib/bkpBerechnung'
 import { gsfBlockShare, type TypFor } from '@/lib/bkpBlocks'
 import { EIGENTUMSART_COLOR, TOTAL_COLOR } from '@/lib/kategorieFarben'
+import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
 import {
   eigentumsartForBuilding, EIGENTUMSART_LABEL,
@@ -128,11 +129,10 @@ export function AnlagekostenSection({
     kostenMethode, setKostenMethode,
   } = useAnlagekostenShared()
 
-  const tabs: { key: string; label: string }[] = [
-    { key: 'konsolidiert', label: 'Konsolidiert' },
-    ...etappen.map((e) => ({ key: e.id, label: e.name })),
-  ]
-  const isKons = activeTab === 'konsolidiert'
+  // Ohne zweite Etappe gibt es nichts zu wählen — dann keine Reiterleiste.
+  const tabs = etappenTabs(etappen)
+  const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
+  const isKons = tabKey === 'konsolidiert'
   // Aktiven Tab merken; ungültigen (gelöschte Etappe) auf Konsolidiert zurücksetzen.
   useEffect(() => {
     if (viewKey && typeof sessionStorage !== 'undefined') sessionStorage.setItem(`${viewKey}:tab`, activeTab)
@@ -181,7 +181,7 @@ export function AnlagekostenSection({
   const eigInTab = isKons
     ? presentEig
     : presentEig.filter((eig) =>
-        buildings.some((b) => b.etappe_id === activeTab && eigentumsartForBuilding(b.use_type) === eig))
+        buildings.some((b) => b.etappe_id === tabKey && eigentumsartForBuilding(b.use_type) === eig))
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -257,7 +257,7 @@ export function AnlagekostenSection({
               onClick={() => setActiveTab(t.key)}
               className={cn(
                 'rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition',
-                activeTab === t.key
+                tabKey === t.key
                   ? 'border-slate-200 bg-slate-200 text-slate-900'
                   : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-700',
               )}
@@ -287,7 +287,7 @@ export function AnlagekostenSection({
           {eigInTab.map((eig) => {
             const ergebnis = isKons
               ? konsolidiert.get(eig)?.ergebnis
-              : blockErgebnisse.get(`${activeTab}::${eig}`)
+              : blockErgebnisse.get(`${tabKey}::${eig}`)
             if (!ergebnis) return null
             return (
               <EigentumsartBlock
@@ -295,20 +295,20 @@ export function AnlagekostenSection({
                 eig={eig}
                 ergebnis={ergebnis}
                 aggregateFlags={aggregateFlags.get(eig) ?? EMPTY_SET}
-                scope={{ etappeId: isKons ? null : activeTab, eigentumsart: eig }}
+                scope={{ etappeId: isKons ? null : tabKey, eigentumsart: eig }}
                 canWrite={canWrite}
                 onUpsert={bkpKosten.upsert}
                 getDetail={getDetail}
                 projektId={projektId}
                 mwstSatz={mwstSatz}
                 isKons={isKons}
-                etappeId={isKons ? null : activeTab}
+                etappeId={isKons ? null : tabKey}
                 collapseSignal={collapseAll}
                 viewKey={viewKey}
                 // GSF-Allokation (nur Etappen-Tabs)
                 gsfTotal={gsfTotal}
                 gsfAlloc={gsfAlloc}
-                defaultShare={isKons ? 0 : defaultShare(activeTab, eig)}
+                defaultShare={isKons ? 0 : defaultShare(tabKey, eig)}
                 // Generische Methode + eigene Zeilen
                 positions={positionsByEig.get(eig) ?? BKP_POSITIONEN}
                 typFor={typForByEig.get(eig)!}

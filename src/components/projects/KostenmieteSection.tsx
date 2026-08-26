@@ -12,6 +12,7 @@ import { useKostenmiete } from '@/hooks/useKostenmiete'
 import { useUndoableSetter } from '@/contexts/UndoContext'
 import { useWbfZh } from '@/hooks/useWbfZh'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3, USE_TYPE_COLOR_7 } from '@/lib/kategorieFarben'
+import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
 
 const EIG: 'genossenschaft' = 'genossenschaft'
@@ -102,7 +103,8 @@ export function KostenmieteSection({ variantId, defaultExpanded = false }: { var
     () => ak.etappen.filter((e) => ak.blockErgebnisse.has(`${e.id}::${EIG}`)),
     [ak.etappen, ak.blockErgebnisse],
   )
-  const tabs = [{ key: 'konsolidiert', label: 'Konsolidiert' }, ...etappenMitBlock.map((e) => ({ key: e.id, label: e.name }))]
+  // Ohne zweite Etappe gibt es nichts zu wählen — dann keine Reiterleiste.
+  const tabs = etappenTabs(etappenMitBlock)
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
   const isKons = tabKey === 'konsolidiert'
 
@@ -203,7 +205,7 @@ export function KostenmieteSection({ variantId, defaultExpanded = false }: { var
       ) : (
         <div className="space-y-6 p-5">
           {/* Reiter: Konsolidiert + je Etappe */}
-          {tabs.length > 1 && (
+          {tabs.length > 0 && (
             <div className="flex flex-wrap gap-1 border-b border-slate-200">
               {tabs.map((t) => (
                 <button
