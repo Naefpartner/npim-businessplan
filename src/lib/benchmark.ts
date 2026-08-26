@@ -150,8 +150,8 @@ function basisText(praefix: string, menge: number, einheit: string): string {
  *   BKP 6 Honorare      — % von BKP 1–4
  *   BKP 7 Vermarktung   — % vom Miet- bzw. Verkaufsertrag
  *   BKP 8 Entwicklung   — % von BKP 1–7
- *   BKP 9 Reserve       — % von BKP 0–8
  *   BKP 9 Eigentümerk.  — % von BKP 1–8
+ *   BKP 9 Reserve       — % von BKP 0–8
  *
  * Gerechnet wird in Abhängigkeitsreihenfolge, nicht in Nummernfolge: BKP 2
  * zuerst, weil BKP 1 darauf Bezug nimmt — dieselbe Vorwärtsreferenz wie bei der
@@ -295,16 +295,16 @@ export function benchmarkZeilen(doc: BenchmarkDoc, bezug: BenchmarkBezug): Bench
       ansatzBasis: `von BKP 1–7 ${formatMenge(basis1bis7)} CHF`,
     },
     {
-      code: 9, label: 'Reserve', ebene: 0,
-      netto: n9Reserve, brutto: mitMwst(n9Reserve),
-      feld: 'bkp9ReserveProzentVon0bis8', ansatzWert: doc.bkp9ReserveProzentVon0bis8, ansatzEinheit: '%',
-      ansatzBasis: `von BKP 0–8 ${formatMenge(basis0bis8)} CHF`,
-    },
-    {
       code: 9, label: 'Eigentümerkosten', ebene: 0,
       netto: n9, brutto: n9, // Eigenleistungen sind nicht MwSt-pflichtig
       feld: 'bkp9ProzentVon1bis8', ansatzWert: doc.bkp9ProzentVon1bis8, ansatzEinheit: '%',
       ansatzBasis: `von BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
+    },
+    {
+      code: 9, label: 'Reserve', ebene: 0,
+      netto: n9Reserve, brutto: mitMwst(n9Reserve),
+      feld: 'bkp9ReserveProzentVon0bis8', ansatzWert: doc.bkp9ReserveProzentVon0bis8, ansatzEinheit: '%',
+      ansatzBasis: `von BKP 0–8 ${formatMenge(basis0bis8)} CHF`,
     },
   ]
 

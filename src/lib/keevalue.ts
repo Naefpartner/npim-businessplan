@@ -860,11 +860,32 @@ export function anlagekostenZeilen(
     ansatzBasis: `von BKP 1–7 ${formatMenge(basis1bis7)} CHF`,
   })
 
-  // ─── BKP 9 Reserve ──────────────────────────────────────────────────────
+  // ─── Hauptgruppe 9: Eigentümerkosten, dann Reserve ──────────────────────
+  // Beide Basen enden bei BKP 8 und sind damit unabhängig von der Reihenfolge —
+  // was in Hauptgruppe 9 steht, bezieht sich nicht auf sich selbst.
+  const basis1bis8 = summeHauptgruppen(zeilen, 1, 8)
+  const basis0bis8 = summeHauptgruppen(zeilen, 0, 8)
+
+  const bkp9Netto = (erg.bkp9ProzentVon1bis8 ?? 0) * basis1bis8
+  zeilen.push({
+    code: '9',
+    label: 'Eigentümerkosten',
+    netto: bkp9Netto,
+    brutto: bkp9Netto, // Eigenleistungen sind nicht mehrwertsteuerpflichtig
+    kennwert: erg.bkp9ProzentVon1bis8,
+    kennwertEinheit: '%',
+    ebene: 0,
+    chfProM2Gf: null,
+    quelle: 'ergaenzung',
+    feld: 'bkp9ProzentVon1bis8',
+    ansatzWert: erg.bkp9ProzentVon1bis8,
+    ansatzEinheit: '%',
+    ansatzBasis: `von BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
+  })
+
   // Mit Prozentsatz wird die Reserve auf BKP 0–8 gerechnet (Bezug wie
   // Katalogposition 970) und ersetzt den keeValue-Wert. Ohne Prozentsatz gilt
   // die importierte Reserve unverändert.
-  const basis0bis8 = summeHauptgruppen(zeilen, 0, 8)
   const reserveProzent = erg.bkp9ReserveProzentVon0bis8
   const reserveNetto = reserveProzent != null ? reserveProzent * basis0bis8 : (reserve?.netto ?? 0)
   zeilen.push({
@@ -883,26 +904,6 @@ export function anlagekostenZeilen(
     ansatzBasis: reserveProzent != null
       ? `von BKP 0–8 ${formatMenge(basis0bis8)} CHF`
       : 'leer = Reserve aus keeValue',
-  })
-
-  // ─── BKP 9 Eigentümerkosten — % von BKP 1–8 ─────────────────────────────
-  // Basis ohne die Reserve, weil die selbst in Hauptgruppe 9 liegt.
-  const basis1bis8 = summeHauptgruppen(zeilen, 1, 8)
-  const bkp9Netto = (erg.bkp9ProzentVon1bis8 ?? 0) * basis1bis8
-  zeilen.push({
-    code: '9',
-    label: 'Eigentümerkosten',
-    netto: bkp9Netto,
-    brutto: bkp9Netto, // Eigenleistungen sind nicht mehrwertsteuerpflichtig
-    kennwert: erg.bkp9ProzentVon1bis8,
-    kennwertEinheit: '%',
-    ebene: 0,
-    chfProM2Gf: null,
-    quelle: 'ergaenzung',
-    feld: 'bkp9ProzentVon1bis8',
-    ansatzWert: erg.bkp9ProzentVon1bis8,
-    ansatzEinheit: '%',
-    ansatzBasis: `von BKP 1–8 ${formatMenge(basis1bis8)} CHF`,
   })
 
   // ─── Kennwerte einheitlich über die GF ──────────────────────────────────
