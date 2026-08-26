@@ -212,7 +212,7 @@ export function AnlagekostenSection({
         </div>
       </section>
 
-      {variantId && kostenMethode === 'benchmark' && <BenchmarkKostenSection />}
+      {variantId && kostenMethode === 'benchmark' && <BenchmarkKostenSection variantId={variantId} />}
       {variantId && kostenMethode === 'keevalue' && (
         <KeeValueSection projectId={projektId} variantId={variantId} />
       )}
