@@ -106,16 +106,12 @@ export function useUebersichtDaten(
     const gsZeilen: TabellenZeile[] = parzellen.map((p) => ({
       zellen: [
         p.parzelle_nummer,
-        [p.gemeinde, p.kanton].filter(Boolean).join(' · ') || '—',
         p.zone ?? '—',
         p.flaeche_m2 != null ? formatNumber(p.flaeche_m2) : '—',
       ],
     }))
     if (parzellen.length > 1) {
-      gsZeilen.push({
-        zellen: ['Total', '', '', formatNumber(ak.gsfTotal)],
-        total: true,
-      })
+      gsZeilen.push({ zellen: ['Total', '', formatNumber(ak.gsfTotal)], total: true })
     }
 
     // ── Bestandsgebäude ─────────────────────────────────────────────────────
@@ -125,7 +121,6 @@ export function useUebersichtDaten(
         b.baujahr != null ? String(b.baujahr) : '—',
         b.nutzung ?? '—',
         b.zustand ? BUILDING_CONDITION_LABEL[b.zustand] : '—',
-        b.geschossflaeche_m2 != null ? formatNumber(b.geschossflaeche_m2) : '—',
         b.volumen_m3 != null ? formatNumber(b.volumen_m3) : '—',
       ],
     }))
@@ -233,8 +228,10 @@ export function useUebersichtDaten(
     return {
       situationsplanUrl,
       auftrag,
-      grundstuecke: { kopf: ['Parzelle', 'Gemeinde', 'Zone', 'Fläche m²'], zeilen: gsZeilen },
-      bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'Zustand', 'GF m²', 'Volumen m³'], zeilen: bestandZeilen },
+      // Kurze Einheitenköpfe: „Volumen m³" bräuchte in der geteilten Spalte
+      // zwei Zeilen und verschöbe die Kopfzeile gegenüber der Nachbartabelle.
+      grundstuecke: { kopf: ['Parzelle', 'Zone', 'm²'], zeilen: gsZeilen },
+      bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'Zustand', 'm³'], zeilen: bestandZeilen },
       nutzungsverteilung,
       mengen: flaechen,
       kosten,

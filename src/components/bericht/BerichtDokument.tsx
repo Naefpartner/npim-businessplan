@@ -270,6 +270,9 @@ const s = StyleSheet.create({
   zweiSpalten: { flexDirection: 'row' },
   spalteLinks: { flex: 1.15, paddingRight: mm(6) },
   spalteRechts: { flex: 1 },
+  /** Grundstücke schmal, Bestandsgebäude breiter — dort stehen fünf Spalten. */
+  spalteSchmal: { flex: 0.9, paddingRight: mm(6) },
+  spalteBreit: { flex: 1.7 },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2) },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
@@ -612,20 +615,27 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
             </View>
           )}
 
-          <Datentabelle
-            titel="Grundstücke"
-            kopf={u.grundstuecke.kopf}
-            breiten={[1.4, 2, 1, 1.2]}
-            linksBis={2}
-            zeilen={u.grundstuecke.zeilen}
-          />
-          <Datentabelle
-            titel="Bestandsgebäude"
-            kopf={u.bestand.kopf}
-            breiten={[2.6, 0.9, 1.3, 1.7, 0.9, 1.1]}
-            linksBis={3}
-            zeilen={u.bestand.zeilen}
-          />
+          {/* Grundstücke und Bestandsgebäude nebeneinander. */}
+          <View style={s.zweiSpalten}>
+            <View style={s.spalteSchmal}>
+              <Datentabelle
+                titel="Grundstücke"
+                kopf={u.grundstuecke.kopf}
+                breiten={[1.6, 1.3, 1]}
+                linksBis={1}
+                zeilen={u.grundstuecke.zeilen}
+              />
+            </View>
+            <View style={s.spalteBreit}>
+              <Datentabelle
+                titel="Bestandsgebäude"
+                kopf={u.bestand.kopf}
+                breiten={[2, 0.9, 1.2, 2.1, 0.85]}
+                linksBis={3}
+                zeilen={u.bestand.zeilen}
+              />
+            </View>
+          </View>
 
           {u.nutzungsverteilung.length > 0 && (
             <View style={s.feldBlock}>
