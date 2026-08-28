@@ -24,6 +24,25 @@ export interface BerichtDaten {
   titelbildUrl: string | null
   /** Kapitelschlüssel in Druckreihenfolge. */
   kapitel: string[]
+  /** Inhalt der Projektübersicht; fehlt, solange die Daten laden. */
+  uebersicht?: UebersichtDaten
+}
+
+/** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
+export interface Feld {
+  label: string
+  wert: string
+}
+
+/**
+ * Die Projektübersicht als vier benannte Blöcke. Bewusst als Daten statt als
+ * Layout — so lässt sich der Inhalt verschieben, ohne das PDF anzufassen.
+ */
+export interface UebersichtDaten {
+  objekt: Feld[]
+  auftrag: Feld[]
+  mengen: Feld[]
+  wirtschaft: Feld[]
 }
 
 const T = TITELBLATT
@@ -166,6 +185,26 @@ const s = StyleSheet.create({
     fontWeight: 700,
     marginBottom: mm(INHALT.nachTitel),
   },
+
+  // ── Kapitel und Feldtabellen ──────────────────────────────────────────────
+  h2: {
+    fontSize: SCHRIFT.h2,
+    lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
+    fontWeight: 700,
+    marginTop: mm(6.3),
+    marginBottom: mm(1.8),
+  },
+  /** Feldtabelle im Stil des Titelblatts: dünne Linien, Label links. */
+  feldBlock: { marginBottom: mm(2) },
+  feldLinie: { borderTopWidth: 0.5, borderTopColor: BERICHT_FARBE.linie },
+  feldZeile: {
+    flexDirection: 'row',
+    paddingTop: mm(1.4),
+    paddingBottom: mm(0.9),
+  },
+  feldLabel: { width: mm(52) },
+  feldWert: { flex: 1, fontWeight: 700 },
+  hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
 
   // Verzeichniszeile: Nummer, Text, Seitenzahl — jede mit Linie darunter.
   tocZeile: { flexDirection: 'row', alignItems: 'baseline' },
@@ -321,11 +360,74 @@ function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; dat
   )
 }
 
+/** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
+function Feldtabelle({ titel, felder }: { titel: string; felder: Feld[] }) {
+  if (felder.length === 0) return null
+  return (
+    <View style={s.feldBlock}>
+      <Text style={s.h2}>{titel}</Text>
+      {felder.map((f) => (
+        <View key={f.label} style={s.feldLinie}>
+          <View style={s.feldZeile}>
+            <Text style={s.feldLabel}>{f.label}</Text>
+            <Text style={s.feldWert}>{f.wert}</Text>
+          </View>
+        </View>
+      ))}
+      <View style={s.feldLinie} />
+    </View>
+  )
+}
+
+/**
+ * Projektübersicht: Objekt, Auftrag, Mengen und wirtschaftliche Eckwerte —
+ * jeweils als Feldtabelle, damit die Seite dem Titelblatt entspricht.
+ */
+function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
+  const u = daten.uebersicht
+  return (
+    <InhaltsSeite daten={daten}>
+      <Text style={s.h1}>Projektübersicht</Text>
+      {u ? (
+        <>
+          <Feldtabelle titel="Objekt" felder={u.objekt} />
+          <Feldtabelle titel="Auftrag" felder={u.auftrag} />
+          <Feldtabelle titel="Mengen" felder={u.mengen} />
+          <Feldtabelle titel="Wirtschaftliche Eckwerte" felder={u.wirtschaft} />
+        </>
+      ) : (
+        <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
+      )}
+    </InhaltsSeite>
+  )
+}
+
+/** Platzhalter für Kapitel, deren Inhalt noch aussteht. */
+function KapitelPlatzhalter({ kapitel, daten }: { kapitel: BerichtKapitel; daten: BerichtDaten }) {
+  return (
+    <InhaltsSeite format={kapitel.format} daten={daten}>
+      <Text style={s.h1}>{kapitel.label}</Text>
+      <Text style={s.hinweis}>
+        {kapitel.beschrieb} — dieses Kapitel wird noch aufgebaut.
+      </Text>
+    </InhaltsSeite>
+  )
+}
+
+/** Wählt die Seite eines Kapitels; noch leere Kapitel bekommen einen Platzhalter. */
+function KapitelSeite({ kapitel, daten }: { kapitel: BerichtKapitel; daten: BerichtDaten }) {
+  switch (kapitel.key) {
+    case 'projektuebersicht': return <Projektuebersicht daten={daten} />
+    default:                  return <KapitelPlatzhalter kapitel={kapitel} daten={daten} />
+  }
+}
+
 /**
  * Der Businessplan-Bericht als PDF-Dokument.
  *
- * Stand: Titelblatt und Inhaltsverzeichnis nach der Naef-Vorlage. Die
- * Fachkapitel folgen einzeln — ihre Schlüssel stehen bereits in `daten.kapitel`.
+ * Titelblatt und Inhaltsverzeichnis stehen; von den Fachkapiteln ist die
+ * Projektübersicht ausgebaut, die übrigen erscheinen als Platzhalter — so
+ * bleibt die Gliederung vollständig und man sieht, was noch fehlt.
  */
 export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
   // Hier statt beim Modulimport, damit eine abweichende Asset-Basis vorher
@@ -340,6 +442,7 @@ export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
     >
       <Titelblatt daten={daten} />
       <Inhaltsverzeichnis kapitel={fachkapitel} daten={daten} />
+      {fachkapitel.map((k) => <KapitelSeite key={k.key} kapitel={k} daten={daten} />)}
     </Document>
   )
 }

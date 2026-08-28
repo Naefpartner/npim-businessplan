@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useBericht } from '@/contexts/BerichtContext'
+import { VariantDataProvider } from '@/contexts/VariantDataContext'
+import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
 import { fetchVariant } from '@/hooks/useVariants'
 import { supabase } from '@/lib/supabase'
@@ -11,7 +13,7 @@ import { supabase } from '@/lib/supabase'
 import type { BerichtDaten } from '@/components/bericht/BerichtDokument'
 import {
   PHASE_LABEL, projectAddressLine,
-  type Project, type ProjectVariant, type Customer,
+  type Project, type ProjectVariant, type Customer, type Parcel,
 } from '@/types'
 
 /**
@@ -32,30 +34,47 @@ const BerichtVorschau = lazy(() => import('@/components/bericht/BerichtVorschau'
  * Berichtsseite: das Hauptfenster zeigt die Vorschau des Dokuments, die
  * Kapitelauswahl und die Vorlagen sitzen in der Sidebar (BerichtSidebarPanel).
  */
+/**
+ * Rahmen der Berichtsseite. Der Inhalt liegt im VariantDataProvider, weil die
+ * Fachkapitel Mengen und Anlagekosten der Variante brauchen — und zwar
+ * dieselben, die auch die Reiter der Variante zeigen.
+ */
 export function BerichtPage() {
   const { projektId, id: variantId } = useParams<{ projektId: string; id: string }>()
+  if (!variantId) return null
+  return (
+    <VariantDataProvider projectId={projektId} variantId={variantId}>
+      <BerichtInhalt projektId={projektId} variantId={variantId} />
+    </VariantDataProvider>
+  )
+}
+
+function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId: string }) {
   const { druckKapitel, anrede } = useBericht()
   const { photos, thumbnailPhotoId } = useProjectPhotos(projektId)
 
   const [project, setProject] = useState<Project | null>(null)
   const [kunde, setKunde] = useState<Customer | null>(null)
   const [variant, setVariant] = useState<ProjectVariant | null>(null)
+  const [parzellen, setParzellen] = useState<Parcel[]>([])
   const [laedt, setLaedt] = useState(true)
 
   useEffect(() => {
     let abgebrochen = false
     async function laden() {
       if (!projektId || !variantId) return
-      const [p, v] = await Promise.all([
+      const [p, v, pz] = await Promise.all([
         // Kunde vollständig, weil das Titelblatt Adresse und Ort braucht.
         supabase.from('projects').select('*, customer:customers(*)').eq('id', projektId).maybeSingle(),
         fetchVariant(variantId),
+        supabase.from('parcels').select('*').eq('project_id', projektId),
       ])
       if (abgebrochen) return
       const projekt = (p.data as (Project & { customer?: Customer | null }) | null) ?? null
       setProject(projekt)
       setKunde(projekt?.customer ?? null)
       setVariant(v)
+      setParzellen((pz.data as Parcel[] | null) ?? [])
       setLaedt(false)
     }
     void laden()
@@ -64,6 +83,8 @@ export function BerichtPage() {
 
   const thumbnail = photos.find((p) => p.id === thumbnailPhotoId) ?? photos[0] ?? null
   const adresse = project ? projectAddressLine(project) : null
+
+  const uebersicht = useUebersichtDaten(project, kunde, variant, parzellen)
 
   const daten = useMemo<BerichtDaten | null>(() => {
     if (!project || !variant) return null
@@ -79,8 +100,9 @@ export function BerichtPage() {
       datum: new Date(),
       titelbildUrl: thumbnail?.publicUrl ?? null,
       kapitel: druckKapitel,
+      uebersicht,
     }
-  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, kunde])
+  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, kunde, uebersicht])
 
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)
