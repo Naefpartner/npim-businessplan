@@ -83,6 +83,23 @@ export interface UebersichtDaten {
 
 const T = TITELBLATT
 
+/**
+ * Masse einer Feldzeile in Millimeter. Stil und Höhenrechnung greifen auf
+ * dieselben Werte zu — sonst driftet der Situationsplan von der Tabelle weg,
+ * an der er sich ausrichtet.
+ */
+const FELD = {
+  linie: 0.18,                          // 0.5 pt Trennlinie
+  oben: 1.4,
+  unten: 0.9,
+  text: (SCHRIFT.zeile / 72) * 25.4,    // eine Textzeile
+} as const
+
+/** Höhe einer Feldtabelle mit n Zeilen, ohne Überschrift. */
+function feldtabelleHoehe(n: number): number {
+  return n * (FELD.linie + FELD.oben + FELD.text + FELD.unten) + FELD.linie
+}
+
 const s = StyleSheet.create({
   /**
    * Der Zeilenabstand gehört auf die Seite. Auf View oder Text wirkt er in
@@ -235,8 +252,8 @@ const s = StyleSheet.create({
   feldLinie: { borderTopWidth: 0.5, borderTopColor: BERICHT_FARBE.linie },
   feldZeile: {
     flexDirection: 'row',
-    paddingTop: mm(1.4),
-    paddingBottom: mm(0.9),
+    paddingTop: mm(FELD.oben),
+    paddingBottom: mm(FELD.unten),
   },
   feldLabel: { width: mm(52) },
   feldWert: { flex: 1, fontWeight: 700 },
@@ -244,11 +261,11 @@ const s = StyleSheet.create({
 
   // ── Situationsplan ────────────────────────────────────────────────────────
   /**
-   * Der Situationsplan füllt die Spaltenbreite; die Höhe folgt dem
-   * Seitenverhältnis. Kein objectFit — das wirkt nur in einem Rahmen mit
-   * fester Höhe und würde hier nichts tun.
+   * Der Situationsplan füllt die Spaltenbreite und wird auf die Höhe der
+   * Auftragstabelle gedeckelt, damit beide Spalten auf derselben Linie enden.
+   * `cover` beschneidet dabei aus der Mitte, statt das Bild zu verzerren.
    */
-  plan: { width: '100%', marginBottom: mm(1.5) },
+  plan: { width: '100%', marginBottom: mm(1.5), objectFit: 'cover' },
   /** Auftrag links, Situationsplan rechts. */
   zweiSpalten: { flexDirection: 'row', marginBottom: mm(2) },
   spalteLinks: { flex: 1.15, paddingRight: mm(6) },
@@ -570,7 +587,10 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
               {u.situationsplanUrl ? (
                 <>
                   <Text style={s.h2}>Situationsplan</Text>
-                  <Image src={u.situationsplanUrl} style={s.plan} />
+                  <Image
+                    src={u.situationsplanUrl}
+                    style={[s.plan, { height: mm(feldtabelleHoehe(u.auftrag.length)) }]}
+                  />
                   <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
                 </>
               ) : (
