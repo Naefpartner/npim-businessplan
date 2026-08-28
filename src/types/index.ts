@@ -117,6 +117,21 @@ export const KOSTEN_METHODE_LABEL: Record<KostenMethode, string> = {
 }
 
 /**
+ * Vordefinierter Bericht: eine benannte Kapitelauswahl (Migration 063).
+ * Projektübergreifend — einmal definiert, überall nutzbar.
+ */
+export interface BerichtVorlage {
+  id: string
+  name: string
+  beschreibung: string | null
+  /** Kapitelschlüssel in Druckreihenfolge, siehe lib/bericht.ts. */
+  kapitel: string[]
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
  * Gespeicherter keeValue-Excel-Import. `doc` = KeeValueImport.
  * Ein Datensatz je Variante × Block (Migration 062): `block_key` ist leer für
  * den Gesamtimport, sonst '<etappe_id>::<eigentumsart>'.

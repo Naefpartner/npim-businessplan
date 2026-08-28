@@ -1,10 +1,11 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { NAEF_LOGO_SCHRIFT } from '@/assets/naef-logo-schrift'
 import {
   FolderKanban,
   Users,
   Settings,
   ShieldCheck,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -38,8 +39,19 @@ function NavItem({ to, icon: Icon, label, end }: { to: string; icon: React.Eleme
   )
 }
 
+/**
+ * Erkennt, ob gerade eine Variante geöffnet ist — nur dann lässt sich ein
+ * Bericht erzeugen, weil er immer zu genau einer Variante gehört.
+ */
+function varianteAusPfad(pfad: string): { projektId: string; variantId: string } | null {
+  const m = pfad.match(/^\/projekte\/([^/]+)\/varianten\/([^/]+)/)
+  return m ? { projektId: m[1], variantId: m[2] } : null
+}
+
 export function Sidebar() {
   const { isAdmin } = useAuth()
+  const { pathname } = useLocation()
+  const variante = varianteAusPfad(pathname)
 
   return (
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -53,6 +65,23 @@ export function Sidebar() {
         {navItems.map(({ to, icon, label }) => (
           <NavItem key={to} to={to} icon={icon} label={label} />
         ))}
+
+        {/* Bericht — erst nutzbar, wenn eine Variante geöffnet ist. */}
+        {variante ? (
+          <NavItem
+            to={`/projekte/${variante.projektId}/varianten/${variante.variantId}/bericht`}
+            icon={FileText}
+            label="Bericht"
+          />
+        ) : (
+          <span
+            title="Bericht: zuerst eine Variante öffnen"
+            className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300"
+          >
+            <FileText className="h-4 w-4 shrink-0" />
+            Bericht
+          </span>
+        )}
       </nav>
 
       {/* Einstellungen unten */}

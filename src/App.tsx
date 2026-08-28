@@ -10,6 +10,7 @@ import { ProjekteListPage }         from '@/pages/ProjekteListPage'
 import { ProjektDetailPage }        from '@/pages/ProjektDetailPage'
 import { KundenPage }               from '@/pages/KundenPage'
 import { VarianteDetailPage }       from '@/pages/VarianteDetailPage'
+import { BerichtPage } from '@/pages/BerichtPage'
 import { AnlagekostenPage }         from '@/pages/AnlagekostenPage'
 import { ParzellenPage }            from '@/pages/ParzellenPage'
 import { VariantenVergleichPage }   from '@/pages/VariantenVergleichPage'
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="projekte/:projektId/vergleich"           element={<VariantenVergleichPage />} />
               <Route path="projekte/:projektId/varianten/:id"       element={<VarianteDetailPage />} />
               <Route path="projekte/:projektId/varianten/:id/anlagekosten" element={<AnlagekostenPage />} />
+              <Route path="projekte/:projektId/varianten/:id/bericht"       element={<BerichtPage />} />
               <Route path="projekte/:projektId/parzellen"           element={<ParzellenPage />} />
               <Route path="einstellungen"                           element={<EinstellungenPage />} />
             </Route>
