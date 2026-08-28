@@ -8,8 +8,9 @@ import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from 
 import { useKostenmiete } from '@/hooks/useKostenmiete'
 import {
   PHASE_LABEL, EIGENTUMSART_LABEL, BUILDING_CONDITION_LABEL,
-  type Project, type ProjectVariant, type Parcel, type ExistingBuilding,
+  type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
+import type { AuftragAnrede } from '@/lib/bericht'
 import type {
   Feld, UebersichtDaten, TabellenZeile, Segment, BetragZeile,
 } from '@/components/bericht/BerichtDokument'
@@ -40,6 +41,9 @@ export function useUebersichtDaten(
   parzellen: Parcel[],
   bestand: ExistingBuilding[],
   situationsplanUrl: string | null,
+  kunde: Customer | null,
+  /** Beschriftung der ersten Zeile — dieselbe Wahl wie auf dem Titelblatt. */
+  anrede: AuftragAnrede,
 ): UebersichtDaten | undefined {
   const ak = useAnlagekostenShared()
   // Parameter der Kostenmiete — nur für den Genossenschaftsblock nötig.
@@ -76,6 +80,7 @@ export function useUebersichtDaten(
     const ortschaft = [project.plz, project.ort].filter(Boolean).join(' ').trim()
 
     const auftrag: Feld[] = ohneLeere([
+      { label: anrede,          wert: w(kunde?.name) },
       { label: 'Projektnummer', wert: w(project.project_number) },
       { label: 'Strasse',       wert: w(strasse) },
       { label: 'Ortschaft',     wert: w(ortschaft) },
@@ -236,5 +241,5 @@ export function useUebersichtDaten(
       ertraege: { kopf: ['Nutzung', 'Nutzungsart', 'CHF'], zeilen: ertragZeilen },
       wirtschaft: wirtschaftBloecke,
     }
-  }, [project, variant, parzellen, bestand, situationsplanUrl, ak, kostenmieteParams])
+  }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak, kostenmieteParams])
 }
