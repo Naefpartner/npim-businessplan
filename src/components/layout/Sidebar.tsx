@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
+import { useBericht } from '@/contexts/BerichtContext'
+import { BerichtSidebarPanel } from '@/components/bericht/BerichtSidebarPanel'
 
 const navItems = [
   { to: '/projekte', icon: FolderKanban,    label: 'Projekte' },
@@ -52,6 +54,8 @@ export function Sidebar() {
   const { isAdmin } = useAuth()
   const { pathname } = useLocation()
   const variante = varianteAusPfad(pathname)
+  // Auf der Berichtsseite klappt die Kapitelauswahl in der Sidebar auf.
+  const { kontext: berichtKontext } = useBericht()
 
   return (
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -82,6 +86,8 @@ export function Sidebar() {
             Bericht
           </span>
         )}
+
+        {berichtKontext && <BerichtSidebarPanel />}
       </nav>
 
       {/* Einstellungen unten */}

@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { UndoProvider, useUndo } from '@/contexts/UndoContext'
+import { BerichtProvider } from '@/contexts/BerichtContext'
 
 // Leert den Undo-Verlauf bei Seitenwechsel (Navigationsgrenze).
 function ClearUndoOnNavigate() {
@@ -16,6 +17,9 @@ export function AppLayout() {
   return (
     <UndoProvider>
       <ClearUndoOnNavigate />
+      {/* Die Kapitelauswahl des Berichts wird in der Sidebar bedient und im
+          Hauptfenster als Vorschau gerendert — daher hier im Layout. */}
+      <BerichtProvider>
       <div className="flex h-screen overflow-hidden bg-slate-50">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -29,6 +33,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      </BerichtProvider>
     </UndoProvider>
   )
 }
