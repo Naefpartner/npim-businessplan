@@ -63,13 +63,16 @@ const s = StyleSheet.create({
    * Die Vorlage spart oben links eine Ecke aus der Fläche aus. Nachgebildet
    * durch ein weisses Rechteck darüber — auf weissem Grund optisch identisch
    * zum Pfad der Vorlage und deutlich einfacher als ein Clipping.
+   *
+   * Links und oben ragt es über die Kante hinaus, damit keine Pixelzeile der
+   * kantengeglätteten Fläche stehen bleibt; die Innenkanten bleiben exakt.
    */
   logoEcke: {
     position: 'absolute',
-    left: mm(T.flaeche.links),
-    top: mm(T.flaeche.oben),
-    width: mm(T.logoEcke.breite),
-    height: mm(T.logoEcke.hoehe),
+    left: mm(T.flaeche.links - T.ueberstand),
+    top: mm(T.flaeche.oben - T.ueberstand),
+    width: mm(T.logoEcke.breite + T.ueberstand),
+    height: mm(T.logoEcke.hoehe + T.ueberstand),
     backgroundColor: '#FFFFFF',
   },
   wortmarke: {
@@ -80,12 +83,15 @@ const s = StyleSheet.create({
     // Keine Höhe: sie folgt dem Seitenverhältnis der Datei, sonst verzieht
     // sich der Schriftzug.
   },
-  /** Weisser Kasten unten links; der Titel steht darin schwarz auf Weiss. */
+  /**
+   * Weisser Kasten unten links; der Titel steht darin schwarz auf Weiss.
+   * Links mit demselben Überstand wie die Logo-Ecke, aus demselben Grund.
+   */
   titelKasten: {
     position: 'absolute',
-    left: mm(T.titelKasten.links),
+    left: mm(T.titelKasten.links - T.ueberstand),
     top: mm(T.titelKasten.oben),
-    width: mm(T.titelKasten.breite),
+    width: mm(T.titelKasten.breite + T.ueberstand),
     height: mm(T.titelKasten.hoehe),
     backgroundColor: '#FFFFFF',
   },

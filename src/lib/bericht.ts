@@ -125,6 +125,13 @@ export const TITELBLATT = {
   logoEcke: { breite: 59.4, hoehe: 17.35 },
   /** Weisser Kasten unten links; überlappt die Fläche und trägt den Titel. */
   titelKasten: { links: 17.5, oben: 130.4, breite: 102, hoehe: 56.8 },
+  /**
+   * Überstand der weissen Aussparungen über die Kante der Kupferfläche hinaus.
+   * Liegen sie exakt auf der Kante, bleibt eine Pixelzeile der kantengeglätteten
+   * Fläche sichtbar — eine feine Linie am Ausschnitt. Ausserhalb der Fläche ist
+   * die Seite weiss, der Überstand fällt also nicht auf.
+   */
+  ueberstand: 1,
   /** Titelzeilen — eingerückt auf den Satzspiegel, nicht auf den Kasten. */
   titel: { links: 30, oben: 141.5 },
   /** Angabentabelle Auftraggeberin / Beauftragte / Datum. */
