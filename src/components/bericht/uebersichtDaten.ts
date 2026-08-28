@@ -6,7 +6,7 @@ import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
 import {
-  PHASE_LABEL, EIGENTUMSART_LABEL,
+  PHASE_LABEL, EIGENTUMSART_LABEL, isNutzungWohnen,
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
@@ -159,6 +159,17 @@ export function useUebersichtDaten(
       kosten.push({ code: '', label: 'Total', netto: summeNetto, brutto: summeBrutto, total: true })
     }
 
+    // ── Kostenmiete der Genossenschaft ──────────────────────────────────────
+    // Vor den Erträgen, weil Wohnen dort keinen erfassten Mietzins hat: der
+    // Ertrag ist das Ergebnis dieser Rechnung und wird unten eingesetzt.
+    const mengenG = sammleKostenmieteMengen(ak.buildings, null)
+    const ergG = ak.konsolidiertEffektiv.get('genossenschaft')
+    const km = ergG && mengenG.wohnenFlaeche > 0
+      ? berechneKostenmiete(
+          basisFromErgebnis(ergG, mengenG.vmf, mengenG.wohnenFlaeche, mengenG.wohnungen),
+          kostenmieteParams, mengenG.ertragsNutzungen)
+      : null
+
     // ── Erträge je Nutzung ──────────────────────────────────────────────────
     // Je Eigentumsart ein eigener Block: Rendite und Genossenschaft weisen
     // Jahresmieten aus, Stockwerkeigentum Verkaufserlöse. Nutzungen ohne
@@ -166,7 +177,15 @@ export function useUebersichtDaten(
     // Einheit in der Zelle und nicht im Spaltenkopf.
     const ertragBloecke: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[] = []
     for (const eig of ak.presentEig) {
-      const detail = (ak.ertragDetailByEig.get(eig) ?? []).filter((d) => d.ertrag > 0)
+      // Bei der Genossenschaft trägt Wohnen die Restkosten: der Mietzins ist
+      // nicht erfasst, sondern fällt aus der Kostenmiete an. Über den
+      // Quadratmeteransatz verteilt er sich richtig, auch wenn mehrere
+      // Wohnnutzungen erfasst sind.
+      const detail = (ak.ertragDetailByEig.get(eig) ?? [])
+        .map((d) => (eig === 'genossenschaft' && km && isNutzungWohnen(d.nutzung)
+          ? { ...d, ertrag: km.proM2Jahr * d.flaecheM2 }
+          : d))
+        .filter((d) => d.ertrag > 0)
       if (detail.length === 0) continue
       const verkauf = eig === 'verkaufsobjekt'
 
@@ -236,12 +255,6 @@ export function useUebersichtDaten(
           ]),
         })
       } else if (eig === 'genossenschaft') {
-        const mengenG = sammleKostenmieteMengen(ak.buildings, null)
-        const km = mengenG.wohnenFlaeche > 0
-          ? berechneKostenmiete(
-              basisFromErgebnis(erg, mengenG.vmf, mengenG.wohnenFlaeche, mengenG.wohnungen),
-              kostenmieteParams, mengenG.ertragsNutzungen)
-          : null
         wirtschaftBloecke.push({
           titel: 'Kostenmiete (Genossenschaft)',
           felder: ohneLeere([
