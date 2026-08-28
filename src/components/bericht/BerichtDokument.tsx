@@ -1,8 +1,8 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import {
-  RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
-  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS,
-  kapitelFuer, type BerichtKapitel,
+  SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
+  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
+  kapitelFuer, type BerichtKapitel, type SeitenFormat,
 } from '@/lib/bericht'
 import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 
@@ -126,7 +126,6 @@ const s = StyleSheet.create({
    */
   fuss: {
     marginLeft: mm(FUSSZEILE_LINKS - RAND.links),
-    width: mm(INHALT.rechts - FUSSZEILE_LINKS),
     flexDirection: 'row',
     justifyContent: 'space-between',
     fontSize: SCHRIFT.klein,
@@ -135,7 +134,7 @@ const s = StyleSheet.create({
   fussTitel: {
     position: 'absolute',
     left: mm(FUSSZEILE_LINKS),
-    width: mm(INHALT.rechts - FUSSZEILE_LINKS),
+    width: mm(fussBreite('a4')),
     bottom: mm(RAND.fuss),
     fontSize: SCHRIFT.klein,
   },
@@ -162,11 +161,11 @@ const s = StyleSheet.create({
 })
 
 /** Fusszeile der Inhaltsseiten — Dokumentbezug links, Seitenzahl rechts. */
-function Fusszeile({ daten }: { daten: BerichtDaten }) {
+function Fusszeile({ daten, format }: { daten: BerichtDaten; format: SeitenFormat }) {
   const links = [FUSSZEILE_FIRMA, daten.adresse, daten.dokumentBezeichnung]
     .filter(Boolean).join('  |  ')
   return (
-    <View style={s.fuss} fixed>
+    <View style={[s.fuss, { width: mm(fussBreite(format)) }]} fixed>
       <Text>{links}</Text>
       {/* Dynamischer Inhalt braucht `fixed` am Text selbst — sonst wird er
           beim Seitenumbruch verworfen und die Zeile bleibt leer. Und nur Text
@@ -201,7 +200,7 @@ function Titelblatt({ daten }: { daten: BerichtDaten }) {
   ]
 
   return (
-    <Page size="A4" style={s.seite}>
+    <Page size={SEITE.a4.size} orientation="portrait" style={s.seite}>
       <View style={s.flaeche}>
         {daten.titelbildUrl && <Image src={daten.titelbildUrl} style={s.flaechenBild} />}
       </View>
@@ -272,6 +271,28 @@ function InhaltZeile({
 }
 
 /**
+ * Eine Inhaltsseite im gewünschten Format — mit Bildmarke, Satzspiegel und
+ * Fusszeile. Alle Fachkapitel bauen darauf auf, damit Ränder und Fusszeile
+ * über Formate hinweg gleich sitzen.
+ */
+export function InhaltsSeite({
+  format = 'a4', daten, children,
+}: {
+  format?: SeitenFormat
+  daten: BerichtDaten
+  children: React.ReactNode
+}) {
+  const f = SEITE[format]
+  return (
+    <Page size={f.size} orientation={f.quer ? 'landscape' : 'portrait'} style={[s.seite, s.inhaltsSeite]}>
+      <Kopfmarke />
+      <View style={s.inhaltsFluss}>{children}</View>
+      <Fusszeile daten={daten} format={format} />
+    </Page>
+  )
+}
+
+/**
  * Inhaltsverzeichnis nach Vorlage: Überschrift „Inhalt", darunter je Kapitel
  * eine Zeile aus Nummer, Titel und Seitenzahl, jeweils mit Trennlinie.
  *
@@ -280,16 +301,12 @@ function InhaltZeile({
  */
 function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; daten: BerichtDaten }) {
   return (
-    <Page size="A4" style={[s.seite, s.inhaltsSeite]}>
-      <Kopfmarke />
-      <View style={s.inhaltsFluss}>
-        <Text style={s.h1}>{INHALT.titel}</Text>
-        {kapitel.map((k, i) => (
-          <InhaltZeile key={k.key} nummer={String(i + 1)} label={k.label} seite="—" ebene={1} />
-        ))}
-      </View>
-      <Fusszeile daten={daten} />
-    </Page>
+    <InhaltsSeite daten={daten}>
+      <Text style={s.h1}>{INHALT.titel}</Text>
+      {kapitel.map((k, i) => (
+        <InhaltZeile key={k.key} nummer={String(i + 1)} label={k.label} seite="—" ebene={1} />
+      ))}
+    </InhaltsSeite>
   )
 }
 

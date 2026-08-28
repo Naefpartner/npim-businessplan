@@ -15,9 +15,16 @@ export interface BerichtKapitel {
    * (Titelblatt, Inhaltsverzeichnis).
    */
   fix?: boolean
-  /** Seitenformat, das dieses Kapitel braucht. */
-  format?: 'a4' | 'a4-quer' | 'a3'
+  /** Seitenformat, das dieses Kapitel braucht; ohne Angabe A4 hoch. */
+  format?: SeitenFormat
 }
+
+/**
+ * Seitenformate des Berichts. A4 hoch ist der Standard; breite Tabellen
+ * bekommen A3 hoch, sehr breite Gegenüberstellungen ein Querformat — so hält
+ * es auch die Word-Vorlage, die Abschnitte in allen vier Formaten führt.
+ */
+export type SeitenFormat = 'a4' | 'a4-quer' | 'a3' | 'a3-quer'
 
 /**
  * Katalog der Kapitel in Druckreihenfolge. Die Schlüssel landen in den
@@ -64,13 +71,35 @@ export function sortiereKapitel(keys: string[]): string[] {
 
 // ── Layout der Naef-Vorlage ──────────────────────────────────────────────────
 
-/** Seitenmasse in Millimeter. */
-export const SEITE = {
-  a4:      { breite: 210, hoehe: 297 },
-  a4Quer:  { breite: 297, hoehe: 210 },
-  a3:      { breite: 297, hoehe: 420 },
-  a3Quer:  { breite: 420, hoehe: 297 },
-} as const
+/**
+ * Seitenmasse in Millimeter, nach ISO 216. `size` und `orientation` gehen
+ * unverändert an @react-pdf — dessen A4/A3 entsprechen exakt diesen Massen,
+ * eigene Punktwerte sind also unnötig.
+ */
+export const SEITE: Record<SeitenFormat, {
+  breite: number
+  hoehe: number
+  size: 'A4' | 'A3'
+  quer: boolean
+}> = {
+  'a4':      { breite: 210, hoehe: 297, size: 'A4', quer: false },
+  'a4-quer': { breite: 297, hoehe: 210, size: 'A4', quer: true },
+  'a3':      { breite: 297, hoehe: 420, size: 'A3', quer: false },
+  'a3-quer': { breite: 420, hoehe: 297, size: 'A3', quer: true },
+}
+
+/** Breite des Satzspiegels eines Formats. */
+export function satzBreite(format: SeitenFormat): number {
+  return SEITE[format].breite - RAND.links - RAND.rechts
+}
+
+/**
+ * Breite der Fusszeile. Sie beginnt links auf der Kante der Titelfläche
+ * (17.5 mm) und endet auf dem rechten Satzspiegelrand.
+ */
+export function fussBreite(format: SeitenFormat): number {
+  return SEITE[format].breite - RAND.rechts - FUSSZEILE_LINKS
+}
 
 /** Satzspiegel in Millimeter — links breiter für die Bundstegablage. */
 export const RAND = {
