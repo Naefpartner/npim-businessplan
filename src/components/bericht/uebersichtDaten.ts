@@ -60,11 +60,7 @@ export function useUebersichtDaten(
       return a + (units.length > 0 ? units.reduce((x, u) => x + (u.anzahl ?? 1), 0) : (m.anzahl ?? 0))
     }, 0), 0)
 
-    // Geschosse: verschiedene Erdgeschoss-Bezeichnungen sind der Fussabdruck.
-    const gemeinden = [...new Set(parzellen.map((p) => p.gemeinde).filter(Boolean))] as string[]
-    const kantone = [...new Set(parzellen.map((p) => p.kanton).filter(Boolean))] as string[]
-    const zonen = [...new Set(parzellen.map((p) => p.zone).filter(Boolean))] as string[]
-    const nummern = parzellen.map((p) => p.parzelle_nummer).filter(Boolean)
+    // Ohne bezeichnetes Erdgeschoss lässt sich die Umgebungsfläche nicht ableiten.
     const hatEg = ak.buildings.some((b) => b.mietflaechen.some((m) => istErdgeschoss(m.geschoss_bezeichnung)))
 
     // Anlagekosten und Ertrag aus der aktiven Erfassungsmethode.
@@ -79,18 +75,10 @@ export function useUebersichtDaten(
     const ertrag = ak.presentEig.reduce(
       (s, eig) => s + Object.values(ak.ertragProNutzungByEig.get(eig) ?? {}).reduce((a, v) => a + v, 0), 0)
 
-    const objekt: Feld[] = ohneLeere([
-      { label: 'Projekt',            wert: w(project.name) },
-      { label: 'Adresse',            wert: w(projectAddressLine(project)) },
-      { label: 'Gemeinde',           wert: w([gemeinden.join(', '), kantone.join(', ')].filter(Boolean).join(' · ')) },
-      { label: 'Parzellen',          wert: nummern.length ? nummern.join(', ') : '—' },
-      { label: 'Grundstücksfläche',  wert: ak.gsfTotal > 0 ? w(ak.gsfTotal, 'm²') : '—' },
-      { label: 'Zone',               wert: zonen.length ? zonen.join(', ') : '—' },
-    ])
-
     const auftrag: Feld[] = ohneLeere([
       { label: 'Kundschaft',      wert: w(kunde?.name) },
       { label: 'Projektnummer',   wert: w(project.project_number) },
+      { label: 'Adresse',         wert: w(projectAddressLine(project)) },
       { label: 'Variante',        wert: w(variant.name) },
       { label: 'Projektphase',    wert: PHASE_LABEL[variant.phase] },
       { label: 'Status',          wert: VARIANT_STATUS_LABEL[variant.status] },
@@ -242,7 +230,6 @@ export function useUebersichtDaten(
 
     return {
       situationsplanUrl,
-      objekt,
       auftrag,
       grundstuecke: { kopf: ['Parzelle', 'Gemeinde', 'Zone', 'Fläche m²'], zeilen: gsZeilen },
       bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'Zustand', 'GF m²', 'Volumen m³'], zeilen: bestandZeilen },

@@ -65,7 +65,6 @@ export interface BetragZeile {
 export interface UebersichtDaten {
   /** GIS-Ausschnitt als Situationsplan; fehlt, wenn keiner hinterlegt ist. */
   situationsplanUrl: string | null
-  objekt: Feld[]
   auftrag: Feld[]
   /** Grundstücke: Nummer, Gemeinde, Zone, Fläche. */
   grundstuecke: { kopf: string[]; zeilen: TabellenZeile[] }
@@ -244,7 +243,11 @@ const s = StyleSheet.create({
   hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
 
   // ── Situationsplan ────────────────────────────────────────────────────────
-  plan: { width: '100%', marginBottom: mm(2), objectFit: 'contain' },
+  plan: { width: '100%', marginBottom: mm(1.5), objectFit: 'contain' },
+  /** Auftrag links, Situationsplan rechts. */
+  zweiSpalten: { flexDirection: 'row', marginBottom: mm(2) },
+  spalteLinks: { flex: 1.15, paddingRight: mm(6) },
+  spalteRechts: { flex: 1 },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginBottom: mm(4) },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
@@ -514,7 +517,14 @@ function Kreisdiagramm({ segmente, groesse = 42 }: { segmente: Segment[]; groess
 }
 
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
-function Feldtabelle({ titel, felder }: { titel: string; felder: Feld[] }) {
+function Feldtabelle({
+  titel, felder, labelBreite,
+}: {
+  titel: string
+  felder: Feld[]
+  /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
+  labelBreite?: number
+}) {
   if (felder.length === 0) return null
   return (
     <View style={s.feldBlock}>
@@ -522,7 +532,9 @@ function Feldtabelle({ titel, felder }: { titel: string; felder: Feld[] }) {
       {felder.map((f) => (
         <View key={f.label} style={s.feldLinie}>
           <View style={s.feldZeile}>
-            <Text style={s.feldLabel}>{f.label}</Text>
+            <Text style={[s.feldLabel, ...(labelBreite ? [{ width: mm(labelBreite) }] : [])]}>
+              {f.label}
+            </Text>
             <Text style={s.feldWert}>{f.wert}</Text>
           </View>
         </View>
@@ -543,15 +555,27 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
       <Text style={s.h1}>Projektübersicht</Text>
       {u ? (
         <>
-          {u.situationsplanUrl && (
-            <>
-              <Image src={u.situationsplanUrl} style={s.plan} />
-              <Text style={s.legende}>Situationsplan — Ausschnitt aus dem kantonalen GIS</Text>
-            </>
-          )}
-
-          <Feldtabelle titel="Objekt" felder={u.objekt} />
-          <Feldtabelle titel="Auftrag" felder={u.auftrag} />
+          {/* Auftrag und Situationsplan nebeneinander — die Angaben links,
+              der Plan rechts, damit die Seite oben nicht zweimal bricht. */}
+          <View style={s.zweiSpalten}>
+            <View style={s.spalteLinks}>
+              <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} />
+            </View>
+            <View style={s.spalteRechts}>
+              {u.situationsplanUrl ? (
+                <>
+                  <Text style={s.h2}>Situationsplan</Text>
+                  <Image src={u.situationsplanUrl} style={s.plan} />
+                  <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={s.h2}>Situationsplan</Text>
+                  <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
+                </>
+              )}
+            </View>
+          </View>
 
           <Datentabelle
             titel="Grundstücke"
