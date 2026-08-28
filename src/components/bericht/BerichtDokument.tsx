@@ -9,7 +9,9 @@ import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 /** Alles, was der Bericht über Projekt und Variante wissen muss. */
 export interface BerichtDaten {
   projektName: string
-  /** Adresszeile — erste Titelzeile und Teil der Fusszeile. */
+  /** Erste Titelzeile: Ortschaft, Projektname — ohne Postleitzahl. */
+  titelZeile: string
+  /** Objektbezug in der Fusszeile. */
   adresse: string | null
   dokumentBezeichnung: string
   untertitel: string | null
@@ -84,22 +86,25 @@ const s = StyleSheet.create({
     // sich der Schriftzug.
   },
   /**
-   * Weisser Kasten unten links; der Titel steht darin schwarz auf Weiss.
+   * Weisser Kasten unten links, der zugleich den Titel trägt: seine Breite
+   * ergibt sich aus dem Text plus Überhang, er wächst also mit dem Titel.
+   * Ohne `width` schrumpft ein absolut positioniertes Element auf den Inhalt.
+   *
    * Links mit demselben Überstand wie die Logo-Ecke, aus demselben Grund.
+   * Die Innenabstände setzen den Text auf den Satzspiegel (30 mm) und auf die
+   * Höhe der Vorlage (141.5 mm).
    */
   titelKasten: {
     position: 'absolute',
     left: mm(T.titelKasten.links - T.ueberstand),
     top: mm(T.titelKasten.oben),
-    width: mm(T.titelKasten.breite + T.ueberstand),
-    height: mm(T.titelKasten.hoehe),
+    maxWidth: mm(T.flaeche.links + T.flaeche.breite - T.titelKasten.links + T.ueberstand),
+    paddingLeft: mm(T.titel.links - T.titelKasten.links + T.ueberstand),
+    paddingRight: mm(T.titelKasten.ueberhangRechts),
+    paddingTop: mm(T.titel.oben - T.titelKasten.oben),
+    // Bis unter die Kupferfläche, damit die Aussparung sauber durchschneidet.
+    paddingBottom: mm(T.ueberstand),
     backgroundColor: '#FFFFFF',
-  },
-  titelText: {
-    position: 'absolute',
-    left: mm(T.titel.links),
-    top: mm(T.titel.oben),
-    width: mm(T.titelKasten.breite),
   },
   titelZeile: {
     fontSize: SCHRIFT.titel,
@@ -212,10 +217,8 @@ function Titelblatt({ daten }: { daten: BerichtDaten }) {
       </View>
       <View style={s.logoEcke} />
       <Image src={assetPfad('/naef-wortmarke.jpg')} style={s.wortmarke} />
-      <View style={s.titelKasten} />
-
-      <View style={s.titelText}>
-        {daten.adresse && <Text style={s.titelZeile}>{daten.adresse}</Text>}
+      <View style={s.titelKasten}>
+        <Text style={s.titelZeile}>{daten.titelZeile}</Text>
         <Text style={[s.titelZeile, s.titelFett]}>{daten.dokumentBezeichnung}</Text>
       </View>
 

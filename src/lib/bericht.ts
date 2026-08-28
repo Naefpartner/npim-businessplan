@@ -123,8 +123,14 @@ export const TITELBLATT = {
   flaeche: { links: 17.5, oben: 12.5, breite: 180, hoehe: 136.6 },
   /** Aussparung oben links, in der die Wortmarke steht. */
   logoEcke: { breite: 59.4, hoehe: 17.35 },
-  /** Weisser Kasten unten links; überlappt die Fläche und trägt den Titel. */
-  titelKasten: { links: 17.5, oben: 130.4, breite: 102, hoehe: 56.8 },
+  /**
+   * Weisser Kasten unten links; überlappt die Fläche und trägt den Titel.
+   * Die Breite ergibt sich aus dem Titel — der Kasten wächst mit und reicht
+   * `ueberhangRechts` über die längste Zeile hinaus. Begrenzt wird er auf die
+   * rechte Kante der Kupferfläche, damit ein langer Titel nicht über die Seite
+   * hinausläuft; er bricht dann um.
+   */
+  titelKasten: { links: 17.5, oben: 130.4, ueberhangRechts: 12 },
   /**
    * Überstand der weissen Aussparungen über die Kante der Kupferfläche hinaus.
    * Liegen sie exakt auf der Kante, bleibt eine Pixelzeile der kantengeglätteten

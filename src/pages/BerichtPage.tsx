@@ -53,6 +53,8 @@ export function BerichtPage() {
     if (!project || !variant) return null
     return {
       projektName: project.name,
+      // Titel der Vorlage: Ortschaft, dann der Projektname — ohne Postleitzahl.
+      titelZeile: [project.ort, project.name].filter(Boolean).join(', '),
       adresse,
       dokumentBezeichnung: 'Businessplan',
       untertitel: `${variant.name} · ${PHASE_LABEL[variant.phase]}`,
