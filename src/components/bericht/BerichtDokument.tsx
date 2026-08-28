@@ -83,22 +83,8 @@ export interface UebersichtDaten {
 
 const T = TITELBLATT
 
-/**
- * Masse einer Feldzeile in Millimeter. Stil und Höhenrechnung greifen auf
- * dieselben Werte zu — sonst driftet der Situationsplan von der Tabelle weg,
- * an der er sich ausrichtet.
- */
-const FELD = {
-  linie: 0.18,                          // 0.5 pt Trennlinie
-  oben: 1.4,
-  unten: 0.9,
-  text: (SCHRIFT.zeile / 72) * 25.4,    // eine Textzeile
-} as const
-
-/** Höhe einer Feldtabelle mit n Zeilen, ohne Überschrift. */
-function feldtabelleHoehe(n: number): number {
-  return n * (FELD.linie + FELD.oben + FELD.text + FELD.unten) + FELD.linie
-}
+/** Innenabstände einer Feldzeile in Millimeter. */
+const FELD = { oben: 1.4, unten: 0.9 } as const
 
 const s = StyleSheet.create({
   /**
@@ -261,16 +247,18 @@ const s = StyleSheet.create({
 
   // ── Situationsplan ────────────────────────────────────────────────────────
   /**
-   * Der Situationsplan füllt die Spaltenbreite und wird auf die Höhe der
-   * Auftragstabelle gedeckelt, damit beide Spalten auf derselben Linie enden.
-   * `cover` beschneidet dabei aus der Mitte, statt das Bild zu verzerren.
+   * Der Situationsplan füllt die Spaltenbreite und über flexGrow die Resthöhe
+   * der Zeile. Da die Zeilenhöhe von der Auftragstabelle bestimmt wird, endet
+   * er genau auf deren unterster Linie — auch wenn eine Feldzeile umbricht,
+   * was eine gerechnete Höhe nicht auffangen könnte. `cover` beschneidet aus
+   * der Mitte, statt das Bild zu verzerren.
    */
-  plan: { width: '100%', marginBottom: mm(1.5), objectFit: 'cover' },
+  plan: { width: '100%', flexGrow: 1, objectFit: 'cover' },
   /** Auftrag links, Situationsplan rechts. */
-  zweiSpalten: { flexDirection: 'row', marginBottom: mm(2) },
+  zweiSpalten: { flexDirection: 'row' },
   spalteLinks: { flex: 1.15, paddingRight: mm(6) },
   spalteRechts: { flex: 1 },
-  legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginBottom: mm(4) },
+  legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2) },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
   tabKopf: {
@@ -540,16 +528,22 @@ function Kreisdiagramm({ segmente, groesse = 42 }: { segmente: Segment[]; groess
 
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({
-  titel, felder, labelBreite,
+  titel, felder, labelBreite, abstandUnten = true,
 }: {
   titel: string
   felder: Feld[]
   /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
   labelBreite?: number
+  /**
+   * Abstand nach der letzten Linie. In der geteilten Zeile abzuschalten:
+   * er zählt sonst zur Spaltenhöhe, und der Situationsplan daneben ragt um
+   * denselben Betrag über die unterste Tabellenlinie hinaus.
+   */
+  abstandUnten?: boolean
 }) {
   if (felder.length === 0) return null
   return (
-    <View style={s.feldBlock}>
+    <View style={abstandUnten ? s.feldBlock : undefined}>
       <Text style={s.h2}>{titel}</Text>
       {felder.map((f) => (
         <View key={f.label} style={s.feldLinie}>
@@ -581,26 +575,26 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
               der Plan rechts, damit die Seite oben nicht zweimal bricht. */}
           <View style={s.zweiSpalten}>
             <View style={s.spalteLinks}>
-              <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} />
+              <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} abstandUnten={false} />
             </View>
             <View style={s.spalteRechts}>
-              {u.situationsplanUrl ? (
-                <>
-                  <Text style={s.h2}>Situationsplan</Text>
-                  <Image
-                    src={u.situationsplanUrl}
-                    style={[s.plan, { height: mm(feldtabelleHoehe(u.auftrag.length)) }]}
-                  />
-                  <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={s.h2}>Situationsplan</Text>
-                  <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
-                </>
-              )}
+              <Text style={s.h2}>Situationsplan</Text>
+              {u.situationsplanUrl
+                ? <Image src={u.situationsplanUrl} style={s.plan} />
+                : <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>}
             </View>
           </View>
+
+          {/* Bildlegende in einer eigenen Zeile darunter — sonst zählte sie
+              zur Spaltenhöhe und das Bild endete oberhalb der Tabellenlinie. */}
+          {u.situationsplanUrl && (
+            <View style={s.zweiSpalten}>
+              <View style={s.spalteLinks} />
+              <View style={s.spalteRechts}>
+                <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
+              </View>
+            </View>
+          )}
 
           <Datentabelle
             titel="Grundstücke"
