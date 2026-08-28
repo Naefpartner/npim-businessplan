@@ -4,8 +4,15 @@
 // in Millimeter bemasst — deshalb überall über mm() gehen statt Punktwerte zu
 // hinterlegen. So bleiben die Zahlen mit der Word-Vorlage vergleichbar.
 
+import { Buffer } from 'buffer'
 import { Font } from '@react-pdf/renderer'
 import { SCHRIFT } from '@/lib/bericht'
+
+// @react-pdf greift beim Einlesen der Schriften auf Node's Buffer zu, den der
+// Browser nicht kennt („Can't find variable: Buffer"). Die Polyfill steht hier
+// statt global, damit sie nur mit dem Bericht geladen wird.
+const g = globalThis as typeof globalThis & { Buffer?: typeof Buffer }
+if (!g.Buffer) g.Buffer = Buffer
 
 /** Millimeter in Punkt. 1 mm = 72/25.4 pt. */
 export function mm(wert: number): number {
