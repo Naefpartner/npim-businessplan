@@ -33,6 +33,12 @@ export interface BerichtDaten {
 export interface Feld {
   label: string
   wert: string
+  /**
+   * Einheit in einer eigenen Spalte vor dem Wert. Trägt ein Feld der Tabelle
+   * eine, bekommt die ganze Tabelle die Spalte — die Einheiten stehen dann
+   * untereinander und die Zahlen rechtsbündig am Spaltenrand.
+   */
+  einheit?: string
 }
 
 /** Eine Zeile der Grundstücks- bzw. Bestandstabelle. */
@@ -252,6 +258,8 @@ const s = StyleSheet.create({
     paddingBottom: mm(ZEILE.unten),
   },
   feldLabel: { width: mm(52) },
+  feldEinheit: { width: mm(9) },
+  feldZahl: { flex: 1, textAlign: 'right' },
   // Werte stehen wie die Bezeichnungen in normaler Schrift — fett bleibt den
   // Totalzeilen vorbehalten, damit sie sich abheben.
   feldWert: { flex: 1 },
@@ -652,6 +660,7 @@ function Feldtabelle({
   abstandUnten?: boolean
 }) {
   if (felder.length === 0) return null
+  const mitEinheit = felder.some((f) => f.einheit)
   return (
     <View style={abstandUnten ? s.feldBlock : undefined}>
       <Text style={s.h2}>{titel}</Text>
@@ -662,7 +671,8 @@ function Feldtabelle({
             <Text style={[s.feldLabel, ...(labelBreite ? [{ width: mm(labelBreite) }] : [])]}>
               {f.label}
             </Text>
-            <Text style={s.feldWert}>{f.wert}</Text>
+            {mitEinheit && <Text style={s.feldEinheit}>{f.einheit ?? ''}</Text>}
+            <Text style={mitEinheit ? s.feldZahl : s.feldWert}>{f.wert}</Text>
           </View>
         </View>
       ))}

@@ -82,15 +82,24 @@ export function useUebersichtDaten(
       { label: 'Etappen',       wert: ak.etappen.length > 1 ? String(ak.etappen.length) : '—' },
     ])
 
+    // Einheit und Zahl getrennt: die Einheiten stehen so untereinander und die
+    // Zahlen rechtsbündig am Spaltenrand.
     const flaechen: Feld[] = ohneLeere([
-      { label: 'Geschossfläche GF',      wert: mengen.gfM2 > 0 ? w(mengen.gfM2, 'm²') : '—' },
-      { label: 'Gebäudevolumen GV',      wert: mengen.gvM3 > 0 ? w(mengen.gvM3, 'm³') : '—' },
-      { label: 'davon unter Terrain',    wert: mengen.anteilUnterTerrain != null
-          ? `${(mengen.anteilUnterTerrain * 100).toFixed(1)} %` : '—' },
-      { label: flaechenLabel,            wert: ak.totalVmf > 0 ? w(ak.totalVmf, 'm²') : '—' },
-      { label: 'Umgebungsfläche',        wert: hatEg && mengen.bufM2 != null ? w(mengen.bufM2, 'm²') : '—' },
-      { label: 'Wohnungen',              wert: wohnungen > 0 ? String(wohnungen) : '—' },
-      { label: 'Parkplätze unterirdisch', wert: mengen.parkplaetzeUnterirdisch > 0
+      { label: 'Geschossfläche GF',      einheit: 'm²',
+        wert: mengen.gfM2 > 0 ? w(mengen.gfM2) : '—' },
+      { label: 'Gebäudevolumen GV',      einheit: 'm³',
+        wert: mengen.gvM3 > 0 ? w(mengen.gvM3) : '—' },
+      { label: 'davon unter Terrain',    einheit: '%',
+        wert: mengen.anteilUnterTerrain != null
+          ? (mengen.anteilUnterTerrain * 100).toFixed(1) : '—' },
+      { label: flaechenLabel,            einheit: 'm²',
+        wert: ak.totalVmf > 0 ? w(ak.totalVmf) : '—' },
+      { label: 'Umgebungsfläche',        einheit: 'm²',
+        wert: hatEg && mengen.bufM2 != null ? w(mengen.bufM2) : '—' },
+      { label: 'Wohnungen',              einheit: 'Stk',
+        wert: wohnungen > 0 ? String(wohnungen) : '—' },
+      { label: 'Parkplätze unterirdisch', einheit: 'Stk',
+        wert: mengen.parkplaetzeUnterirdisch > 0
           ? String(mengen.parkplaetzeUnterirdisch) : '—' },
     ])
 
