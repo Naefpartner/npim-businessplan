@@ -266,13 +266,14 @@ const s = StyleSheet.create({
     height: '100%',
     objectFit: 'cover',
   },
-  /** Auftrag links, Situationsplan rechts. */
   zweiSpalten: { flexDirection: 'row' },
-  spalteLinks: { flex: 1.15, paddingRight: mm(6) },
-  spalteRechts: { flex: 1 },
-  /** Grundstücke schmal, Bestandsgebäude breiter — dort stehen fünf Spalten. */
-  spalteSchmal: { flex: 0.9, paddingRight: mm(6) },
-  spalteBreit: { flex: 1.7 },
+  /**
+   * Die Spaltenteilung der Übersicht: links etwas schmaler, rechts breiter.
+   * Alle geteilten Zeilen nutzen dieselben Werte, damit die Spaltenkanten
+   * über die Zeilen hinweg auf einer Flucht stehen.
+   */
+  spalteEins: { flex: 1, paddingRight: mm(6) },
+  spalteZwei: { flex: 1.15 },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2) },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
@@ -586,13 +587,10 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
       <Text style={s.h1}>Projektübersicht</Text>
       {u ? (
         <>
-          {/* Auftrag und Situationsplan nebeneinander — die Angaben links,
-              der Plan rechts, damit die Seite oben nicht zweimal bricht. */}
+          {/* Situationsplan und Auftrag nebeneinander — der Plan links, die
+              Angaben rechts, damit die Seite oben nicht zweimal bricht. */}
           <View style={s.zweiSpalten}>
-            <View style={s.spalteLinks}>
-              <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} abstandUnten={false} />
-            </View>
-            <View style={s.spalteRechts}>
+            <View style={s.spalteEins}>
               <Text style={s.h2}>Situationsplan</Text>
               {u.situationsplanUrl ? (
                 <View style={s.planRahmen}>
@@ -602,22 +600,25 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
                 <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
               )}
             </View>
+            <View style={s.spalteZwei}>
+              <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} abstandUnten={false} />
+            </View>
           </View>
 
           {/* Bildlegende in einer eigenen Zeile darunter — sonst zählte sie
               zur Spaltenhöhe und das Bild endete oberhalb der Tabellenlinie. */}
           {u.situationsplanUrl && (
             <View style={s.zweiSpalten}>
-              <View style={s.spalteLinks} />
-              <View style={s.spalteRechts}>
+              <View style={s.spalteEins}>
                 <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
               </View>
+              <View style={s.spalteZwei} />
             </View>
           )}
 
           {/* Grundstücke und Bestandsgebäude nebeneinander. */}
           <View style={s.zweiSpalten}>
-            <View style={s.spalteSchmal}>
+            <View style={s.spalteEins}>
               <Datentabelle
                 titel="Grundstücke"
                 kopf={u.grundstuecke.kopf}
@@ -626,12 +627,12 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
                 zeilen={u.grundstuecke.zeilen}
               />
             </View>
-            <View style={s.spalteBreit}>
+            <View style={s.spalteZwei}>
               <Datentabelle
                 titel="Bestandsgebäude"
                 kopf={u.bestand.kopf}
-                breiten={[2, 0.9, 1.2, 2.1, 0.85]}
-                linksBis={3}
+                breiten={[2.2, 1, 1.5, 1]}
+                linksBis={2}
                 zeilen={u.bestand.zeilen}
               />
             </View>

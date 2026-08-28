@@ -7,7 +7,7 @@ import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
 import {
-  PHASE_LABEL, EIGENTUMSART_LABEL, BUILDING_CONDITION_LABEL,
+  PHASE_LABEL, EIGENTUMSART_LABEL,
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
@@ -120,7 +120,6 @@ export function useUebersichtDaten(
         b.bezeichnung,
         b.baujahr != null ? String(b.baujahr) : '—',
         b.nutzung ?? '—',
-        b.zustand ? BUILDING_CONDITION_LABEL[b.zustand] : '—',
         b.volumen_m3 != null ? formatNumber(b.volumen_m3) : '—',
       ],
     }))
@@ -231,7 +230,7 @@ export function useUebersichtDaten(
       // Kurze Einheitenköpfe: „Volumen m³" bräuchte in der geteilten Spalte
       // zwei Zeilen und verschöbe die Kopfzeile gegenüber der Nachbartabelle.
       grundstuecke: { kopf: ['Parzelle', 'Zone', 'm²'], zeilen: gsZeilen },
-      bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'Zustand', 'm³'], zeilen: bestandZeilen },
+      bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'm³'], zeilen: bestandZeilen },
       nutzungsverteilung,
       mengen: flaechen,
       kosten,
