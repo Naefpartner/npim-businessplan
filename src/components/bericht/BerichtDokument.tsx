@@ -252,7 +252,9 @@ const s = StyleSheet.create({
     paddingBottom: mm(ZEILE.unten),
   },
   feldLabel: { width: mm(52) },
-  feldWert: { flex: 1, fontWeight: 700 },
+  // Werte stehen wie die Bezeichnungen in normaler Schrift — fett bleibt den
+  // Totalzeilen vorbehalten, damit sie sich abheben.
+  feldWert: { flex: 1 },
   hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
 
   // ── Situationsplan ────────────────────────────────────────────────────────
