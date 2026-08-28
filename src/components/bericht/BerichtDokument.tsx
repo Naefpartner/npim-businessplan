@@ -77,7 +77,8 @@ const s = StyleSheet.create({
     left: mm(LOGO.titel.links),
     top: mm(LOGO.titel.oben),
     width: mm(LOGO.titel.breite),
-    height: mm(LOGO.titel.hoehe),
+    // Keine Höhe: sie folgt dem Seitenverhältnis der Datei, sonst verzieht
+    // sich der Schriftzug.
   },
   /** Weisser Kasten unten links; der Titel steht darin schwarz auf Weiss. */
   titelKasten: {

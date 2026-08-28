@@ -115,10 +115,17 @@ export const TITELBLATT = {
   },
 } as const
 
-/** Logo: Wortmarke auf dem Titelblatt, Bildmarke auf den Folgeseiten. */
+/**
+ * Logo: Wortmarke auf dem Titelblatt, Bildmarke auf den Folgeseiten.
+ *
+ * Bei der Wortmarke steht bewusst nur die Breite — die Höhe folgt dem
+ * Seitenverhältnis der Bilddatei. Ein fester Rahmen verzerrte den Schriftzug,
+ * weil die Datei ein anderes Verhältnis hat als der Rahmen der Word-Vorlage.
+ * Die Werte sind am Schriftzug der Vorlage gemessen (46.97 × 5.04 mm).
+ */
 export const LOGO = {
-  titel:  { links: 16.5, oben: 11.5, breite: 49.2, hoehe: 7.2 },
-  folge:  { rechts: 12.5, oben: 11.5, breite: 12.1, hoehe: 12.1 },
+  titel:  { links: 17.5, oben: 12.5, breite: 47.0 },
+  folge:  { rechts: 12.5, oben: 12.5, breite: 10.0, hoehe: 10.0 },
 } as const
 
 /** Inhaltsverzeichnis — Spalten und Linien, nachgemessen an Seite 4. */
