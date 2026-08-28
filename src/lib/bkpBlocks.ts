@@ -232,6 +232,46 @@ export function ertragProNutzung(buildings: BuildingLite[]): Record<string, numb
   return out
 }
 
+/** Eine Nutzung der Ertragsaufstellung, mit ihrer Bezugsgrösse. */
+export interface ErtragDetail {
+  nutzung: string
+  /** Vermiet- bzw. Verkaufsfläche in m². Null bei Nutzungen, die nach Stück zählen. */
+  flaecheM2: number
+  /** Einheiten (Parkplätze, Garagen …) — Bezugsgrösse, wo keine Fläche erfasst ist. */
+  anzahl: number
+  /** Jahresmietertrag bzw. Verkaufserlös. */
+  ertrag: number
+}
+
+/**
+ * Wie `ertragProNutzung`, zusätzlich mit Fläche und Stückzahl je Nutzung —
+ * damit sich der Ansatz (CHF/m² bzw. CHF/Mt) im Bericht ausweisen lässt.
+ *
+ * Der Ansatz wird bewusst nicht aus den Eingabefeldern übernommen, sondern
+ * aus Ertrag und Menge zurückgerechnet: eine Nutzung kann in mehreren
+ * Gebäuden unterschiedlich erfasst sein (Pauschale, CHF/m², CHF/Stück), und
+ * nur der Durchschnitt passt dann zur ausgewiesenen Summe.
+ */
+export function ertragDetailProNutzung(buildings: BuildingLite[]): ErtragDetail[] {
+  const flaeche: Record<string, number> = {}
+  const anzahl: Record<string, number> = {}
+  const ertrag: Record<string, number> = {}
+  const reihenfolge: string[] = []
+  for (const b of buildings) {
+    const isVerkauf = b.use_type === 'verkaufsobjekt'
+    for (const m of b.mietflaechen) {
+      const key = (m.nutzung || '').trim() || '(ohne Nutzung)'
+      if (!(key in ertrag)) reihenfolge.push(key)
+      flaeche[key] = (flaeche[key] ?? 0) + (m.flaeche_m2 || 0)
+      anzahl[key] = (anzahl[key] ?? 0) + (m.anzahl ?? 1)
+      ertrag[key] = (ertrag[key] ?? 0) + mietflaecheErtrag(m, isVerkauf)
+    }
+  }
+  return reihenfolge.map((k) => ({
+    nutzung: k, flaecheM2: flaeche[k], anzahl: anzahl[k], ertrag: ertrag[k],
+  }))
+}
+
 /**
  * Schlüssel eines Kostenblocks (Etappe × Eigentumsart). Wird von der
  * Benchmark- und der keeValue-Methode gleichermassen verwendet — im

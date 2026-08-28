@@ -63,9 +63,11 @@ export function useUebersichtDaten(
     // Ohne bezeichnetes Erdgeschoss lässt sich die Umgebungsfläche nicht ableiten.
     const hatEg = ak.buildings.some((b) => b.mietflaechen.some((m) => istErdgeschoss(m.geschoss_bezeichnung)))
 
-    // Anlagekosten und Ertrag aus der aktiven Erfassungsmethode.
-    const ertrag = ak.presentEig.reduce(
-      (s, eig) => s + Object.values(ak.ertragProNutzungByEig.get(eig) ?? {}).reduce((a, v) => a + v, 0), 0)
+    // Mietfläche oder Verkaufsfläche — nur wenn beides vorkommt, beides.
+    const hatVerkauf = ak.presentEig.includes('verkaufsobjekt')
+    const hatMiete = ak.presentEig.some((e) => e !== 'verkaufsobjekt')
+    const flaechenLabel = hatVerkauf && hatMiete
+      ? 'Miet-/Verkaufsfläche' : hatVerkauf ? 'Verkaufsfläche' : 'Mietfläche'
 
     const strasse = [project.strasse, project.hausnummer].filter(Boolean).join(' ').trim()
     const ortschaft = [project.plz, project.ort].filter(Boolean).join(' ').trim()
@@ -85,7 +87,7 @@ export function useUebersichtDaten(
       { label: 'Gebäudevolumen GV',      wert: mengen.gvM3 > 0 ? w(mengen.gvM3, 'm³') : '—' },
       { label: 'davon unter Terrain',    wert: mengen.anteilUnterTerrain != null
           ? `${(mengen.anteilUnterTerrain * 100).toFixed(1)} %` : '—' },
-      { label: 'Miet-/Verkaufsfläche',   wert: ak.totalVmf > 0 ? w(ak.totalVmf, 'm²') : '—' },
+      { label: flaechenLabel,            wert: ak.totalVmf > 0 ? w(ak.totalVmf, 'm²') : '—' },
       { label: 'Umgebungsfläche',        wert: hatEg && mengen.bufM2 != null ? w(mengen.bufM2, 'm²') : '—' },
       { label: 'Wohnungen',              wert: wohnungen > 0 ? String(wohnungen) : '—' },
       { label: 'Parkplätze unterirdisch', wert: mengen.parkplaetzeUnterirdisch > 0
@@ -158,17 +160,46 @@ export function useUebersichtDaten(
     }
 
     // ── Erträge je Nutzung ──────────────────────────────────────────────────
-    const ertragZeilen: TabellenZeile[] = []
+    // Je Eigentumsart ein eigener Block: Rendite und Genossenschaft weisen
+    // Jahresmieten aus, Stockwerkeigentum Verkaufserlöse. Nutzungen ohne
+    // Fläche (Parkplätze, Garagen) rechnen nach Stück, deshalb steht die
+    // Einheit in der Zelle und nicht im Spaltenkopf.
+    const ertragBloecke: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[] = []
     for (const eig of ak.presentEig) {
-      const proNutzung = ak.ertragProNutzungByEig.get(eig) ?? {}
-      for (const [nutzung, betrag] of Object.entries(proNutzung)) {
-        if (betrag <= 0) continue
-        ertragZeilen.push({ zellen: [nutzung, EIGENTUMSART_LABEL[eig], formatNumber(Math.round(betrag))] })
+      const detail = (ak.ertragDetailByEig.get(eig) ?? []).filter((d) => d.ertrag > 0)
+      if (detail.length === 0) continue
+      const verkauf = eig === 'verkaufsobjekt'
+
+      const zeilen: TabellenZeile[] = [...detail]
+        .sort((a, b) => b.ertrag - a.ertrag)
+        .map((d) => {
+          const nachFlaeche = d.flaecheM2 > 0
+          const menge = nachFlaeche
+            ? `${formatNumber(Math.round(d.flaecheM2))} m² ${verkauf ? 'VKF' : 'VMF'}`
+            : `${formatNumber(d.anzahl)} Stk`
+          // Monatsmiete je Stück; beim Verkauf ist der Stückwert ein Preis.
+          const teiler = nachFlaeche ? d.flaecheM2 : d.anzahl * (verkauf ? 1 : 12)
+          const ansatz = teiler > 0
+            ? `${formatNumber(Math.round(d.ertrag / teiler))} ${
+                nachFlaeche ? 'CHF/m²' : verkauf ? 'CHF/Stk' : 'CHF/Mt'}`
+            : '—'
+          return { zellen: [d.nutzung, menge, ansatz, formatNumber(Math.round(d.ertrag))] }
+        })
+
+      const summe = detail.reduce((a, d) => a + d.ertrag, 0)
+      if (zeilen.length > 1) {
+        zeilen.push({ zellen: ['Total', '', '', formatNumber(Math.round(summe))], total: true })
       }
-    }
-    ertragZeilen.sort((a, b) => Number(b.zellen[2].replace(/\D/g, '')) - Number(a.zellen[2].replace(/\D/g, '')))
-    if (ertragZeilen.length > 0) {
-      ertragZeilen.push({ zellen: ['Total', '', formatNumber(Math.round(ertrag))], total: true })
+
+      const bezeichnung = verkauf ? 'Verkaufserlös' : 'Mieterträge'
+      ertragBloecke.push({
+        // Die Eigentumsart nur dazu, wenn mehr als eine vorkommt — sonst
+        // steht sie sinnlos über der einzigen Aufstellung.
+        titel: ak.presentEig.length > 1
+          ? `${bezeichnung} (${EIGENTUMSART_LABEL[eig]})` : bezeichnung,
+        kopf: ['Nutzung', 'Menge', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr'],
+        zeilen,
+      })
     }
 
     // ── Wirtschaftlichkeit je Nutzungsart ───────────────────────────────────
@@ -231,7 +262,7 @@ export function useUebersichtDaten(
       bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'm³'], zeilen: bestandZeilen },
       mengen: flaechen,
       kosten,
-      ertraege: { kopf: ['Nutzung', 'Nutzungsart', 'CHF'], zeilen: ertragZeilen },
+      ertraege: ertragBloecke,
       wirtschaft: wirtschaftBloecke,
     }
   }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak, kostenmieteParams])

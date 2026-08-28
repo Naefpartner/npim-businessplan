@@ -66,16 +66,24 @@ export interface UebersichtDaten {
   mengen: Feld[]
   /** Anlagekosten je BKP-Hauptgruppe samt Total. */
   kosten: BetragZeile[]
-  /** Mieterträge bzw. Verkaufserlöse je Nutzung. */
-  ertraege: { kopf: string[]; zeilen: TabellenZeile[] }
+  /**
+   * Ertragsaufstellung je Nutzung — ein Block je Eigentumsart, weil sich
+   * Bezeichnung und Bezugsgrösse unterscheiden: Mieterträge pro Jahr bei
+   * Rendite und Genossenschaft, Verkaufserlös bei Stockwerkeigentum.
+   */
+  ertraege: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[]
   /** Gewinn, Rendite oder Kostenmiete — je nach vorhandener Nutzungsart. */
   wirtschaft: { titel: string; felder: Feld[] }[]
 }
 
 const T = TITELBLATT
 
-/** Innenabstände einer Feldzeile in Millimeter. */
-const FELD = { oben: 1.4, unten: 0.9 } as const
+/**
+ * Innenabstände einer Tabellenzeile in Millimeter — für Feld- und
+ * Datentabellen dieselben, damit ihre Linien in nebeneinanderstehenden
+ * Spalten auf gleicher Höhe liegen.
+ */
+const ZEILE = { oben: 1.2, unten: 0.9 } as const
 
 const s = StyleSheet.create({
   /**
@@ -224,13 +232,24 @@ const s = StyleSheet.create({
     marginTop: mm(6.3),
     marginBottom: mm(1.8),
   },
-  /** Feldtabelle im Stil des Titelblatts: dünne Linien, Label links. */
-  feldBlock: { marginBottom: mm(2) },
-  feldLinie: { borderTopWidth: 0.5, borderTopColor: BERICHT_FARBE.linie },
+  /**
+   * Feldtabelle im Stil des Titelblatts: dünne Linien, Label links.
+   *
+   * `flexShrink: 0` ist hier wesentlich: der Inhaltsfluss der Seite hat eine
+   * feste Höhe, und sobald der Inhalt darüber hinausgeht, staucht Yoga die
+   * Blöcke — aber nur die, die Spielraum haben. Dann laufen die Zeilenraster
+   * benachbarter Spalten auseinander. Ohne Schrumpfen bleibt das Raster
+   * überall gleich; passt der Inhalt nicht, bricht die Seite stattdessen um.
+   */
+  feldBlock: { marginBottom: mm(2), flexShrink: 0 },
+  /** Trennlinie zwischen zwei Feldzeilen — so hell wie in den Datentabellen. */
+  feldLinie: { borderTopWidth: 0.5, borderTopColor: '#D8D8D8' },
+  /** Erste Linie einer Feldtabelle ohne Spaltenkopf: kräftig wie eine Kopflinie. */
+  feldLinieKopf: { borderTopWidth: 0.5, borderTopColor: BERICHT_FARBE.linie },
   feldZeile: {
     flexDirection: 'row',
-    paddingTop: mm(FELD.oben),
-    paddingBottom: mm(FELD.unten),
+    paddingTop: mm(ZEILE.oben),
+    paddingBottom: mm(ZEILE.unten),
   },
   feldLabel: { width: mm(52) },
   feldWert: { flex: 1, fontWeight: 700 },
@@ -257,7 +276,7 @@ const s = StyleSheet.create({
     height: '100%',
     objectFit: 'cover',
   },
-  zweiSpalten: { flexDirection: 'row' },
+  zweiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /**
    * Die Spaltenteilung der Übersicht: links etwas schmaler, rechts breiter.
    * Alle geteilten Zeilen nutzen dieselben Werte, damit die Spaltenkanten
@@ -265,7 +284,7 @@ const s = StyleSheet.create({
    */
   spalteEins: { flex: 0.85, marginRight: mm(6) },
   spalteZwei: { flex: 1.3 },
-  legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2) },
+  legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
   tabKopf: {
@@ -280,8 +299,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 0.5,
     borderBottomColor: '#D8D8D8',
-    paddingTop: mm(1.2),
-    paddingBottom: mm(0.9),
+    paddingTop: mm(ZEILE.oben),
+    paddingBottom: mm(ZEILE.unten),
   },
   tabTotal: { fontWeight: 700, borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
   zelleRechts: { textAlign: 'right' },
@@ -292,17 +311,24 @@ const s = StyleSheet.create({
   tocSeite: { textAlign: 'right' },
 })
 
-/** Fusszeile der Inhaltsseiten — Dokumentbezug links, Seitenzahl rechts. */
-function Fusszeile({ daten, format }: { daten: BerichtDaten; format: SeitenFormat }) {
+/**
+ * Fusszeile der Inhaltsseiten — Dokumentbezug links, Seitenzahl rechts.
+ *
+ * Die Seitenzahl kommt aus dem Seitenplan und nicht aus dem `render`-Callback
+ * von react-pdf: solange die Seite ein `lineHeight` trägt, liefert dieser
+ * nichts (dieselbe Wurzel wie das Verschwinden absolut gesetzter
+ * `fixed`-Elemente). Und ohne `lineHeight` auf der Seite stimmt der
+ * Zeilenabstand nicht mehr — dort wirkt er doppelt.
+ */
+function Fusszeile({
+  daten, format, seite, seitenTotal,
+}: { daten: BerichtDaten; format: SeitenFormat; seite: number; seitenTotal: number }) {
   const links = [FUSSZEILE_FIRMA, daten.adresse, daten.dokumentBezeichnung]
     .filter(Boolean).join('  |  ')
   return (
     <View style={[s.fuss, { width: mm(fussBreite(format)) }]} fixed>
       <Text>{links}</Text>
-      {/* Dynamischer Inhalt braucht `fixed` am Text selbst — sonst wird er
-          beim Seitenumbruch verworfen und die Zeile bleibt leer. Und nur Text
-          bekommt totalPages im render-Callback, nicht View. */}
-      <Text fixed render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+      <Text>{seite} / {seitenTotal}</Text>
     </View>
   )
 }
@@ -406,10 +432,13 @@ function InhaltZeile({
  * über Formate hinweg gleich sitzen.
  */
 export function InhaltsSeite({
-  format = 'a4', daten, children,
+  format = 'a4', daten, seite, seitenTotal, children,
 }: {
   format?: SeitenFormat
   daten: BerichtDaten
+  /** Nummer dieser Seite im Bericht — siehe `seitenPlan`. */
+  seite: number
+  seitenTotal: number
   children: React.ReactNode
 }) {
   const f = SEITE[format]
@@ -417,24 +446,59 @@ export function InhaltsSeite({
     <Page size={f.size} orientation={f.quer ? 'landscape' : 'portrait'} style={[s.seite, s.inhaltsSeite]}>
       <Kopfmarke />
       <View style={s.inhaltsFluss}>{children}</View>
-      <Fusszeile daten={daten} format={format} />
+      <Fusszeile daten={daten} format={format} seite={seite} seitenTotal={seitenTotal} />
     </Page>
   )
 }
 
 /**
+ * Seiten je Fachkapitel. Kapitel, die mehr als eine Seite füllen, stehen hier
+ * ausdrücklich: der Umbruch wird gesetzt und nicht dem Fluss überlassen, weil
+ * der am Seitenfuss keinen Platz für die Fusszeile reserviert.
+ */
+const KAPITEL_SEITEN: Record<string, number> = { projektuebersicht: 2 }
+
+interface SeitenplanEintrag { kapitel: BerichtKapitel; seite: number }
+type Seitenplan = SeitenplanEintrag[]
+
+/**
+ * Erste Seite jedes Fachkapitels. Titelblatt ist Seite 1, das
+ * Inhaltsverzeichnis Seite 2 — die Fachkapitel folgen ab 3.
+ */
+function seitenPlan(kapitel: BerichtKapitel[]): Seitenplan {
+  const plan: Seitenplan = []
+  let seite = 3
+  for (const k of kapitel) {
+    plan.push({ kapitel: k, seite })
+    seite += KAPITEL_SEITEN[k.key] ?? 1
+  }
+  return plan
+}
+
+/** Gesamtzahl der Seiten des Berichts. */
+function seitenTotalVon(plan: Seitenplan): number {
+  const letzte = plan[plan.length - 1]
+  return letzte ? letzte.seite + (KAPITEL_SEITEN[letzte.kapitel.key] ?? 1) - 1 : 2
+}
+
+/**
  * Inhaltsverzeichnis nach Vorlage: Überschrift „Inhalt", darunter je Kapitel
  * eine Zeile aus Nummer, Titel und Seitenzahl, jeweils mit Trennlinie.
- *
- * Die Seitenzahlen bleiben vorerst offen — sie stehen erst fest, wenn die
- * Fachkapitel gesetzt sind.
  */
-function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; daten: BerichtDaten }) {
+function Inhaltsverzeichnis({
+  plan, daten, seitenTotal,
+}: { plan: Seitenplan; daten: BerichtDaten; seitenTotal: number }) {
   return (
-    <InhaltsSeite daten={daten}>
+    <InhaltsSeite daten={daten} seite={2} seitenTotal={seitenTotal}>
       <Text style={s.h1}>{INHALT.titel}</Text>
-      {kapitel.map((k, i) => (
-        <InhaltZeile key={k.key} nummer={String(i + 1)} label={k.label} seite="—" ebene={1} />
+      {plan.map((e, i) => (
+        <InhaltZeile
+          key={e.kapitel.key}
+          nummer={String(i + 1)}
+          label={e.kapitel.label}
+          seite={String(e.seite)}
+          ebene={1}
+        />
       ))}
     </InhaltsSeite>
   )
@@ -555,6 +619,15 @@ function kostenZeilen(kosten: BetragZeile[]): TabellenZeile[] {
   }))
 }
 
+/**
+ * Linie über einer Feldzeile. Die erste übernimmt die Rolle der Kopflinie —
+ * ausser ein Spaltenkopf steht darüber, der sie schon mitbringt.
+ */
+function zeilenLinie(i: number, kopf?: string) {
+  if (i > 0) return s.feldLinie
+  return kopf ? undefined : s.feldLinieKopf
+}
+
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({
   titel, felder, labelBreite, kopf, abstandUnten = true,
@@ -582,7 +655,7 @@ function Feldtabelle({
       <Text style={s.h2}>{titel}</Text>
       {kopf && <View style={s.tabKopf}><Text>{kopf}</Text></View>}
       {felder.map((f, i) => (
-        <View key={f.label} style={kopf && i === 0 ? undefined : s.feldLinie}>
+        <View key={f.label} style={zeilenLinie(i, kopf)}>
           <View style={s.feldZeile}>
             <Text style={[s.feldLabel, ...(labelBreite ? [{ width: mm(labelBreite) }] : [])]}>
               {f.label}
@@ -597,103 +670,130 @@ function Feldtabelle({
 }
 
 /**
- * Projektübersicht: Objekt, Auftrag, Mengen und wirtschaftliche Eckwerte —
- * jeweils als Feldtabelle, damit die Seite dem Titelblatt entspricht.
+ * Projektübersicht — bewusst auf zwei Seiten aufgeteilt statt dem automatischen
+ * Umbruch überlassen: der Inhaltsfluss reserviert am Seitenfuss keinen Platz
+ * für die Fusszeile, ein Umbruch mitten im Kapitel liefe deshalb in sie
+ * hinein. Absolut positionieren lässt sie sich nicht — mit `lineHeight` auf
+ * der Seite verwirft react-pdf `fixed`-Elemente ausserhalb des Flusses.
+ *
+ * Erste Seite: Situation, Grundstücke, Mengen und Kosten. Zweite Seite:
+ * Erträge und Wirtschaftlichkeit.
  */
-function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
+function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
   const u = daten.uebersicht
-  return (
-    <InhaltsSeite daten={daten}>
-      <Text style={s.h1}>Projektübersicht</Text>
-      {u ? (
-        <>
-          {/* Situationsplan und Auftrag nebeneinander — der Plan links, die
-              Angaben rechts, damit die Seite oben nicht zweimal bricht. */}
-          <View style={s.zweiSpalten}>
-            <View style={s.spalteEins}>
-              <Text style={s.h2}>Situationsplan</Text>
-              {u.situationsplanUrl ? (
-                <View style={s.planRahmen}>
-                  <Image src={u.situationsplanUrl} style={s.plan} />
-                </View>
-              ) : (
-                <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
-              )}
-            </View>
-            <View style={s.spalteZwei}>
-              <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} abstandUnten={false} />
-            </View>
-          </View>
-
-          {/* Bildlegende in einer eigenen Zeile darunter — sonst zählte sie
-              zur Spaltenhöhe und das Bild endete oberhalb der Tabellenlinie. */}
-          {u.situationsplanUrl && (
-            <View style={s.zweiSpalten}>
-              <View style={s.spalteEins}>
-                <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
-              </View>
-              <View style={s.spalteZwei} />
-            </View>
-          )}
-
-          {/* Grundstücke und Bestandsgebäude nebeneinander, Zeile für Zeile
-              gemeinsam gesetzt — so liegen ihre Trennlinien auf einer Höhe. */}
-          <Doppeltabelle
-            links={{
-              titel: 'Grundstücke',
-              kopf: u.grundstuecke.kopf,
-              breiten: [1.6, 1.3, 1],
-              linksBis: 1,
-              zeilen: u.grundstuecke.zeilen,
-            }}
-            rechts={{
-              titel: 'Bestandsgebäude',
-              kopf: u.bestand.kopf,
-              breiten: [2.2, 1, 1.5, 1],
-              linksBis: 2,
-              zeilen: u.bestand.zeilen,
-            }}
-          />
-
-          {/* Mengen und Anlagekosten in derselben Spaltenteilung wie darüber. */}
-          <View style={s.zweiSpalten}>
-            <View style={s.spalteEins}>
-              <Feldtabelle titel="Mengen" kopf="Kennzahlen" felder={u.mengen} labelBreite={39} />
-            </View>
-            <View style={s.spalteZwei}>
-              <Datentabelle
-                titel="Anlagekosten BKP 1–9"
-                kopf={['BKP', 'Hauptgruppe', 'exkl.', 'inkl.', '%']}
-                breiten={[0.45, 2.5, 1.3, 1.3, 0.7]}
-                linksBis={1}
-                zeilen={kostenZeilen(u.kosten)}
-              />
-            </View>
-          </View>
-
-          <Datentabelle
-            titel="Mieterträge / Verkaufserlöse"
-            kopf={u.ertraege.kopf}
-            breiten={[2, 2, 1.4]}
-            linksBis={1}
-            zeilen={u.ertraege.zeilen}
-          />
-
-          {u.wirtschaft.map((b) => (
-            <Feldtabelle key={b.titel} titel={b.titel} felder={b.felder} />
-          ))}
-        </>
-      ) : (
+  if (!u) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <Text style={s.h1}>Projektübersicht</Text>
         <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
-      )}
-    </InhaltsSeite>
+      </InhaltsSeite>
+    )
+  }
+  return (
+    <>
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <Text style={s.h1}>Projektübersicht</Text>
+        {/* Situationsplan und Auftrag nebeneinander — der Plan links, die
+            Angaben rechts, damit die Seite oben nicht zweimal bricht. */}
+        <View style={s.zweiSpalten}>
+          <View style={s.spalteEins}>
+            <Text style={s.h2}>Situationsplan</Text>
+            {u.situationsplanUrl ? (
+              <View style={s.planRahmen}>
+                <Image src={u.situationsplanUrl} style={s.plan} />
+              </View>
+            ) : (
+              <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
+            )}
+          </View>
+          <View style={s.spalteZwei}>
+            <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} abstandUnten={false} />
+          </View>
+        </View>
+
+        {/* Bildlegende in einer eigenen Zeile darunter — sonst zählte sie
+            zur Spaltenhöhe und das Bild endete oberhalb der Tabellenlinie. */}
+        {u.situationsplanUrl && (
+          <View style={s.zweiSpalten}>
+            <View style={s.spalteEins}>
+              <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
+            </View>
+            <View style={s.spalteZwei} />
+          </View>
+        )}
+
+        {/* Grundstücke und Bestandsgebäude nebeneinander, Zeile für Zeile
+            gemeinsam gesetzt — so liegen ihre Trennlinien auf einer Höhe. */}
+        <Doppeltabelle
+          links={{
+            titel: 'Grundstücke',
+            kopf: u.grundstuecke.kopf,
+            breiten: [1.6, 1.3, 1],
+            linksBis: 1,
+            zeilen: u.grundstuecke.zeilen,
+          }}
+          rechts={{
+            titel: 'Bestandsgebäude',
+            kopf: u.bestand.kopf,
+            breiten: [2.2, 1, 1.5, 1],
+            linksBis: 2,
+            zeilen: u.bestand.zeilen,
+          }}
+        />
+
+        {/* Mengen und Anlagekosten in derselben Spaltenteilung wie darüber. */}
+        <View style={s.zweiSpalten}>
+          <View style={s.spalteEins}>
+            <Feldtabelle titel="Mengen" kopf="Kennzahlen" felder={u.mengen} labelBreite={39} />
+          </View>
+          <View style={s.spalteZwei}>
+            <Datentabelle
+              titel="Anlagekosten BKP 1–9"
+              kopf={['BKP', 'Hauptgruppe', 'exkl.', 'inkl.', '%']}
+              breiten={[0.45, 2.5, 1.3, 1.3, 0.7]}
+              linksBis={1}
+              zeilen={kostenZeilen(u.kosten)}
+            />
+          </View>
+        </View>
+
+      </InhaltsSeite>
+
+      {/* Fortsetzung ohne eigene Überschrift — die Tabellentitel tragen die
+          Gliederung, und im Inhaltsverzeichnis steht nur das Kapitel. */}
+      <InhaltsSeite daten={daten} seite={seite + 1} seitenTotal={seitenTotal}>
+        {u.ertraege.map((e) => (
+          <Datentabelle
+            key={e.titel}
+            titel={e.titel}
+            kopf={e.kopf}
+            breiten={[2.2, 1.3, 1.3, 1.4]}
+            zeilen={e.zeilen}
+          />
+        ))}
+
+        {u.wirtschaft.map((b) => (
+          <Feldtabelle key={b.titel} titel={b.titel} felder={b.felder} />
+        ))}
+      </InhaltsSeite>
+    </>
   )
 }
 
+/** Was jede Kapitelseite braucht: die Daten und ihren Platz im Seitenplan. */
+interface Kapitelseite {
+  daten: BerichtDaten
+  /** Erste Seite des Kapitels. */
+  seite: number
+  seitenTotal: number
+}
+
 /** Platzhalter für Kapitel, deren Inhalt noch aussteht. */
-function KapitelPlatzhalter({ kapitel, daten }: { kapitel: BerichtKapitel; daten: BerichtDaten }) {
+function KapitelPlatzhalter({
+  kapitel, daten, seite, seitenTotal,
+}: Kapitelseite & { kapitel: BerichtKapitel }) {
   return (
-    <InhaltsSeite format={kapitel.format} daten={daten}>
+    <InhaltsSeite format={kapitel.format} daten={daten} seite={seite} seitenTotal={seitenTotal}>
       <Text style={s.h1}>{kapitel.label}</Text>
       <Text style={s.hinweis}>
         {kapitel.beschrieb} — dieses Kapitel wird noch aufgebaut.
@@ -703,10 +803,10 @@ function KapitelPlatzhalter({ kapitel, daten }: { kapitel: BerichtKapitel; daten
 }
 
 /** Wählt die Seite eines Kapitels; noch leere Kapitel bekommen einen Platzhalter. */
-function KapitelSeite({ kapitel, daten }: { kapitel: BerichtKapitel; daten: BerichtDaten }) {
+function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKapitel }) {
   switch (kapitel.key) {
-    case 'projektuebersicht': return <Projektuebersicht daten={daten} />
-    default:                  return <KapitelPlatzhalter kapitel={kapitel} daten={daten} />
+    case 'projektuebersicht': return <Projektuebersicht {...rest} />
+    default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
 
@@ -721,7 +821,8 @@ export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
   // Hier statt beim Modulimport, damit eine abweichende Asset-Basis vorher
   // gesetzt werden kann (Rendern ausserhalb des Browsers).
   schriftRegistrieren()
-  const fachkapitel = kapitelFuer(daten.kapitel).filter((k) => !k.fix)
+  const plan = seitenPlan(kapitelFuer(daten.kapitel).filter((k) => !k.fix))
+  const seitenTotal = seitenTotalVon(plan)
 
   return (
     <Document
@@ -729,8 +830,16 @@ export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
       author={FUSSZEILE_FIRMA}
     >
       <Titelblatt daten={daten} />
-      <Inhaltsverzeichnis kapitel={fachkapitel} daten={daten} />
-      {fachkapitel.map((k) => <KapitelSeite key={k.key} kapitel={k} daten={daten} />)}
+      <Inhaltsverzeichnis plan={plan} daten={daten} seitenTotal={seitenTotal} />
+      {plan.map((e) => (
+        <KapitelSeite
+          key={e.kapitel.key}
+          kapitel={e.kapitel}
+          daten={daten}
+          seite={e.seite}
+          seitenTotal={seitenTotal}
+        />
+      ))}
     </Document>
   )
 }

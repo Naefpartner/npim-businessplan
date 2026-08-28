@@ -11,7 +11,8 @@ import { aggregateBkp2, EIGENTUMSART_ORDER } from '@/lib/bkp2'
 import {
   effectiveEintraege, blockMengen, blockVmf, gsfBlockShare,
   konsolidiertMengen, buildKonsolidiert, customToPositions, makeTypFor,
-  bkp2GeneratedPositions, ertragProNutzung, blockKey, type TypFor,
+  bkp2GeneratedPositions, ertragProNutzung, ertragDetailProNutzung, blockKey,
+  type TypFor, type ErtragDetail,
 } from '@/lib/bkpBlocks'
 import {
   eigentumsartForBuilding,
@@ -116,6 +117,17 @@ export function useAnlagekosten(
     const m = new Map<Eigentumsart, Record<string, number>>()
     for (const eig of presentEig) {
       m.set(eig, ertragProNutzung(buildings.filter((b) => eigentumsartForBuilding(b.use_type) === eig)))
+    }
+    return m
+  }, [presentEig, buildings])
+
+  // Dieselbe Aufteilung, zusätzlich mit Fläche und Stückzahl je Nutzung —
+  // Grundlage der Ertragsaufstellung im Bericht.
+  const ertragDetailByEig = useMemo(() => {
+    const m = new Map<Eigentumsart, ErtragDetail[]>()
+    for (const eig of presentEig) {
+      m.set(eig, ertragDetailProNutzung(
+        buildings.filter((b) => eigentumsartForBuilding(b.use_type) === eig)))
     }
     return m
   }, [presentEig, buildings])
@@ -382,5 +394,6 @@ export function useAnlagekosten(
     getDetail, defaultShare,
     bkpKosten, custom, gsfAlloc, bkp2Aggregat,
     ertragProNutzungByEig,
+    ertragDetailByEig,
   }
 }
