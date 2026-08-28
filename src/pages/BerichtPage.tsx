@@ -92,7 +92,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const adresse = project ? projectAddressLine(project) : null
 
   const uebersicht = useUebersichtDaten(
-    project, kunde, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
+    project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
 
   const daten = useMemo<BerichtDaten | null>(() => {
     if (!project || !variant) return null

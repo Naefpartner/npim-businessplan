@@ -7,9 +7,8 @@ import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
 import {
-  PHASE_LABEL, VARIANT_STATUS_LABEL, EIGENTUMSART_LABEL, KOSTEN_METHODE_LABEL,
-  BUILDING_CONDITION_LABEL, projectAddressLine,
-  type Project, type ProjectVariant, type Parcel, type Customer, type ExistingBuilding,
+  PHASE_LABEL, EIGENTUMSART_LABEL, BUILDING_CONDITION_LABEL,
+  type Project, type ProjectVariant, type Parcel, type ExistingBuilding,
 } from '@/types'
 import type {
   Feld, UebersichtDaten, TabellenZeile, Segment, BetragZeile,
@@ -37,7 +36,6 @@ function ohneLeere(felder: Feld[]): Feld[] {
  */
 export function useUebersichtDaten(
   project: Project | null,
-  kunde: Customer | null,
   variant: ProjectVariant | null,
   parzellen: Parcel[],
   bestand: ExistingBuilding[],
@@ -51,7 +49,6 @@ export function useUebersichtDaten(
     if (!project || !variant) return undefined
 
     const mengen = ermittleKeeValueMengen(ak.buildings, ak.gsfTotal)
-    const nutzungen = ak.presentEig.map((e) => EIGENTUMSART_LABEL[e]).join(' · ')
 
     // Wohnungen: Mieteinheiten der Wohnnutzungen, sonst die Anzahl der Flächen.
     const wohnungen = ak.buildings.reduce((s, b) => s + b.mietflaechen.reduce((a, m) => {
@@ -75,16 +72,16 @@ export function useUebersichtDaten(
     const ertrag = ak.presentEig.reduce(
       (s, eig) => s + Object.values(ak.ertragProNutzungByEig.get(eig) ?? {}).reduce((a, v) => a + v, 0), 0)
 
+    const strasse = [project.strasse, project.hausnummer].filter(Boolean).join(' ').trim()
+    const ortschaft = [project.plz, project.ort].filter(Boolean).join(' ').trim()
+
     const auftrag: Feld[] = ohneLeere([
-      { label: 'Kundschaft',      wert: w(kunde?.name) },
-      { label: 'Projektnummer',   wert: w(project.project_number) },
-      { label: 'Adresse',         wert: w(projectAddressLine(project)) },
-      { label: 'Variante',        wert: w(variant.name) },
-      { label: 'Projektphase',    wert: PHASE_LABEL[variant.phase] },
-      { label: 'Status',          wert: VARIANT_STATUS_LABEL[variant.status] },
-      { label: 'Nutzungsarten',   wert: w(nutzungen) },
-      { label: 'Etappen',         wert: ak.etappen.length > 1 ? String(ak.etappen.length) : '—' },
-      { label: 'Kostenermittlung', wert: KOSTEN_METHODE_LABEL[ak.kostenMethode] },
+      { label: 'Projektnummer', wert: w(project.project_number) },
+      { label: 'Strasse',       wert: w(strasse) },
+      { label: 'Ortschaft',     wert: w(ortschaft) },
+      { label: 'Variante',      wert: w(variant.name) },
+      { label: 'Projektphase',  wert: PHASE_LABEL[variant.phase] },
+      { label: 'Etappen',       wert: ak.etappen.length > 1 ? String(ak.etappen.length) : '—' },
     ])
 
     const flaechen: Feld[] = ohneLeere([
@@ -239,5 +236,5 @@ export function useUebersichtDaten(
       ertraege: { kopf: ['Nutzung', 'Nutzungsart', 'CHF'], zeilen: ertragZeilen },
       wirtschaft: wirtschaftBloecke,
     }
-  }, [project, kunde, variant, parzellen, bestand, situationsplanUrl, ak, kostenmieteParams])
+  }, [project, variant, parzellen, bestand, situationsplanUrl, ak, kostenmieteParams])
 }
