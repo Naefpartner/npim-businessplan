@@ -2,7 +2,7 @@ import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/render
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
   FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
-  kapitelFuer, type BerichtKapitel, type SeitenFormat,
+  kapitelFuer, type BerichtKapitel, type SeitenFormat, type AuftragAnrede,
 } from '@/lib/bericht'
 import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 
@@ -15,7 +15,9 @@ export interface BerichtDaten {
   adresse: string | null
   dokumentBezeichnung: string
   untertitel: string | null
-  /** Zeilen des Blocks „Auftraggeberin" (Name, Strasse, Ort). */
+  /** Beschriftung des ersten Blocks — je nach Kundschaft. */
+  auftragAnrede: AuftragAnrede
+  /** Zeilen des Auftraggeber-Blocks: Name, Strasse + Nr., PLZ und Ort. */
   auftraggeberin: string[]
   datum: Date
   /** Öffentliche URL des Projektbilds für die Titelfläche. */
@@ -202,7 +204,7 @@ function Kopfmarke() {
  */
 function Titelblatt({ daten }: { daten: BerichtDaten }) {
   const bloecke: { label: string; zeilen: string[] }[] = [
-    { label: 'Auftraggeberin', zeilen: daten.auftraggeberin },
+    { label: daten.auftragAnrede, zeilen: daten.auftraggeberin },
     { label: 'Beauftragte', zeilen: ['Naef & Partner Immobilien AG', 'Bleicherweg 10', '8002 Zürich'] },
     {
       label: 'Datum',

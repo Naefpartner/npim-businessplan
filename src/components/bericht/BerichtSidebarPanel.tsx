@@ -3,7 +3,7 @@ import { Loader2, Save, Trash2, Check, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useBericht } from '@/contexts/BerichtContext'
 import { useBerichtVorlagen } from '@/hooks/useBerichtVorlagen'
-import { BERICHT_KAPITEL } from '@/lib/bericht'
+import { BERICHT_KAPITEL, AUFTRAG_ANREDEN } from '@/lib/bericht'
 import { PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
 import { cn } from '@/lib/utils'
 
@@ -13,7 +13,8 @@ import { cn } from '@/lib/utils'
  */
 export function BerichtSidebarPanel() {
   const { canWrite } = useAuth()
-  const { auswahl, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt } = useBericht()
+  const { auswahl, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
+          anrede, setAnrede } = useBericht()
   const { vorlagen, loading, speichern, loeschen } = useBerichtVorlagen()
 
   const [name, setName] = useState('')
@@ -77,6 +78,30 @@ export function BerichtSidebarPanel() {
           )
         })}
       </ul>
+
+      <h2 className="mt-5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        Titelblatt
+      </h2>
+      <div className="mt-1.5 px-3">
+        <label className="block text-[11px] text-slate-500">Anrede der Kundschaft</label>
+        <div className="mt-1 inline-flex rounded-lg border border-slate-200 p-0.5">
+          {AUFTRAG_ANREDEN.map((a) => (
+            <button
+              key={a}
+              type="button"
+              disabled={!canWrite}
+              onClick={() => setAnrede(a)}
+              className={cn(
+                'rounded-md px-2 py-1 text-xs font-medium transition',
+                anrede === a ? 'bg-[#8B6956] text-white' : 'text-slate-600 hover:bg-slate-100',
+                !canWrite && 'cursor-not-allowed opacity-60',
+              )}
+            >
+              {a === 'Auftraggeberin' ? 'weiblich' : 'männlich'}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <h2 className="mt-5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         Vorlagen

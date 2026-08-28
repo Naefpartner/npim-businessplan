@@ -27,6 +27,15 @@ export interface BerichtKapitel {
 export type SeitenFormat = 'a4' | 'a4-quer' | 'a3' | 'a3-quer'
 
 /**
+ * Beschriftung des ersten Blocks auf dem Titelblatt. Die Vorlage schreibt
+ * „Auftraggeberin"; je nach Kundschaft passt die männliche Form besser,
+ * deshalb wählbar.
+ */
+export type AuftragAnrede = 'Auftraggeberin' | 'Auftraggeber'
+
+export const AUFTRAG_ANREDEN: AuftragAnrede[] = ['Auftraggeberin', 'Auftraggeber']
+
+/**
  * Katalog der Kapitel in Druckreihenfolge. Die Schlüssel landen in den
  * gespeicherten Vorlagen (Migration 063) — beim Umbenennen eines Kapitels
  * bleibt der Schlüssel deshalb stehen.

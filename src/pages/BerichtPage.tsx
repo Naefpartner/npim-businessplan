@@ -11,8 +11,20 @@ import { supabase } from '@/lib/supabase'
 import type { BerichtDaten } from '@/components/bericht/BerichtDokument'
 import {
   PHASE_LABEL, projectAddressLine,
-  type Project, type ProjectVariant,
+  type Project, type ProjectVariant, type Customer,
 } from '@/types'
+
+/**
+ * Der Auftraggeber-Block der Vorlage: Name, darunter Strasse mit Nummer,
+ * darunter Postleitzahl und Ort. Leere Felder fallen weg, damit keine
+ * angefangenen Zeilen stehen bleiben.
+ */
+function kundenZeilen(kunde: Customer | null): string[] {
+  if (!kunde) return ['—']
+  const strasse = [kunde.strasse, kunde.hausnummer].filter(Boolean).join(' ').trim()
+  const ort = [kunde.plz, kunde.ort].filter(Boolean).join(' ').trim()
+  return [kunde.name, strasse, ort].filter(Boolean)
+}
 
 const BerichtVorschau = lazy(() => import('@/components/bericht/BerichtVorschau'))
 
@@ -22,10 +34,11 @@ const BerichtVorschau = lazy(() => import('@/components/bericht/BerichtVorschau'
  */
 export function BerichtPage() {
   const { projektId, id: variantId } = useParams<{ projektId: string; id: string }>()
-  const { druckKapitel } = useBericht()
+  const { druckKapitel, anrede } = useBericht()
   const { photos, thumbnailPhotoId } = useProjectPhotos(projektId)
 
   const [project, setProject] = useState<Project | null>(null)
+  const [kunde, setKunde] = useState<Customer | null>(null)
   const [variant, setVariant] = useState<ProjectVariant | null>(null)
   const [laedt, setLaedt] = useState(true)
 
@@ -34,11 +47,14 @@ export function BerichtPage() {
     async function laden() {
       if (!projektId || !variantId) return
       const [p, v] = await Promise.all([
-        supabase.from('projects').select('*, customer:customers(id, name)').eq('id', projektId).maybeSingle(),
+        // Kunde vollständig, weil das Titelblatt Adresse und Ort braucht.
+        supabase.from('projects').select('*, customer:customers(*)').eq('id', projektId).maybeSingle(),
         fetchVariant(variantId),
       ])
       if (abgebrochen) return
-      setProject((p.data as Project | null) ?? null)
+      const projekt = (p.data as (Project & { customer?: Customer | null }) | null) ?? null
+      setProject(projekt)
+      setKunde(projekt?.customer ?? null)
       setVariant(v)
       setLaedt(false)
     }
@@ -58,12 +74,13 @@ export function BerichtPage() {
       adresse,
       dokumentBezeichnung: 'Businessplan',
       untertitel: `${variant.name} · ${PHASE_LABEL[variant.phase]}`,
-      auftraggeberin: [project.customer?.name ?? '—'],
+      auftragAnrede: anrede,
+      auftraggeberin: kundenZeilen(kunde),
       datum: new Date(),
       titelbildUrl: thumbnail?.publicUrl ?? null,
       kapitel: druckKapitel,
     }
-  }, [project, variant, adresse, thumbnail, druckKapitel])
+  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, kunde])
 
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)
