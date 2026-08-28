@@ -1002,16 +1002,18 @@ function formatMenge(n: number): string {
  * kennt keine Eigentumsarten — die Aufteilung erfolgt beim Aufrufer, üblich
  * nach VMF-Anteil.
  *
- * Abgebildet werden die Hauptgruppensummen sowie die Position 010
- * (Grundstückerwerb), die von Kostenmiete, Rendite, WBF und Honorarrechner als
- * Landanteil gelesen wird. Einzelpositionen darüber hinaus kennt die Methode
- * naturgemäss nicht.
+ * Abgebildet werden die Hauptgruppensummen sowie die Positionen 010
+ * (Grundstückerwerb als Landanteil für Kostenmiete, Rendite, WBF und
+ * Honorarrechner) und 970 (Reserve, die der Bericht getrennt von Hauptgruppe 9
+ * ausweist). Einzelpositionen darüber hinaus kennt die Methode nicht.
  */
 export function alsBkpErgebnis(erg: AnlagekostenErgebnis, anteil: number): BkpErgebnis {
   const nettoHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
   const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
   let grundstueckNetto = 0
   let grundstueckMwst = 0
+  let reserveNetto = 0
+  let reserveMwst = 0
 
   for (const z of erg.zeilen) {
     if (z.ebene !== 0) continue // Unterpositionen stecken in BKP 2
@@ -1022,32 +1024,45 @@ export function alsBkpErgebnis(erg: AnlagekostenErgebnis, anteil: number): BkpEr
     nettoHg[hg] += netto
     mwstHg[hg] += mwst
     if (hg === 0) { grundstueckNetto += netto; grundstueckMwst += mwst }
+    // Die Reserve liegt in Hauptgruppe 9; der Bericht weist sie separat aus.
+    if (z.label === 'Reserve') { reserveNetto += netto; reserveMwst += mwst }
   }
 
-  const pos010 = BKP_POSITIONEN.find((p) => p.code === '010')!
   return {
     positionen: {
-      '010': {
-        position: pos010,
-        status: 'beruecksichtigt',
-        kennwert: null,
-        betragOverride: null,
-        menge: null,
-        mengeEinheit: 'm² GSF',
-        preisEinheit: 'CHF/m²',
-        betragNetto: grundstueckNetto,
-        mwstAnwenden: grundstueckMwst > 0,
-        mwstSatz: grundstueckNetto > 0 ? grundstueckMwst / grundstueckNetto : 0,
-        mwstBetrag: grundstueckMwst,
-        betragBrutto: grundstueckNetto + grundstueckMwst,
-        berechnungs_info: 'aus keeValue',
-      } satisfies PositionResult,
+      '010': positionErgebnis('010', grundstueckNetto, grundstueckMwst, 'aus keeValue'),
+      '970': positionErgebnis('970', reserveNetto, reserveMwst, 'aus keeValue'),
     },
     hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
     hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
     totalNetto: erg.totalNetto * anteil,
     totalMwst: (erg.totalBrutto - erg.totalNetto) * anteil,
     totalBrutto: erg.totalBrutto * anteil,
+  }
+}
+
+/**
+ * Baut einen PositionResult für die beiden Positionen, die ausserhalb der
+ * Hauptgruppensummen gebraucht werden: 010 Grundstückerwerb als Landanteil
+ * (Kostenmiete, Rendite, WBF, Honorarrechner) und 970 Reserve, die der
+ * Bericht getrennt von Hauptgruppe 9 ausweist.
+ */
+export function positionErgebnis(code: '010' | '970', netto: number, mwst: number, info: string): PositionResult {
+  const pos = BKP_POSITIONEN.find((p) => p.code === code)!
+  return {
+    position: pos,
+    status: 'beruecksichtigt',
+    kennwert: null,
+    betragOverride: null,
+    menge: null,
+    mengeEinheit: code === '010' ? 'm² GSF' : 'CHF',
+    preisEinheit: code === '010' ? 'CHF/m²' : '%',
+    betragNetto: netto,
+    mwstAnwenden: mwst > 0,
+    mwstSatz: netto > 0 ? mwst / netto : 0,
+    mwstBetrag: mwst,
+    betragBrutto: netto + mwst,
+    berechnungs_info: info,
   }
 }
 
@@ -1064,28 +1079,13 @@ export function skaliereErgebnis(erg: BkpErgebnis, anteil: number): BkpErgebnis 
     nettoHg[c] = (erg.hauptgruppenSummenNetto[k] ?? 0) * anteil
     mwstHg[c] = (erg.hauptgruppenSummenMwst[k] ?? 0) * anteil
   }
-  const p = erg.positionen['010']
-  const landNetto = (p?.betragNetto ?? 0) * anteil
-  const landMwst = (p?.mwstBetrag ?? 0) * anteil
-  const pos010 = BKP_POSITIONEN.find((x) => x.code === '010')!
+  const anteilig = (code: '010' | '970') => {
+    const p = erg.positionen[code]
+    return positionErgebnis(code, (p?.betragNetto ?? 0) * anteil, (p?.mwstBetrag ?? 0) * anteil,
+      'Anteil am Gesamttotal')
+  }
   return {
-    positionen: {
-      '010': {
-        position: pos010,
-        status: 'beruecksichtigt',
-        kennwert: null,
-        betragOverride: null,
-        menge: null,
-        mengeEinheit: 'm² GSF',
-        preisEinheit: 'CHF/m²',
-        betragNetto: landNetto,
-        mwstAnwenden: landMwst > 0,
-        mwstSatz: landNetto > 0 ? landMwst / landNetto : 0,
-        mwstBetrag: landMwst,
-        betragBrutto: landNetto + landMwst,
-        berechnungs_info: 'Anteil am Gesamttotal',
-      } satisfies PositionResult,
-    },
+    positionen: { '010': anteilig('010'), '970': anteilig('970') },
     hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
     hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
     totalNetto: erg.totalNetto * anteil,
@@ -1104,6 +1104,8 @@ export function addiereErgebnisse(teile: BkpErgebnis[]): BkpErgebnis {
   const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
   let landNetto = 0
   let landMwst = 0
+  let reserveNetto = 0
+  let reserveMwst = 0
   let totalNetto = 0
   let totalMwst = 0
 
@@ -1116,28 +1118,17 @@ export function addiereErgebnisse(teile: BkpErgebnis[]): BkpErgebnis {
     const p = t.positionen['010']
     landNetto += p?.betragNetto ?? 0
     landMwst += p?.mwstBetrag ?? 0
+    const r = t.positionen['970']
+    reserveNetto += r?.betragNetto ?? 0
+    reserveMwst += r?.mwstBetrag ?? 0
     totalNetto += t.totalNetto
     totalMwst += t.totalMwst
   }
 
-  const pos010 = BKP_POSITIONEN.find((p) => p.code === '010')!
   return {
     positionen: {
-      '010': {
-        position: pos010,
-        status: 'beruecksichtigt',
-        kennwert: null,
-        betragOverride: null,
-        menge: null,
-        mengeEinheit: 'm² GSF',
-        preisEinheit: 'CHF/m²',
-        betragNetto: landNetto,
-        mwstAnwenden: landMwst > 0,
-        mwstSatz: landNetto > 0 ? landMwst / landNetto : 0,
-        mwstBetrag: landMwst,
-        betragBrutto: landNetto + landMwst,
-        berechnungs_info: 'Summe der keeValue-Blöcke',
-      } satisfies PositionResult,
+      '010': positionErgebnis('010', landNetto, landMwst, 'Summe der Blöcke'),
+      '970': positionErgebnis('970', reserveNetto, reserveMwst, 'Summe der Blöcke'),
     },
     hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
     hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],

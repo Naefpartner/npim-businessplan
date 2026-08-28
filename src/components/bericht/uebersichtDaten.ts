@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { ermittleKeeValueMengen, istErdgeschoss } from '@/lib/keevalue'
 import { formatNumber } from '@/lib/utils'
-import { CHART_PALETTE } from '@/lib/ci'
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
@@ -12,7 +11,7 @@ import {
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
 import type {
-  Feld, UebersichtDaten, TabellenZeile, Segment, BetragZeile,
+  Feld, UebersichtDaten, TabellenZeile, BetragZeile,
 } from '@/components/bericht/BerichtDokument'
 
 /** Wert oder Gedankenstrich — leere Zeilen sollen im Bericht sichtbar leer sein. */
@@ -65,14 +64,6 @@ export function useUebersichtDaten(
     const hatEg = ak.buildings.some((b) => b.mietflaechen.some((m) => istErdgeschoss(m.geschoss_bezeichnung)))
 
     // Anlagekosten und Ertrag aus der aktiven Erfassungsmethode.
-    let kostenNetto = 0
-    let kostenBrutto = 0
-    for (const eig of ak.presentEig) {
-      const erg = ak.konsolidiertEffektiv.get(eig)
-      if (!erg) continue
-      kostenNetto += erg.totalNetto
-      kostenBrutto += erg.totalBrutto
-    }
     const ertrag = ak.presentEig.reduce(
       (s, eig) => s + Object.values(ak.ertragProNutzungByEig.get(eig) ?? {}).reduce((a, v) => a + v, 0), 0)
 
@@ -90,7 +81,6 @@ export function useUebersichtDaten(
     ])
 
     const flaechen: Feld[] = ohneLeere([
-      { label: 'Gebäude',                wert: ak.buildings.length > 0 ? String(ak.buildings.length) : '—' },
       { label: 'Geschossfläche GF',      wert: mengen.gfM2 > 0 ? w(mengen.gfM2, 'm²') : '—' },
       { label: 'Gebäudevolumen GV',      wert: mengen.gvM3 > 0 ? w(mengen.gvM3, 'm³') : '—' },
       { label: 'davon unter Terrain',    wert: mengen.anteilUnterTerrain != null
@@ -124,19 +114,6 @@ export function useUebersichtDaten(
       ],
     }))
 
-    // ── Nutzungsverteilung nach Miet-/Verkaufsfläche ────────────────────────
-    const nachNutzung = new Map<string, number>()
-    for (const b of ak.buildings) {
-      for (const m of b.mietflaechen) {
-        const name = (m.nutzung ?? '').trim() || '(ohne Nutzung)'
-        nachNutzung.set(name, (nachNutzung.get(name) ?? 0) + (m.flaeche_m2 || 0))
-      }
-    }
-    const nutzungsverteilung: Segment[] = [...nachNutzung.entries()]
-      .filter(([, v]) => v > 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, wert], i) => ({ label, wert, farbe: CHART_PALETTE[i % CHART_PALETTE.length] }))
-
     // ── Anlagekosten je Hauptgruppe ─────────────────────────────────────────
     const hgNetto: Record<number, number> = {}
     const hgBrutto: Record<number, number> = {}
@@ -152,11 +129,32 @@ export function useUebersichtDaten(
         hgBrutto[c] += n + mw
       }
     }
+    // Die Reserve steckt in Hauptgruppe 9 und wird dort herausgelöst, damit
+    // sie als eigene Zeile erscheint, ohne doppelt zu zählen.
+    let reserveNetto = 0
+    let reserveBrutto = 0
+    for (const eig of ak.presentEig) {
+      const p = ak.konsolidiertEffektiv.get(eig)?.positionen['970']
+      reserveNetto += p?.betragNetto ?? 0
+      reserveBrutto += (p?.betragNetto ?? 0) + (p?.mwstBetrag ?? 0)
+    }
+
     const kosten: BetragZeile[] = HAUPTGRUPPEN
-      .filter((h) => hgNetto[h.code] !== 0 || hgBrutto[h.code] !== 0)
-      .map((h) => ({ code: String(h.code), label: h.label, netto: hgNetto[h.code], brutto: hgBrutto[h.code] }))
+      .filter((h) => h.code >= 1 && h.code <= 9)
+      .map((h) => ({
+        code: String(h.code),
+        label: h.label,
+        netto: h.code === 9 ? hgNetto[9] - reserveNetto : hgNetto[h.code],
+        brutto: h.code === 9 ? hgBrutto[9] - reserveBrutto : hgBrutto[h.code],
+      }))
+      .filter((z) => z.netto !== 0 || z.brutto !== 0)
+    if (reserveNetto !== 0 || reserveBrutto !== 0) {
+      kosten.push({ code: '', label: 'Reserve', netto: reserveNetto, brutto: reserveBrutto })
+    }
     if (kosten.length > 0) {
-      kosten.push({ code: '', label: 'Anlagekosten', netto: kostenNetto, brutto: kostenBrutto, total: true })
+      const summeNetto = kosten.reduce((a, z) => a + z.netto, 0)
+      const summeBrutto = kosten.reduce((a, z) => a + z.brutto, 0)
+      kosten.push({ code: '', label: 'Total', netto: summeNetto, brutto: summeBrutto, total: true })
     }
 
     // ── Erträge je Nutzung ──────────────────────────────────────────────────
@@ -231,7 +229,6 @@ export function useUebersichtDaten(
       // zwei Zeilen und verschöbe die Kopfzeile gegenüber der Nachbartabelle.
       grundstuecke: { kopf: ['Parzelle', 'Zone', 'm²'], zeilen: gsZeilen },
       bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'm³'], zeilen: bestandZeilen },
-      nutzungsverteilung,
       mengen: flaechen,
       kosten,
       ertraege: { kopf: ['Nutzung', 'Nutzungsart', 'CHF'], zeilen: ertragZeilen },

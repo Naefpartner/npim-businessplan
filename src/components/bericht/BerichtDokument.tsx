@@ -1,4 +1,4 @@
-import { Document, Page, View, Text, Image, StyleSheet, Svg, Path, G } from '@react-pdf/renderer'
+import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
   FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
@@ -42,13 +42,6 @@ export interface TabellenZeile {
   total?: boolean
 }
 
-/** Ein Segment des Kreisdiagramms. */
-export interface Segment {
-  label: string
-  wert: number
-  farbe: string
-}
-
 /** Eine Betragszeile mit Netto und Brutto (Anlagekosten je Hauptgruppe). */
 export interface BetragZeile {
   code: string
@@ -70,8 +63,6 @@ export interface UebersichtDaten {
   grundstuecke: { kopf: string[]; zeilen: TabellenZeile[] }
   /** Bestandsgebäude: Bezeichnung, Baujahr, Nutzung, GF, Volumen, Zustand. */
   bestand: { kopf: string[]; zeilen: TabellenZeile[] }
-  /** Nutzungsverteilung nach Miet-/Verkaufsfläche. */
-  nutzungsverteilung: Segment[]
   mengen: Feld[]
   /** Anlagekosten je BKP-Hauptgruppe samt Total. */
   kosten: BetragZeile[]
@@ -294,11 +285,6 @@ const s = StyleSheet.create({
   },
   tabTotal: { fontWeight: 700, borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
   zelleRechts: { textAlign: 'right' },
-
-  // ── Kreisdiagramm ─────────────────────────────────────────────────────────
-  diagrammZeile: { flexDirection: 'row', alignItems: 'center', marginBottom: mm(2) },
-  legendeEintrag: { flexDirection: 'row', alignItems: 'center', marginBottom: mm(1.2) },
-  legendeFarbe: { width: mm(3), height: mm(3), marginRight: mm(2) },
 
   // Verzeichniszeile: Nummer, Text, Seitenzahl — jede mit Linie darunter.
   tocZeile: { flexDirection: 'row', alignItems: 'baseline' },
@@ -552,52 +538,21 @@ function Doppeltabelle({ links, rechts }: { links: Tabelle; rechts: Tabelle }) {
 }
 
 /**
- * Kreisdiagramm der Nutzungsverteilung mit Legende daneben.
- *
- * @react-pdf kennt kein Diagramm — die Segmente werden als SVG-Pfade
- * gerechnet: Kreisbogen vom Start- zum Endwinkel, zurück zum Mittelpunkt.
+ * Kostenzeilen für die Tabelle: Beträge gerundet, dazu der Anteil an den
+ * Gesamtanlagekosten. Bezug ist die Totalzeile — sie steht damit auf 100 %.
  */
-function Kreisdiagramm({ segmente, groesse = 42 }: { segmente: Segment[]; groesse?: number }) {
-  const summe = segmente.reduce((a, x) => a + x.wert, 0)
-  if (summe <= 0) return null
-  const r = groesse / 2
-  // Kumulierte Anteile vorab — ohne veränderliche Laufvariable, damit die
-  // Berechnung frei von Seiteneffekten bleibt.
-  const grenzen = segmente.reduce<number[]>(
-    (acc, seg) => [...acc, (acc[acc.length - 1] ?? 0) + seg.wert / summe], [0])
-
-  const pfade = segmente.map((seg, i) => {
-    const anteil = seg.wert / summe
-    // Bei 12 Uhr beginnen und im Uhrzeigersinn laufen.
-    const start = -Math.PI / 2 + grenzen[i] * 2 * Math.PI
-    const ende  = -Math.PI / 2 + grenzen[i + 1] * 2 * Math.PI
-    const x1 = r + r * Math.cos(start), y1 = r + r * Math.sin(start)
-    const x2 = r + r * Math.cos(ende),  y2 = r + r * Math.sin(ende)
-    const gross = anteil > 0.5 ? 1 : 0
-    // Ein Segment über die ganze Fläche lässt sich nicht als Bogen zeichnen —
-    // dann ein voller Kreis aus zwei Halbbögen.
-    const d = anteil >= 0.999
-      ? `M ${r} 0 A ${r} ${r} 0 1 1 ${r} ${groesse} A ${r} ${r} 0 1 1 ${r} 0 Z`
-      : `M ${r} ${r} L ${x1} ${y1} A ${r} ${r} 0 ${gross} 1 ${x2} ${y2} Z`
-    return { d, seg, anteil }
-  })
-
-  return (
-    <View style={s.diagrammZeile}>
-      <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
-        <G>{pfade.map((p, i) => <Path key={i} d={p.d} fill={p.seg.farbe} />)}</G>
-      </Svg>
-      <View style={{ marginLeft: mm(8), flex: 1 }}>
-        {pfade.map((p, i) => (
-          <View key={i} style={s.legendeEintrag}>
-            <View style={[s.legendeFarbe, { backgroundColor: p.seg.farbe }]} />
-            <Text style={{ flex: 1 }}>{p.seg.label}</Text>
-            <Text style={{ fontWeight: 700 }}>{(p.anteil * 100).toFixed(1)} %</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  )
+function kostenZeilen(kosten: BetragZeile[]): TabellenZeile[] {
+  const total = kosten.find((k) => k.total)?.brutto ?? 0
+  return kosten.map((k) => ({
+    zellen: [
+      k.code,
+      k.label,
+      formatNumber(Math.round(k.netto)),
+      formatNumber(Math.round(k.brutto)),
+      total > 0 ? `${((k.brutto / total) * 100).toFixed(1)}` : '—',
+    ],
+    total: k.total,
+  }))
 }
 
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
@@ -693,27 +648,21 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
             }}
           />
 
-          {u.nutzungsverteilung.length > 0 && (
-            <View style={s.feldBlock}>
-              <Text style={s.h2}>Nutzungsverteilung</Text>
-              <Kreisdiagramm segmente={u.nutzungsverteilung} />
+          {/* Mengen und Anlagekosten in derselben Spaltenteilung wie darüber. */}
+          <View style={s.zweiSpalten}>
+            <View style={s.spalteEins}>
+              <Feldtabelle titel="Mengen" felder={u.mengen} labelBreite={39} />
             </View>
-          )}
-
-          <Feldtabelle titel="Mengen" felder={u.mengen} />
-
-          {u.kosten.length > 0 && (
-            <Datentabelle
-              titel="Anlagekosten BKP 0–9"
-              kopf={['BKP', 'Hauptgruppe', 'exkl. MwSt.', 'inkl. MwSt.']}
-              breiten={[0.6, 3, 1.6, 1.6]}
-              linksBis={1}
-              zeilen={u.kosten.map((k) => ({
-                zellen: [k.code, k.label, formatNumber(Math.round(k.netto)), formatNumber(Math.round(k.brutto))],
-                total: k.total,
-              }))}
-            />
-          )}
+            <View style={s.spalteZwei}>
+              <Datentabelle
+                titel="Anlagekosten BKP 1–9"
+                kopf={['BKP', 'Hauptgruppe', 'exkl.', 'inkl.', '%']}
+                breiten={[0.45, 2.5, 1.3, 1.3, 0.7]}
+                linksBis={1}
+                zeilen={kostenZeilen(u.kosten)}
+              />
+            </View>
+          </View>
 
           <Datentabelle
             titel="Mieterträge / Verkaufserlöse"

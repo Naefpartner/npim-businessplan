@@ -4,8 +4,9 @@
 // Detailkatalog kennt sie nur eine Zeile je Hauptgruppe — für Grobschätzungen
 // in frühen Phasen, wenn noch kein Positionsraster gefüllt werden kann.
 
-import { HAUPTGRUPPEN, BKP_POSITIONEN, type BkpHauptgruppe } from '@/lib/bkpKatalog'
-import type { BkpErgebnis, PositionResult } from '@/lib/bkpBerechnung'
+import { HAUPTGRUPPEN, type BkpHauptgruppe } from '@/lib/bkpKatalog'
+import type { BkpErgebnis } from '@/lib/bkpBerechnung'
+import { positionErgebnis } from '@/lib/keevalue'
 export { blockKey } from '@/lib/bkpBlocks'
 import type { AnsatzEinheit } from '@/components/projects/AnsatzEingabe'
 
@@ -382,6 +383,8 @@ export function benchmarkAlsBkpErgebnis(erg: BenchmarkErgebnis, anteil: number):
   const mwstHg: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 }
   let landNetto = 0
   let landMwst = 0
+  let reserveNetto = 0
+  let reserveMwst = 0
 
   for (const z of erg.zeilen) {
     if (z.ebene !== 0) continue // Unterzeilen stecken in ihrer Hauptgruppe
@@ -390,28 +393,16 @@ export function benchmarkAlsBkpErgebnis(erg: BenchmarkErgebnis, anteil: number):
     nettoHg[z.code] += netto
     mwstHg[z.code] += mwst
     if (z.code === 0) { landNetto += netto; landMwst += mwst }
+    // Die Reserve liegt in Hauptgruppe 9; der Bericht weist sie separat aus.
+    if (z.label === 'Reserve') { reserveNetto += netto; reserveMwst += mwst }
   }
 
-  const pos010 = BKP_POSITIONEN.find((p) => p.code === '010')!
   const totalNetto = erg.totalNetto * anteil
   const totalMwst = (erg.totalBrutto - erg.totalNetto) * anteil
   return {
     positionen: {
-      '010': {
-        position: pos010,
-        status: 'beruecksichtigt',
-        kennwert: null,
-        betragOverride: null,
-        menge: null,
-        mengeEinheit: 'm² GSF',
-        preisEinheit: 'CHF/m²',
-        betragNetto: landNetto,
-        mwstAnwenden: landMwst > 0,
-        mwstSatz: landNetto > 0 ? landMwst / landNetto : 0,
-        mwstBetrag: landMwst,
-        betragBrutto: landNetto + landMwst,
-        berechnungs_info: 'aus den Benchmarks',
-      } satisfies PositionResult,
+      '010': positionErgebnis('010', landNetto, landMwst, 'aus den Benchmarks'),
+      '970': positionErgebnis('970', reserveNetto, reserveMwst, 'aus den Benchmarks'),
     },
     hauptgruppenSummenNetto: nettoHg as BkpErgebnis['hauptgruppenSummenNetto'],
     hauptgruppenSummenMwst: mwstHg as BkpErgebnis['hauptgruppenSummenMwst'],
