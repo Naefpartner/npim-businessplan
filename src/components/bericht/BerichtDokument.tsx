@@ -747,7 +747,9 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
           rechts={{
             titel: 'Bestandsgebäude',
             kopf: u.bestand.kopf,
-            breiten: [1.9, 1.1, 1, 1.3, 1.5],
+            // Die Nebenspalten so schmal wie ihr Inhalt zulässt — der Platz
+            // gehört der Bezeichnung, die als einzige lange Namen trägt.
+            breiten: [3.45, 1.15, 1.3, 1.35, 1],
             linksBis: 3,
             zeilen: u.bestand.zeilen,
           }}

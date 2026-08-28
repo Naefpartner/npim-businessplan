@@ -283,7 +283,7 @@ export function useUebersichtDaten(
       auftrag,
       grundstuecke: { kopf: ['Parzelle', 'Zone', 'GSF m²'], zeilen: gsZeilen },
       bestand: {
-        kopf: ['Gebäude', 'Assek. Nr.', 'Baujahr', 'Nutzung', 'Volumen m³'],
+        kopf: ['Gebäude', 'Assek.', 'Baujahr', 'Nutzung', 'GV m³'],
         zeilen: bestandZeilen,
       },
       mengen: flaechen,
