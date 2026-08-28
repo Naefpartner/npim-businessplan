@@ -263,8 +263,8 @@ const s = StyleSheet.create({
    * Alle geteilten Zeilen nutzen dieselben Werte, damit die Spaltenkanten
    * über die Zeilen hinweg auf einer Flucht stehen.
    */
-  spalteEins: { flex: 1, marginRight: mm(6) },
-  spalteZwei: { flex: 1.15 },
+  spalteEins: { flex: 0.85, marginRight: mm(6) },
+  spalteZwei: { flex: 1.3 },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2) },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
@@ -557,12 +557,18 @@ function kostenZeilen(kosten: BetragZeile[]): TabellenZeile[] {
 
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({
-  titel, felder, labelBreite, abstandUnten = true,
+  titel, felder, labelBreite, kopf, abstandUnten = true,
 }: {
   titel: string
   felder: Feld[]
   /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
   labelBreite?: number
+  /**
+   * Beschriftung der Bezeichnungsspalte, wie sie die Datentabellen tragen.
+   * Sie bringt die Linie schon mit — die erste Feldzeile lässt ihre eigene
+   * deshalb weg, sonst stünden zwei übereinander.
+   */
+  kopf?: string
   /**
    * Abstand nach der letzten Linie. In der geteilten Zeile abzuschalten:
    * er zählt sonst zur Spaltenhöhe, und der Situationsplan daneben ragt um
@@ -574,8 +580,9 @@ function Feldtabelle({
   return (
     <View style={abstandUnten ? s.feldBlock : undefined}>
       <Text style={s.h2}>{titel}</Text>
-      {felder.map((f) => (
-        <View key={f.label} style={s.feldLinie}>
+      {kopf && <View style={s.tabKopf}><Text>{kopf}</Text></View>}
+      {felder.map((f, i) => (
+        <View key={f.label} style={kopf && i === 0 ? undefined : s.feldLinie}>
           <View style={s.feldZeile}>
             <Text style={[s.feldLabel, ...(labelBreite ? [{ width: mm(labelBreite) }] : [])]}>
               {f.label}
@@ -651,7 +658,7 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
           {/* Mengen und Anlagekosten in derselben Spaltenteilung wie darüber. */}
           <View style={s.zweiSpalten}>
             <View style={s.spalteEins}>
-              <Feldtabelle titel="Mengen" felder={u.mengen} labelBreite={39} />
+              <Feldtabelle titel="Mengen" kopf="Kennzahlen" felder={u.mengen} labelBreite={39} />
             </View>
             <View style={s.spalteZwei}>
               <Datentabelle
