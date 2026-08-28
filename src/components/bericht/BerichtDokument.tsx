@@ -272,7 +272,7 @@ const s = StyleSheet.create({
    * Alle geteilten Zeilen nutzen dieselben Werte, damit die Spaltenkanten
    * über die Zeilen hinweg auf einer Flucht stehen.
    */
-  spalteEins: { flex: 1, paddingRight: mm(6) },
+  spalteEins: { flex: 1, marginRight: mm(6) },
   spalteZwei: { flex: 1.15 },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2) },
 
@@ -454,13 +454,8 @@ function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; dat
   )
 }
 
-/**
- * Datentabelle mit Kopfzeile. Die erste Spalte ist linksbündig, alle weiteren
- * rechtsbündig — Zahlen stehen so untereinander.
- */
-function Datentabelle({
-  titel, kopf, zeilen, breiten, linksBis = 0,
-}: {
+/** Beschreibung einer Datentabelle. */
+interface Tabelle {
   titel?: string
   kopf: string[]
   zeilen: TabellenZeile[]
@@ -468,27 +463,90 @@ function Datentabelle({
   breiten?: number[]
   /** Bis zu dieser Spalte linksbündig, danach rechtsbündig (Zahlenspalten). */
   linksBis?: number
-}) {
-  if (zeilen.length === 0) return null
-  const anteile = breiten ?? kopf.map((_, i) => (i === 0 ? 2 : 1))
-  // Abstand zwischen den Spalten, damit rechtsbündige Werte nicht an die
-  // Nachbarspalte stossen; die letzte Spalte schliesst bündig ab.
-  const zelle = (i: number) => ({
+}
+
+/**
+ * Stil einer Tabellenzelle. Der Abstand nach rechts verhindert, dass
+ * rechtsbündige Werte an die Nachbarspalte stossen; die letzte Spalte
+ * schliesst bündig ab.
+ */
+function zellenStil(t: Tabelle, i: number) {
+  const anteile = t.breiten ?? t.kopf.map((_, k) => (k === 0 ? 2 : 1))
+  return {
     flex: anteile[i] ?? 1,
-    ...(i > linksBis ? { textAlign: 'right' as const } : {}),
-    ...(i < kopf.length - 1 ? { paddingRight: mm(3) } : {}),
-  })
+    ...(i > (t.linksBis ?? 0) ? { textAlign: 'right' as const } : {}),
+    ...(i < t.kopf.length - 1 ? { paddingRight: mm(3) } : {}),
+  }
+}
+
+/** Die Zellen einer Zeile; der Rahmen kommt vom umschliessenden Element. */
+function Zellen({ t, werte }: { t: Tabelle; werte: string[] }) {
+  return <>{werte.map((c, i) => <Text key={i} style={zellenStil(t, i)}>{c}</Text>)}</>
+}
+
+function Kopfzeile({ t }: { t: Tabelle }) {
+  return <View style={s.tabKopf}><Zellen t={t} werte={t.kopf} /></View>
+}
+
+function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
+  return (
+    <View style={[s.tabZeile, ...(zeile.total ? [s.tabTotal] : [])]}>
+      <Zellen t={t} werte={zeile.zellen} />
+    </View>
+  )
+}
+
+/** Einzelne Datentabelle mit Kopfzeile. */
+function Datentabelle({ titel, kopf, zeilen, breiten, linksBis = 0 }: Tabelle) {
+  if (zeilen.length === 0) return null
+  const t: Tabelle = { kopf, zeilen, breiten, linksBis }
   return (
     <View style={s.feldBlock}>
       {titel && <Text style={s.h2}>{titel}</Text>}
-      <View style={s.tabKopf}>
-        {kopf.map((k, i) => <Text key={k + i} style={zelle(i)}>{k}</Text>)}
+      <Kopfzeile t={t} />
+      {zeilen.map((z, r) => <Datenzeile key={r} t={t} zeile={z} />)}
+    </View>
+  )
+}
+
+/**
+ * Zwei Tabellen nebeneinander, Zeile für Zeile gemeinsam gesetzt.
+ *
+ * Getrennt gesetzt liefen die Trennlinien auseinander, sobald eine Zelle
+ * umbricht und ihre Zeile höher wird. Hier teilen sich beide Tabellen dieselbe
+ * Zeile, deren Höhe sich nach der höheren Seite richtet — die Linien liegen
+ * damit zwangsläufig auf einer Höhe. Die kürzere Tabelle endet einfach früher.
+ */
+function Doppeltabelle({ links, rechts }: { links: Tabelle; rechts: Tabelle }) {
+  const zeilen = Math.max(links.zeilen.length, rechts.zeilen.length)
+  if (zeilen === 0) return null
+  return (
+    <View style={s.feldBlock}>
+      <View style={s.zweiSpalten}>
+        <View style={s.spalteEins}>{links.titel && <Text style={s.h2}>{links.titel}</Text>}</View>
+        <View style={s.spalteZwei}>{rechts.titel && <Text style={s.h2}>{rechts.titel}</Text>}</View>
       </View>
-      {zeilen.map((z, r) => (
-        <View key={r} style={[s.tabZeile, ...(z.total ? [s.tabTotal] : [])]}>
-          {z.zellen.map((c, i) => <Text key={i} style={zelle(i)}>{c}</Text>)}
-        </View>
-      ))}
+      {/* Rahmen und Innenabstände sitzen auf der Spalte, nicht auf einer
+          inneren Zeile — nur so reicht die Trennlinie bis zur Unterkante der
+          gemeinsamen Zeile, auch wenn die Gegenseite höher ist. */}
+      <View style={s.zweiSpalten}>
+        <View style={[s.spalteEins, s.tabKopf]}><Zellen t={links} werte={links.kopf} /></View>
+        <View style={[s.spalteZwei, s.tabKopf]}><Zellen t={rechts} werte={rechts.kopf} /></View>
+      </View>
+      {Array.from({ length: zeilen }, (_, r) => {
+        const l = links.zeilen[r]
+        const re = rechts.zeilen[r]
+        return (
+          <View key={r} style={s.zweiSpalten}>
+            <View style={[s.spalteEins, ...(l ? [s.tabZeile] : []), ...(l?.total ? [s.tabTotal] : [])]}>
+              {l && <Zellen t={links} werte={l.zellen} />}
+            </View>
+            <View style={[s.spalteZwei, ...(re ? [s.tabZeile] : []), ...(re?.total ? [s.tabTotal] : [])]}>
+              {re && <Zellen t={rechts} werte={re.zellen} />}
+            </View>
+          </View>
+        )
+      })}
     </View>
   )
 }
@@ -616,27 +674,24 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
             </View>
           )}
 
-          {/* Grundstücke und Bestandsgebäude nebeneinander. */}
-          <View style={s.zweiSpalten}>
-            <View style={s.spalteEins}>
-              <Datentabelle
-                titel="Grundstücke"
-                kopf={u.grundstuecke.kopf}
-                breiten={[1.6, 1.3, 1]}
-                linksBis={1}
-                zeilen={u.grundstuecke.zeilen}
-              />
-            </View>
-            <View style={s.spalteZwei}>
-              <Datentabelle
-                titel="Bestandsgebäude"
-                kopf={u.bestand.kopf}
-                breiten={[2.2, 1, 1.5, 1]}
-                linksBis={2}
-                zeilen={u.bestand.zeilen}
-              />
-            </View>
-          </View>
+          {/* Grundstücke und Bestandsgebäude nebeneinander, Zeile für Zeile
+              gemeinsam gesetzt — so liegen ihre Trennlinien auf einer Höhe. */}
+          <Doppeltabelle
+            links={{
+              titel: 'Grundstücke',
+              kopf: u.grundstuecke.kopf,
+              breiten: [1.6, 1.3, 1],
+              linksBis: 1,
+              zeilen: u.grundstuecke.zeilen,
+            }}
+            rechts={{
+              titel: 'Bestandsgebäude',
+              kopf: u.bestand.kopf,
+              breiten: [2.2, 1, 1.5, 1],
+              linksBis: 2,
+              zeilen: u.bestand.zeilen,
+            }}
+          />
 
           {u.nutzungsverteilung.length > 0 && (
             <View style={s.feldBlock}>
