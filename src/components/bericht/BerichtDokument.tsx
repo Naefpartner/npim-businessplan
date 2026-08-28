@@ -243,7 +243,12 @@ const s = StyleSheet.create({
   hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
 
   // ── Situationsplan ────────────────────────────────────────────────────────
-  plan: { width: '100%', marginBottom: mm(1.5), objectFit: 'contain' },
+  /**
+   * Der Situationsplan füllt die Spaltenbreite; die Höhe folgt dem
+   * Seitenverhältnis. Kein objectFit — das wirkt nur in einem Rahmen mit
+   * fester Höhe und würde hier nichts tun.
+   */
+  plan: { width: '100%', marginBottom: mm(1.5) },
   /** Auftrag links, Situationsplan rechts. */
   zweiSpalten: { flexDirection: 'row', marginBottom: mm(2) },
   spalteLinks: { flex: 1.15, paddingRight: mm(6) },
