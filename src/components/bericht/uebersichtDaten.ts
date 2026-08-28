@@ -150,8 +150,10 @@ export function useUebersichtDaten(
       reserveBrutto += (p?.betragNetto ?? 0) + (p?.mwstBetrag ?? 0)
     }
 
+    // Mit Hauptgruppe 0: das Grundstück gehört zu den Anlagekosten, und erst
+    // damit deckt sich das Total mit den Anlagekosten der Wirtschaftlichkeit.
     const kosten: BetragZeile[] = HAUPTGRUPPEN
-      .filter((h) => h.code >= 1 && h.code <= 9)
+      .filter((h) => h.code >= 0 && h.code <= 9)
       .map((h) => ({
         code: String(h.code),
         label: h.label,

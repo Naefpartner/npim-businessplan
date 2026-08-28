@@ -70,7 +70,7 @@ export interface UebersichtDaten {
   /** Bestandsgebäude: Bezeichnung, Baujahr, Nutzung, GF, Volumen, Zustand. */
   bestand: { kopf: string[]; zeilen: TabellenZeile[] }
   mengen: Feld[]
-  /** Anlagekosten je BKP-Hauptgruppe samt Total. */
+  /** Anlagekosten je BKP-Hauptgruppe 0–9, inklusive Grundstück, samt Total. */
   kosten: BetragZeile[]
   /**
    * Ertragsaufstellung je Nutzung — ein Block je Eigentumsart, weil sich
@@ -760,7 +760,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
           </View>
           <View style={s.spalteZwei}>
             <Datentabelle
-              titel="Anlagekosten BKP 1–9"
+              titel="Anlagekosten BKP 0–9"
               kopf={['BKP', 'Hauptgruppe', 'exkl.', 'inkl.', '%']}
               breiten={[0.45, 2.5, 1.3, 1.3, 0.7]}
               linksBis={1}
