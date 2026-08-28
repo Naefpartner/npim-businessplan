@@ -6,6 +6,7 @@ import { useBericht } from '@/contexts/BerichtContext'
 import { VariantDataProvider } from '@/contexts/VariantDataContext'
 import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
+import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
 import { fetchVariant } from '@/hooks/useVariants'
 import { supabase } from '@/lib/supabase'
 // Nur der Typ statisch — die Komponenten ziehen @react-pdf nach sich und
@@ -13,7 +14,7 @@ import { supabase } from '@/lib/supabase'
 import type { BerichtDaten } from '@/components/bericht/BerichtDokument'
 import {
   PHASE_LABEL, projectAddressLine,
-  type Project, type ProjectVariant, type Customer, type Parcel,
+  type Project, type ProjectVariant, type Customer, type Parcel, type ExistingBuilding,
 } from '@/types'
 
 /**
@@ -52,22 +53,27 @@ export function BerichtPage() {
 function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId: string }) {
   const { druckKapitel, anrede } = useBericht()
   const { photos, thumbnailPhotoId } = useProjectPhotos(projektId)
+  // Erster GIS-Ausschnitt dient als Situationsplan der Projektübersicht.
+  const { items: gisBilder } = useProjectGisScreenshots(projektId)
+  const situationsplan = gisBilder[0] ?? null
 
   const [project, setProject] = useState<Project | null>(null)
   const [kunde, setKunde] = useState<Customer | null>(null)
   const [variant, setVariant] = useState<ProjectVariant | null>(null)
   const [parzellen, setParzellen] = useState<Parcel[]>([])
+  const [bestand, setBestand] = useState<ExistingBuilding[]>([])
   const [laedt, setLaedt] = useState(true)
 
   useEffect(() => {
     let abgebrochen = false
     async function laden() {
       if (!projektId || !variantId) return
-      const [p, v, pz] = await Promise.all([
+      const [p, v, pz, eb] = await Promise.all([
         // Kunde vollständig, weil das Titelblatt Adresse und Ort braucht.
         supabase.from('projects').select('*, customer:customers(*)').eq('id', projektId).maybeSingle(),
         fetchVariant(variantId),
         supabase.from('parcels').select('*').eq('project_id', projektId),
+        supabase.from('existing_buildings').select('*').eq('project_id', projektId),
       ])
       if (abgebrochen) return
       const projekt = (p.data as (Project & { customer?: Customer | null }) | null) ?? null
@@ -75,6 +81,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       setKunde(projekt?.customer ?? null)
       setVariant(v)
       setParzellen((pz.data as Parcel[] | null) ?? [])
+      setBestand((eb.data as ExistingBuilding[] | null) ?? [])
       setLaedt(false)
     }
     void laden()
@@ -84,7 +91,8 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const thumbnail = photos.find((p) => p.id === thumbnailPhotoId) ?? photos[0] ?? null
   const adresse = project ? projectAddressLine(project) : null
 
-  const uebersicht = useUebersichtDaten(project, kunde, variant, parzellen)
+  const uebersicht = useUebersichtDaten(
+    project, kunde, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
 
   const daten = useMemo<BerichtDaten | null>(() => {
     if (!project || !variant) return null

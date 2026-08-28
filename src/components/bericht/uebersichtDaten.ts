@@ -2,12 +2,18 @@ import { useMemo } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { ermittleKeeValueMengen, istErdgeschoss } from '@/lib/keevalue'
 import { formatNumber } from '@/lib/utils'
+import { CHART_PALETTE } from '@/lib/ci'
+import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
+import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
+import { useKostenmiete } from '@/hooks/useKostenmiete'
 import {
   PHASE_LABEL, VARIANT_STATUS_LABEL, EIGENTUMSART_LABEL, KOSTEN_METHODE_LABEL,
-  projectAddressLine,
-  type Project, type ProjectVariant, type Parcel, type Customer,
+  BUILDING_CONDITION_LABEL, projectAddressLine,
+  type Project, type ProjectVariant, type Parcel, type Customer, type ExistingBuilding,
 } from '@/types'
-import type { Feld, UebersichtDaten } from '@/components/bericht/BerichtDokument'
+import type {
+  Feld, UebersichtDaten, TabellenZeile, Segment, BetragZeile,
+} from '@/components/bericht/BerichtDokument'
 
 /** Wert oder Gedankenstrich — leere Zeilen sollen im Bericht sichtbar leer sein. */
 function w(v: string | number | null | undefined, einheit = ''): string {
@@ -34,8 +40,12 @@ export function useUebersichtDaten(
   kunde: Customer | null,
   variant: ProjectVariant | null,
   parzellen: Parcel[],
+  bestand: ExistingBuilding[],
+  situationsplanUrl: string | null,
 ): UebersichtDaten | undefined {
   const ak = useAnlagekostenShared()
+  // Parameter der Kostenmiete — nur für den Genossenschaftsblock nötig.
+  const { params: kostenmieteParams } = useKostenmiete(variant?.id ?? '')
 
   return useMemo(() => {
     if (!project || !variant) return undefined
@@ -86,6 +96,7 @@ export function useUebersichtDaten(
       { label: 'Status',          wert: VARIANT_STATUS_LABEL[variant.status] },
       { label: 'Nutzungsarten',   wert: w(nutzungen) },
       { label: 'Etappen',         wert: ak.etappen.length > 1 ? String(ak.etappen.length) : '—' },
+      { label: 'Kostenermittlung', wert: KOSTEN_METHODE_LABEL[ak.kostenMethode] },
     ])
 
     const flaechen: Feld[] = ohneLeere([
@@ -101,18 +112,145 @@ export function useUebersichtDaten(
           ? String(mengen.parkplaetzeUnterirdisch) : '—' },
     ])
 
-    const proM2 = mengen.gfM2 > 0 ? kostenBrutto / mengen.gfM2 : null
-    const bruttorendite = kostenBrutto > 0 && ertrag > 0 ? ertrag / kostenBrutto : null
+    // ── Grundstücke ─────────────────────────────────────────────────────────
+    const gsZeilen: TabellenZeile[] = parzellen.map((p) => ({
+      zellen: [
+        p.parzelle_nummer,
+        [p.gemeinde, p.kanton].filter(Boolean).join(' · ') || '—',
+        p.zone ?? '—',
+        p.flaeche_m2 != null ? formatNumber(p.flaeche_m2) : '—',
+      ],
+    }))
+    if (parzellen.length > 1) {
+      gsZeilen.push({
+        zellen: ['Total', '', '', formatNumber(ak.gsfTotal)],
+        total: true,
+      })
+    }
 
-    const wirtschaft: Feld[] = ohneLeere([
-      { label: 'Kostenermittlung',        wert: KOSTEN_METHODE_LABEL[ak.kostenMethode] },
-      { label: 'Anlagekosten exkl. MwSt', wert: kostenNetto > 0 ? w(Math.round(kostenNetto), 'CHF') : '—' },
-      { label: 'Anlagekosten inkl. MwSt', wert: kostenBrutto > 0 ? w(Math.round(kostenBrutto), 'CHF') : '—' },
-      { label: 'Kennwert',                wert: proM2 ? `${formatNumber(Math.round(proM2))} CHF/m² GF` : '—' },
-      { label: 'Ertrag / Verkaufserlös',  wert: ertrag > 0 ? w(Math.round(ertrag), 'CHF') : '—' },
-      { label: 'Bruttorendite',           wert: bruttorendite ? `${(bruttorendite * 100).toFixed(2)} %` : '—' },
-    ])
+    // ── Bestandsgebäude ─────────────────────────────────────────────────────
+    const bestandZeilen: TabellenZeile[] = bestand.map((b) => ({
+      zellen: [
+        b.bezeichnung,
+        b.baujahr != null ? String(b.baujahr) : '—',
+        b.nutzung ?? '—',
+        b.zustand ? BUILDING_CONDITION_LABEL[b.zustand] : '—',
+        b.geschossflaeche_m2 != null ? formatNumber(b.geschossflaeche_m2) : '—',
+        b.volumen_m3 != null ? formatNumber(b.volumen_m3) : '—',
+      ],
+    }))
 
-    return { objekt, auftrag, mengen: flaechen, wirtschaft }
-  }, [project, kunde, variant, parzellen, ak])
+    // ── Nutzungsverteilung nach Miet-/Verkaufsfläche ────────────────────────
+    const nachNutzung = new Map<string, number>()
+    for (const b of ak.buildings) {
+      for (const m of b.mietflaechen) {
+        const name = (m.nutzung ?? '').trim() || '(ohne Nutzung)'
+        nachNutzung.set(name, (nachNutzung.get(name) ?? 0) + (m.flaeche_m2 || 0))
+      }
+    }
+    const nutzungsverteilung: Segment[] = [...nachNutzung.entries()]
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, wert], i) => ({ label, wert, farbe: CHART_PALETTE[i % CHART_PALETTE.length] }))
+
+    // ── Anlagekosten je Hauptgruppe ─────────────────────────────────────────
+    const hgNetto: Record<number, number> = {}
+    const hgBrutto: Record<number, number> = {}
+    for (let c = 0; c <= 9; c++) { hgNetto[c] = 0; hgBrutto[c] = 0 }
+    for (const eig of ak.presentEig) {
+      const erg = ak.konsolidiertEffektiv.get(eig)
+      if (!erg) continue
+      for (let c = 0; c <= 9; c++) {
+        const k = c as keyof typeof erg.hauptgruppenSummenNetto
+        const n = erg.hauptgruppenSummenNetto[k] ?? 0
+        const mw = erg.hauptgruppenSummenMwst[k] ?? 0
+        hgNetto[c] += n
+        hgBrutto[c] += n + mw
+      }
+    }
+    const kosten: BetragZeile[] = HAUPTGRUPPEN
+      .filter((h) => hgNetto[h.code] !== 0 || hgBrutto[h.code] !== 0)
+      .map((h) => ({ code: String(h.code), label: h.label, netto: hgNetto[h.code], brutto: hgBrutto[h.code] }))
+    if (kosten.length > 0) {
+      kosten.push({ code: '', label: 'Anlagekosten', netto: kostenNetto, brutto: kostenBrutto, total: true })
+    }
+
+    // ── Erträge je Nutzung ──────────────────────────────────────────────────
+    const ertragZeilen: TabellenZeile[] = []
+    for (const eig of ak.presentEig) {
+      const proNutzung = ak.ertragProNutzungByEig.get(eig) ?? {}
+      for (const [nutzung, betrag] of Object.entries(proNutzung)) {
+        if (betrag <= 0) continue
+        ertragZeilen.push({ zellen: [nutzung, EIGENTUMSART_LABEL[eig], formatNumber(Math.round(betrag))] })
+      }
+    }
+    ertragZeilen.sort((a, b) => Number(b.zellen[2].replace(/\D/g, '')) - Number(a.zellen[2].replace(/\D/g, '')))
+    if (ertragZeilen.length > 0) {
+      ertragZeilen.push({ zellen: ['Total', '', formatNumber(Math.round(ertrag))], total: true })
+    }
+
+    // ── Wirtschaftlichkeit je Nutzungsart ───────────────────────────────────
+    // Renditeobjekt → Rendite, Verkaufsobjekt → Gewinn, Genossenschaft →
+    // Kostenmiete. Es erscheint nur, was in der Variante auch vorkommt.
+    const wirtschaftBloecke: { titel: string; felder: Feld[] }[] = []
+    for (const eig of ak.presentEig) {
+      const erg = ak.konsolidiertEffektiv.get(eig)
+      if (!erg) continue
+      const invest = erg.totalBrutto
+      const eigErtrag = Object.values(ak.ertragProNutzungByEig.get(eig) ?? {})
+        .reduce((a, v) => a + v, 0)
+
+      if (eig === 'renditeobjekt') {
+        wirtschaftBloecke.push({
+          titel: 'Rendite (Renditeobjekt)',
+          felder: ohneLeere([
+            { label: 'Anlagekosten inkl. MwSt', wert: invest > 0 ? w(Math.round(invest), 'CHF') : '—' },
+            { label: 'Mietertrag SOLL p.a.',    wert: eigErtrag > 0 ? w(Math.round(eigErtrag), 'CHF') : '—' },
+            { label: 'Bruttorendite',           wert: invest > 0 && eigErtrag > 0
+                ? `${((eigErtrag / invest) * 100).toFixed(2)} %` : '—' },
+          ]),
+        })
+      } else if (eig === 'verkaufsobjekt') {
+        const gewinn = eigErtrag - invest
+        wirtschaftBloecke.push({
+          titel: 'Verkaufsgewinn (Stockwerkeigentum)',
+          felder: ohneLeere([
+            { label: 'Verkaufserlös',           wert: eigErtrag > 0 ? w(Math.round(eigErtrag), 'CHF') : '—' },
+            { label: 'Anlagekosten inkl. MwSt', wert: invest > 0 ? w(Math.round(invest), 'CHF') : '—' },
+            { label: 'Verkaufsgewinn',          wert: eigErtrag > 0 ? w(Math.round(gewinn), 'CHF') : '—' },
+            { label: 'Marge auf dem Erlös',     wert: eigErtrag > 0
+                ? `${((gewinn / eigErtrag) * 100).toFixed(1)} %` : '—' },
+          ]),
+        })
+      } else if (eig === 'genossenschaft') {
+        const mengenG = sammleKostenmieteMengen(ak.buildings, null)
+        const km = mengenG.wohnenFlaeche > 0
+          ? berechneKostenmiete(
+              basisFromErgebnis(erg, mengenG.vmf, mengenG.wohnenFlaeche, mengenG.wohnungen),
+              kostenmieteParams, mengenG.ertragsNutzungen)
+          : null
+        wirtschaftBloecke.push({
+          titel: 'Kostenmiete (Genossenschaft)',
+          felder: ohneLeere([
+            { label: 'Anlagekosten inkl. MwSt', wert: invest > 0 ? w(Math.round(invest), 'CHF') : '—' },
+            { label: 'Kostenmiete Wohnen',      wert: km ? `${formatNumber(Math.round(km.proM2Jahr))} CHF/m²·a` : '—' },
+            { label: 'Maximaler Mietertrag',    wert: km ? w(Math.round(km.maxMietertragWohnen), 'CHF') : '—' },
+          ]),
+        })
+      }
+    }
+
+    return {
+      situationsplanUrl,
+      objekt,
+      auftrag,
+      grundstuecke: { kopf: ['Parzelle', 'Gemeinde', 'Zone', 'Fläche m²'], zeilen: gsZeilen },
+      bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'Zustand', 'GF m²', 'Volumen m³'], zeilen: bestandZeilen },
+      nutzungsverteilung,
+      mengen: flaechen,
+      kosten,
+      ertraege: { kopf: ['Nutzung', 'Nutzungsart', 'CHF'], zeilen: ertragZeilen },
+      wirtschaft: wirtschaftBloecke,
+    }
+  }, [project, kunde, variant, parzellen, bestand, situationsplanUrl, ak, kostenmieteParams])
 }

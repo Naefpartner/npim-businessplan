@@ -1,10 +1,11 @@
-import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, View, Text, Image, StyleSheet, Svg, Path, G } from '@react-pdf/renderer'
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
   FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
   kapitelFuer, type BerichtKapitel, type SeitenFormat, type AuftragAnrede,
 } from '@/lib/bericht'
 import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
+import { formatNumber } from '@/lib/utils'
 
 /** Alles, was der Bericht über Projekt und Variante wissen muss. */
 export interface BerichtDaten {
@@ -34,15 +35,51 @@ export interface Feld {
   wert: string
 }
 
+/** Eine Zeile der Grundstücks- bzw. Bestandstabelle. */
+export interface TabellenZeile {
+  zellen: string[]
+  /** Hervorgehobene Summenzeile. */
+  total?: boolean
+}
+
+/** Ein Segment des Kreisdiagramms. */
+export interface Segment {
+  label: string
+  wert: number
+  farbe: string
+}
+
+/** Eine Betragszeile mit Netto und Brutto (Anlagekosten je Hauptgruppe). */
+export interface BetragZeile {
+  code: string
+  label: string
+  netto: number
+  brutto: number
+  total?: boolean
+}
+
 /**
- * Die Projektübersicht als vier benannte Blöcke. Bewusst als Daten statt als
- * Layout — so lässt sich der Inhalt verschieben, ohne das PDF anzufassen.
+ * Die Projektübersicht. Bewusst als Daten statt als Layout — so lässt sich der
+ * Inhalt verschieben, ohne das PDF anzufassen.
  */
 export interface UebersichtDaten {
+  /** GIS-Ausschnitt als Situationsplan; fehlt, wenn keiner hinterlegt ist. */
+  situationsplanUrl: string | null
   objekt: Feld[]
   auftrag: Feld[]
+  /** Grundstücke: Nummer, Gemeinde, Zone, Fläche. */
+  grundstuecke: { kopf: string[]; zeilen: TabellenZeile[] }
+  /** Bestandsgebäude: Bezeichnung, Baujahr, Nutzung, GF, Volumen, Zustand. */
+  bestand: { kopf: string[]; zeilen: TabellenZeile[] }
+  /** Nutzungsverteilung nach Miet-/Verkaufsfläche. */
+  nutzungsverteilung: Segment[]
   mengen: Feld[]
-  wirtschaft: Feld[]
+  /** Anlagekosten je BKP-Hauptgruppe samt Total. */
+  kosten: BetragZeile[]
+  /** Mieterträge bzw. Verkaufserlöse je Nutzung. */
+  ertraege: { kopf: string[]; zeilen: TabellenZeile[] }
+  /** Gewinn, Rendite oder Kostenmiete — je nach vorhandener Nutzungsart. */
+  wirtschaft: { titel: string; felder: Feld[] }[]
 }
 
 const T = TITELBLATT
@@ -206,6 +243,34 @@ const s = StyleSheet.create({
   feldWert: { flex: 1, fontWeight: 700 },
   hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
 
+  // ── Situationsplan ────────────────────────────────────────────────────────
+  plan: { width: '100%', marginBottom: mm(2), objectFit: 'contain' },
+  legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginBottom: mm(4) },
+
+  // ── Datentabellen ─────────────────────────────────────────────────────────
+  tabKopf: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: BERICHT_FARBE.linie,
+    paddingBottom: mm(0.9),
+    fontSize: SCHRIFT.klein,
+    color: '#4A4A4A',
+  },
+  tabZeile: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#D8D8D8',
+    paddingTop: mm(1.2),
+    paddingBottom: mm(0.9),
+  },
+  tabTotal: { fontWeight: 700, borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
+  zelleRechts: { textAlign: 'right' },
+
+  // ── Kreisdiagramm ─────────────────────────────────────────────────────────
+  diagrammZeile: { flexDirection: 'row', alignItems: 'center', marginBottom: mm(2) },
+  legendeEintrag: { flexDirection: 'row', alignItems: 'center', marginBottom: mm(1.2) },
+  legendeFarbe: { width: mm(3), height: mm(3), marginRight: mm(2) },
+
   // Verzeichniszeile: Nummer, Text, Seitenzahl — jede mit Linie darunter.
   tocZeile: { flexDirection: 'row', alignItems: 'baseline' },
   tocLinie: { borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
@@ -360,6 +425,94 @@ function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; dat
   )
 }
 
+/**
+ * Datentabelle mit Kopfzeile. Die erste Spalte ist linksbündig, alle weiteren
+ * rechtsbündig — Zahlen stehen so untereinander.
+ */
+function Datentabelle({
+  titel, kopf, zeilen, breiten, linksBis = 0,
+}: {
+  titel?: string
+  kopf: string[]
+  zeilen: TabellenZeile[]
+  /** Spaltenanteile; ohne Angabe erste Spalte doppelt so breit. */
+  breiten?: number[]
+  /** Bis zu dieser Spalte linksbündig, danach rechtsbündig (Zahlenspalten). */
+  linksBis?: number
+}) {
+  if (zeilen.length === 0) return null
+  const anteile = breiten ?? kopf.map((_, i) => (i === 0 ? 2 : 1))
+  // Abstand zwischen den Spalten, damit rechtsbündige Werte nicht an die
+  // Nachbarspalte stossen; die letzte Spalte schliesst bündig ab.
+  const zelle = (i: number) => ({
+    flex: anteile[i] ?? 1,
+    ...(i > linksBis ? { textAlign: 'right' as const } : {}),
+    ...(i < kopf.length - 1 ? { paddingRight: mm(3) } : {}),
+  })
+  return (
+    <View style={s.feldBlock}>
+      {titel && <Text style={s.h2}>{titel}</Text>}
+      <View style={s.tabKopf}>
+        {kopf.map((k, i) => <Text key={k + i} style={zelle(i)}>{k}</Text>)}
+      </View>
+      {zeilen.map((z, r) => (
+        <View key={r} style={[s.tabZeile, ...(z.total ? [s.tabTotal] : [])]}>
+          {z.zellen.map((c, i) => <Text key={i} style={zelle(i)}>{c}</Text>)}
+        </View>
+      ))}
+    </View>
+  )
+}
+
+/**
+ * Kreisdiagramm der Nutzungsverteilung mit Legende daneben.
+ *
+ * @react-pdf kennt kein Diagramm — die Segmente werden als SVG-Pfade
+ * gerechnet: Kreisbogen vom Start- zum Endwinkel, zurück zum Mittelpunkt.
+ */
+function Kreisdiagramm({ segmente, groesse = 42 }: { segmente: Segment[]; groesse?: number }) {
+  const summe = segmente.reduce((a, x) => a + x.wert, 0)
+  if (summe <= 0) return null
+  const r = groesse / 2
+  // Kumulierte Anteile vorab — ohne veränderliche Laufvariable, damit die
+  // Berechnung frei von Seiteneffekten bleibt.
+  const grenzen = segmente.reduce<number[]>(
+    (acc, seg) => [...acc, (acc[acc.length - 1] ?? 0) + seg.wert / summe], [0])
+
+  const pfade = segmente.map((seg, i) => {
+    const anteil = seg.wert / summe
+    // Bei 12 Uhr beginnen und im Uhrzeigersinn laufen.
+    const start = -Math.PI / 2 + grenzen[i] * 2 * Math.PI
+    const ende  = -Math.PI / 2 + grenzen[i + 1] * 2 * Math.PI
+    const x1 = r + r * Math.cos(start), y1 = r + r * Math.sin(start)
+    const x2 = r + r * Math.cos(ende),  y2 = r + r * Math.sin(ende)
+    const gross = anteil > 0.5 ? 1 : 0
+    // Ein Segment über die ganze Fläche lässt sich nicht als Bogen zeichnen —
+    // dann ein voller Kreis aus zwei Halbbögen.
+    const d = anteil >= 0.999
+      ? `M ${r} 0 A ${r} ${r} 0 1 1 ${r} ${groesse} A ${r} ${r} 0 1 1 ${r} 0 Z`
+      : `M ${r} ${r} L ${x1} ${y1} A ${r} ${r} 0 ${gross} 1 ${x2} ${y2} Z`
+    return { d, seg, anteil }
+  })
+
+  return (
+    <View style={s.diagrammZeile}>
+      <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
+        <G>{pfade.map((p, i) => <Path key={i} d={p.d} fill={p.seg.farbe} />)}</G>
+      </Svg>
+      <View style={{ marginLeft: mm(8), flex: 1 }}>
+        {pfade.map((p, i) => (
+          <View key={i} style={s.legendeEintrag}>
+            <View style={[s.legendeFarbe, { backgroundColor: p.seg.farbe }]} />
+            <Text style={{ flex: 1 }}>{p.seg.label}</Text>
+            <Text style={{ fontWeight: 700 }}>{(p.anteil * 100).toFixed(1)} %</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({ titel, felder }: { titel: string; felder: Feld[] }) {
   if (felder.length === 0) return null
@@ -390,10 +543,64 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
       <Text style={s.h1}>Projektübersicht</Text>
       {u ? (
         <>
+          {u.situationsplanUrl && (
+            <>
+              <Image src={u.situationsplanUrl} style={s.plan} />
+              <Text style={s.legende}>Situationsplan — Ausschnitt aus dem kantonalen GIS</Text>
+            </>
+          )}
+
           <Feldtabelle titel="Objekt" felder={u.objekt} />
           <Feldtabelle titel="Auftrag" felder={u.auftrag} />
+
+          <Datentabelle
+            titel="Grundstücke"
+            kopf={u.grundstuecke.kopf}
+            breiten={[1.4, 2, 1, 1.2]}
+            linksBis={2}
+            zeilen={u.grundstuecke.zeilen}
+          />
+          <Datentabelle
+            titel="Bestandsgebäude"
+            kopf={u.bestand.kopf}
+            breiten={[2.6, 0.9, 1.3, 1.7, 0.9, 1.1]}
+            linksBis={3}
+            zeilen={u.bestand.zeilen}
+          />
+
+          {u.nutzungsverteilung.length > 0 && (
+            <View style={s.feldBlock}>
+              <Text style={s.h2}>Nutzungsverteilung</Text>
+              <Kreisdiagramm segmente={u.nutzungsverteilung} />
+            </View>
+          )}
+
           <Feldtabelle titel="Mengen" felder={u.mengen} />
-          <Feldtabelle titel="Wirtschaftliche Eckwerte" felder={u.wirtschaft} />
+
+          {u.kosten.length > 0 && (
+            <Datentabelle
+              titel="Anlagekosten BKP 0–9"
+              kopf={['BKP', 'Hauptgruppe', 'exkl. MwSt.', 'inkl. MwSt.']}
+              breiten={[0.6, 3, 1.6, 1.6]}
+              linksBis={1}
+              zeilen={u.kosten.map((k) => ({
+                zellen: [k.code, k.label, formatNumber(Math.round(k.netto)), formatNumber(Math.round(k.brutto))],
+                total: k.total,
+              }))}
+            />
+          )}
+
+          <Datentabelle
+            titel="Mieterträge / Verkaufserlöse"
+            kopf={u.ertraege.kopf}
+            breiten={[2, 2, 1.4]}
+            linksBis={1}
+            zeilen={u.ertraege.zeilen}
+          />
+
+          {u.wirtschaft.map((b) => (
+            <Feldtabelle key={b.titel} titel={b.titel} felder={b.felder} />
+          ))}
         </>
       ) : (
         <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
