@@ -747,8 +747,8 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
           rechts={{
             titel: 'Bestandsgebäude',
             kopf: u.bestand.kopf,
-            breiten: [2.2, 1, 1.5, 1],
-            linksBis: 2,
+            breiten: [1.9, 1.1, 1, 1.3, 1.5],
+            linksBis: 3,
             zeilen: u.bestand.zeilen,
           }}
         />

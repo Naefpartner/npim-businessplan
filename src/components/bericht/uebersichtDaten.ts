@@ -119,6 +119,7 @@ export function useUebersichtDaten(
     const bestandZeilen: TabellenZeile[] = bestand.map((b) => ({
       zellen: [
         b.bezeichnung,
+        b.gvz_nummer ?? '—',
         b.baujahr != null ? String(b.baujahr) : '—',
         b.nutzung ?? '—',
         b.volumen_m3 != null ? formatNumber(b.volumen_m3) : '—',
@@ -280,10 +281,11 @@ export function useUebersichtDaten(
     return {
       situationsplanUrl,
       auftrag,
-      // Kurze Einheitenköpfe: „Volumen m³" bräuchte in der geteilten Spalte
-      // zwei Zeilen und verschöbe die Kopfzeile gegenüber der Nachbartabelle.
-      grundstuecke: { kopf: ['Parzelle', 'Zone', 'm²'], zeilen: gsZeilen },
-      bestand: { kopf: ['Gebäude', 'Baujahr', 'Nutzung', 'm³'], zeilen: bestandZeilen },
+      grundstuecke: { kopf: ['Parzelle', 'Zone', 'GSF m²'], zeilen: gsZeilen },
+      bestand: {
+        kopf: ['Gebäude', 'Assek. Nr.', 'Baujahr', 'Nutzung', 'Volumen m³'],
+        zeilen: bestandZeilen,
+      },
       mengen: flaechen,
       kosten,
       ertraege: ertragBloecke,
