@@ -12,6 +12,23 @@ export function mm(wert: number): number {
   return (wert * 72) / 25.4
 }
 
+/**
+ * Basis für Schriften und Bilder des Berichts. Im Browser leer — die Pfade
+ * beginnen dann an der Wurzel. Zum Rendern ausserhalb des Browsers (Prüfung,
+ * späterer Serverexport) auf eine erreichbare Basis setzen, weil dort absolute
+ * Pfade keine gültigen URLs sind.
+ */
+let assetBasis = ''
+
+export function setzeAssetBasis(basis: string): void {
+  assetBasis = basis.replace(/\/$/, '')
+}
+
+/** Pfad zu einer Datei unter public/. */
+export function assetPfad(rel: string): string {
+  return `${assetBasis}${rel}`
+}
+
 let registriert = false
 
 /**
@@ -27,12 +44,12 @@ export function schriftRegistrieren(): void {
   Font.register({
     family: SCHRIFT.familie,
     fonts: [
-      { src: '/fonts/EuclidNP-Light.ttf',        fontWeight: 300 },
-      { src: '/fonts/EuclidNP-LightItalic.ttf',  fontWeight: 300, fontStyle: 'italic' },
-      { src: '/fonts/EuclidNP-Regular.ttf',      fontWeight: 400 },
-      { src: '/fonts/EuclidNP-RegularItalic.ttf',fontWeight: 400, fontStyle: 'italic' },
-      { src: '/fonts/EuclidNP-Bold.ttf',         fontWeight: 700 },
-      { src: '/fonts/EuclidNP-BoldItalic.ttf',   fontWeight: 700, fontStyle: 'italic' },
+      { src: assetPfad('/fonts/EuclidNP-Light.ttf'),         fontWeight: 300 },
+      { src: assetPfad('/fonts/EuclidNP-LightItalic.ttf'),   fontWeight: 300, fontStyle: 'italic' },
+      { src: assetPfad('/fonts/EuclidNP-Regular.ttf'),       fontWeight: 400 },
+      { src: assetPfad('/fonts/EuclidNP-RegularItalic.ttf'), fontWeight: 400, fontStyle: 'italic' },
+      { src: assetPfad('/fonts/EuclidNP-Bold.ttf'),          fontWeight: 700 },
+      { src: assetPfad('/fonts/EuclidNP-BoldItalic.ttf'),    fontWeight: 700, fontStyle: 'italic' },
     ],
   })
   // Trennt lange Wörter nicht — deutsche Komposita sonst mitten im Wort

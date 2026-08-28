@@ -79,29 +79,64 @@ export const RAND = {
   links: 30,
   rechts: 12.5,
   kopf: 12.5,
-  fuss: 11.7,
+  fuss: 11.1,
 } as const
 
 /**
- * Titelblatt: farbige Fläche mit ausgeschnittener Ecke oben links, in der das
- * Logo sitzt. Masse und Ausschnitt exakt aus der Vorlage.
+ * Titelblatt. Alle Werte in Millimeter, nachgemessen am PDF-Export der
+ * Vorlage (dort auf Letter skaliert, Faktor 0.941 — hier zurückgerechnet).
+ *
+ * Aufbau: eine kupferne Fläche mit zwei weissen Aussparungen. Oben links sitzt
+ * die Wortmarke, unten links ein weisser Kasten mit dem Titel — der Titel steht
+ * also schwarz auf Weiss, nicht weiss auf der Fläche.
  */
-export const TITELFLAECHE = {
-  links: 17.5,
-  oben: 12.5,
-  breite: 180,
-  hoehe: 136.6,
-  /** Ausschnitt oben links, in dem das Logo steht. */
-  ausschnittBreite: 59.4,
-  ausschnittHoehe: 17.35,
-  /** Vollflächige Variante der Vorlage. */
-  hoeheGross: 257.3,
+export const TITELBLATT = {
+  flaeche: { links: 17.5, oben: 12.5, breite: 180, hoehe: 136.6 },
+  /** Aussparung oben links, in der die Wortmarke steht. */
+  logoEcke: { breite: 59.4, hoehe: 17.35 },
+  /** Weisser Kasten unten links; überlappt die Fläche und trägt den Titel. */
+  titelKasten: { links: 17.5, oben: 130.4, breite: 102, hoehe: 56.8 },
+  /** Titelzeilen — eingerückt auf den Satzspiegel, nicht auf den Kasten. */
+  titel: { links: 30, oben: 141.5 },
+  /** Angabentabelle Auftraggeberin / Beauftragte / Datum. */
+  angaben: {
+    links: 30,
+    /** Spalte der Werte. */
+    wertLinks: 55,
+    rechts: 111.9,
+    /** Oberkante der ersten Trennlinie. */
+    ersteLinie: 183.4,
+    /** Abstand von der Linie zur ersten Textzeile darunter. */
+    textNachLinie: 1.4,
+    /** Abstand vom letzten Text zur Linie darunter. */
+    textVorLinie: 0.9,
+    /** Höhe eines Blocks mit drei Zeilen bzw. mit zwei Zeilen. */
+    zeilenAbstand: 4.2,
+  },
 } as const
 
-/** Logo auf dem Titelblatt (Wortmarke) und auf Folgeseiten (Bildmarke). */
+/** Logo: Wortmarke auf dem Titelblatt, Bildmarke auf den Folgeseiten. */
 export const LOGO = {
   titel:  { links: 16.5, oben: 11.5, breite: 49.2, hoehe: 7.2 },
-  folge:  { rechts: 11.1, oben: 11.5, breite: 12.1, hoehe: 12.1 },
+  folge:  { rechts: 12.5, oben: 11.5, breite: 12.1, hoehe: 12.1 },
+} as const
+
+/** Inhaltsverzeichnis — Spalten und Linien, nachgemessen an Seite 4. */
+export const INHALT = {
+  titel: 'Inhalt',
+  /** Nummer und Text der obersten Ebene. */
+  ebene1: { nummer: 30, text: 36, linieLinks: 29.5 },
+  /** Nummer und Text der Unterebenen. */
+  ebene2: { nummer: 36, text: 46, linieLinks: 35.5 },
+  /** Rechte Kante von Seitenzahl und Linien. */
+  rechts: 197.9,
+  /** Abstand der Trennlinie unter der Textoberkante. */
+  linieUnterText: 5.3,
+  /** Zeilenhöhe innerhalb einer Ebene und zusätzlicher Vorabstand vor Ebene 1. */
+  zeilenHoehe: 6.3,
+  vorEbene1: 4.9,
+  /** Abstand von der Überschrift „Inhalt" zum ersten Eintrag. */
+  nachTitel: 3.5,
 } as const
 
 /** Schriftgrade in Punkt, aus den Word-Formatvorlagen. */
@@ -126,7 +161,11 @@ export const BERICHT_FARBE = {
   text: '#000000',
   grau: '#F1F1F1',      // lt2, Flächen
   h4: '#95654B',        // Überschrift 4
+  linie: '#000000',
 } as const
 
-/** Absätze der Fusszeile — erst ab Seite 2 sichtbar, wie in der Vorlage. */
 export const FUSSZEILE_FIRMA = 'Naef & Partner Immobilien AG'
+/** Fusszeile des Titelblatts — Firmenadresse statt Dokumentbezug. */
+export const FUSSZEILE_TITEL = 'Naef & Partner Immobilien AG  |  Bleicherweg 10  |  8002 Zürich  |  naefpartner.com'
+/** Die Fusszeile bündelt links auf der Kante der Titelfläche, nicht am Satzspiegel. */
+export const FUSSZEILE_LINKS = 17.5

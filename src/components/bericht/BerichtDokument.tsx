@@ -1,19 +1,19 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import {
-  SEITE, RAND, TITELFLAECHE, LOGO, SCHRIFT, BERICHT_FARBE, FUSSZEILE_FIRMA,
+  RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
+  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS,
   kapitelFuer, type BerichtKapitel,
 } from '@/lib/bericht'
-import { mm, schriftRegistrieren, datumCh } from '@/lib/berichtPdf'
-
-schriftRegistrieren()
+import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 
 /** Alles, was der Bericht über Projekt und Variante wissen muss. */
 export interface BerichtDaten {
   projektName: string
-  /** Adresszeile, erscheint als erste Titelzeile und in der Fusszeile. */
+  /** Adresszeile — erste Titelzeile und Teil der Fusszeile. */
   adresse: string | null
   dokumentBezeichnung: string
   untertitel: string | null
+  /** Zeilen des Blocks „Auftraggeberin" (Name, Strasse, Ort). */
   auftraggeberin: string[]
   datum: Date
   /** Öffentliche URL des Projektbilds für die Titelfläche. */
@@ -22,42 +22,54 @@ export interface BerichtDaten {
   kapitel: string[]
 }
 
+const T = TITELBLATT
+
 const s = StyleSheet.create({
+  /**
+   * Der Zeilenabstand gehört auf die Seite. Auf View oder Text wirkt er in
+   * react-pdf doppelt (n × 2 × Schriftgrad statt n × Schriftgrad) — nur über
+   * die Seite ergibt 12/9 auch wirklich 12 pt.
+   */
   seite: {
     fontFamily: SCHRIFT.familie,
     fontSize: SCHRIFT.grund,
     lineHeight: SCHRIFT.zeile / SCHRIFT.grund,
     color: BERICHT_FARBE.text,
+    backgroundColor: '#FFFFFF',
   },
-  // Titelblatt wird absolut bemasst, deshalb ohne Satzspiegel.
+  // Der untere Rand endet auf der Fusszeile; den Abstand bis zum Satzspiegel
+  // hält der Inhaltsfluss darüber.
   inhaltsSeite: {
     paddingTop: mm(RAND.oben),
-    paddingBottom: mm(RAND.unten),
+    paddingBottom: mm(RAND.fuss),
     paddingLeft: mm(RAND.links),
     paddingRight: mm(RAND.rechts),
   },
+  /** Nimmt den Inhalt auf und schiebt die Fusszeile an den Seitenfuss. */
+  inhaltsFluss: { flexGrow: 1, paddingBottom: mm(RAND.unten - RAND.fuss) },
 
   // ── Titelblatt ────────────────────────────────────────────────────────────
-  titelFlaeche: {
+  flaeche: {
     position: 'absolute',
-    left: mm(TITELFLAECHE.links),
-    top: mm(TITELFLAECHE.oben),
-    width: mm(TITELFLAECHE.breite),
-    height: mm(TITELFLAECHE.hoehe),
+    left: mm(T.flaeche.links),
+    top: mm(T.flaeche.oben),
+    width: mm(T.flaeche.breite),
+    height: mm(T.flaeche.hoehe),
     backgroundColor: BERICHT_FARBE.primaer,
     overflow: 'hidden',
   },
-  titelBild: { width: '100%', height: '100%', objectFit: 'cover' },
+  flaechenBild: { width: '100%', height: '100%', objectFit: 'cover' },
   /**
-   * Die Vorlage schneidet oben links eine Ecke aus der Fläche — nachgebildet
-   * durch ein weisses Rechteck über der Fläche. Dort sitzt die Wortmarke.
+   * Die Vorlage spart oben links eine Ecke aus der Fläche aus. Nachgebildet
+   * durch ein weisses Rechteck darüber — auf weissem Grund optisch identisch
+   * zum Pfad der Vorlage und deutlich einfacher als ein Clipping.
    */
-  ausschnitt: {
+  logoEcke: {
     position: 'absolute',
-    left: mm(TITELFLAECHE.links),
-    top: mm(TITELFLAECHE.oben),
-    width: mm(TITELFLAECHE.ausschnittBreite),
-    height: mm(TITELFLAECHE.ausschnittHoehe),
+    left: mm(T.flaeche.links),
+    top: mm(T.flaeche.oben),
+    width: mm(T.logoEcke.breite),
+    height: mm(T.logoEcke.hoehe),
     backgroundColor: '#FFFFFF',
   },
   wortmarke: {
@@ -67,30 +79,67 @@ const s = StyleSheet.create({
     width: mm(LOGO.titel.breite),
     height: mm(LOGO.titel.hoehe),
   },
+  /** Weisser Kasten unten links; der Titel steht darin schwarz auf Weiss. */
+  titelKasten: {
+    position: 'absolute',
+    left: mm(T.titelKasten.links),
+    top: mm(T.titelKasten.oben),
+    width: mm(T.titelKasten.breite),
+    height: mm(T.titelKasten.hoehe),
+    backgroundColor: '#FFFFFF',
+  },
   titelText: {
     position: 'absolute',
-    left: mm(TITELFLAECHE.links),
-    top: mm(130.4),
-    width: mm(102),
+    left: mm(T.titel.links),
+    top: mm(T.titel.oben),
+    width: mm(T.titelKasten.breite),
   },
   titelZeile: {
     fontSize: SCHRIFT.titel,
     lineHeight: SCHRIFT.titelZeile / SCHRIFT.titel,
-    fontWeight: 700,
-    color: '#FFFFFF',
   },
-  angabenBlock: {
-    position: 'absolute',
-    left: mm(RAND.links),
-    top: mm(180),
-    width: mm(SEITE.a4.breite - RAND.links - RAND.rechts),
-    flexDirection: 'row',
-    gap: mm(10),
-  },
-  angabenSpalte: { width: mm(55) },
-  angabenTitel: { fontWeight: 700, marginBottom: mm(1) },
+  titelFett: { fontWeight: 700 },
 
-  // ── Kopf und Fuss der Folgeseiten ─────────────────────────────────────────
+  // Angabentabelle: Trennlinien über die Blockbreite, Label fett.
+  angaben: {
+    position: 'absolute',
+    left: mm(T.angaben.links),
+    top: mm(T.angaben.ersteLinie),
+    width: mm(T.angaben.rechts - T.angaben.links),
+  },
+  angabenLinie: { borderTopWidth: 0.5, borderTopColor: BERICHT_FARBE.linie },
+  angabenZeile: {
+    flexDirection: 'row',
+    paddingTop: mm(T.angaben.textNachLinie),
+    paddingBottom: mm(T.angaben.textVorLinie),
+  },
+  angabenLabel: { width: mm(T.angaben.wertLinks - T.angaben.links), fontWeight: 700 },
+  angabenWert: { flex: 1 },
+
+  // ── Fusszeilen ────────────────────────────────────────────────────────────
+  /**
+   * Fusszeile der Inhaltsseiten. Bewusst im Fluss statt absolut positioniert:
+   * ein `fixed`-Element mit position:absolute verschwindet, sobald die Seite
+   * einen lineHeight trägt. Der negative linke Rand holt sie auf die Kante der
+   * Titelfläche (17.5 mm) statt auf den Satzspiegel (30 mm).
+   */
+  fuss: {
+    marginLeft: mm(FUSSZEILE_LINKS - RAND.links),
+    width: mm(INHALT.rechts - FUSSZEILE_LINKS),
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    fontSize: SCHRIFT.klein,
+  },
+  /** Fusszeile des Titelblatts — dort ohne Satzspiegel, deshalb absolut. */
+  fussTitel: {
+    position: 'absolute',
+    left: mm(FUSSZEILE_LINKS),
+    width: mm(INHALT.rechts - FUSSZEILE_LINKS),
+    bottom: mm(RAND.fuss),
+    fontSize: SCHRIFT.klein,
+  },
+
+  // ── Inhaltsseiten ─────────────────────────────────────────────────────────
   bildmarke: {
     position: 'absolute',
     right: mm(LOGO.folge.rechts),
@@ -98,54 +147,30 @@ const s = StyleSheet.create({
     width: mm(LOGO.folge.breite),
     height: mm(LOGO.folge.hoehe),
   },
-  fuss: {
-    position: 'absolute',
-    left: mm(RAND.links),
-    right: mm(RAND.rechts),
-    bottom: mm(RAND.fuss),
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    fontSize: SCHRIFT.klein,
-    lineHeight: SCHRIFT.kleinZeile / SCHRIFT.klein,
-    color: BERICHT_FARBE.text,
-  },
-
-  // ── Inhaltsverzeichnis ────────────────────────────────────────────────────
   h1: {
     fontSize: SCHRIFT.h1,
     lineHeight: SCHRIFT.h1Zeile / SCHRIFT.h1,
     fontWeight: 700,
-    marginBottom: mm(6.7),   // 380 Twips
+    marginBottom: mm(INHALT.nachTitel),
   },
-  tocZeile: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginTop: mm(3.5),      // 200 Twips
-    fontWeight: 700,
-  },
-  tocPunkte: {
-    flexGrow: 1,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#C8C8C8',
-    borderBottomStyle: 'dotted',
-    marginHorizontal: mm(2),
-    marginBottom: mm(1),
-  },
+
+  // Verzeichniszeile: Nummer, Text, Seitenzahl — jede mit Linie darunter.
+  tocZeile: { flexDirection: 'row', alignItems: 'baseline' },
+  tocLinie: { borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
+  tocSeite: { textAlign: 'right' },
 })
 
-/**
- * Fusszeile der Inhaltsseiten — Firma, Objekt, Dokument und Seitenzahl.
- * Das Titelblatt ist eine eigene Seite ohne diese Elemente, deshalb genügt es,
- * sie nur in den Inhaltsseiten zu setzen; eine Seitenprüfung braucht es nicht.
- */
+/** Fusszeile der Inhaltsseiten — Dokumentbezug links, Seitenzahl rechts. */
 function Fusszeile({ daten }: { daten: BerichtDaten }) {
   const links = [FUSSZEILE_FIRMA, daten.adresse, daten.dokumentBezeichnung]
     .filter(Boolean).join('  |  ')
   return (
     <View style={s.fuss} fixed>
       <Text>{links}</Text>
-      {/* Nur Text bekommt totalPages im render-Callback, nicht View. */}
-      <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+      {/* Dynamischer Inhalt braucht `fixed` am Text selbst — sonst wird er
+          beim Seitenumbruch verworfen und die Zeile bleibt leer. Und nur Text
+          bekommt totalPages im render-Callback, nicht View. */}
+      <Text fixed render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
     </View>
   )
 }
@@ -154,67 +179,114 @@ function Fusszeile({ daten }: { daten: BerichtDaten }) {
 function Kopfmarke() {
   return (
     <View style={s.bildmarke} fixed>
-      <Image src="/naef-bildmarke.png" />
+      <Image src={assetPfad('/naef-bildmarke.png')} />
     </View>
   )
 }
 
 /**
- * Titelblatt nach Naef-Vorlage: farbige Fläche mit dem Projektbild, oben links
- * die Ecke für die Wortmarke ausgespart, darunter Titel und Angaben.
+ * Titelblatt nach Vorlage: kupferne Fläche mit dem Projektbild, oben links die
+ * Ecke für die Wortmarke ausgespart, unten links der weisse Titelkasten.
+ * Darunter die Angaben in einer Tabelle mit Trennlinien.
  */
 function Titelblatt({ daten }: { daten: BerichtDaten }) {
+  const bloecke: { label: string; zeilen: string[] }[] = [
+    { label: 'Auftraggeberin', zeilen: daten.auftraggeberin },
+    { label: 'Beauftragte', zeilen: ['Naef & Partner Immobilien AG', 'Bleicherweg 10', '8002 Zürich'] },
+    {
+      label: 'Datum',
+      zeilen: [datumCh(daten.datum), daten.untertitel].filter((z): z is string => !!z),
+    },
+  ]
+
   return (
-    <Page size="A4" style={[s.seite]}>
-      <View style={s.titelFlaeche}>
-        {daten.titelbildUrl && <Image src={daten.titelbildUrl} style={s.titelBild} />}
+    <Page size="A4" style={s.seite}>
+      <View style={s.flaeche}>
+        {daten.titelbildUrl && <Image src={daten.titelbildUrl} style={s.flaechenBild} />}
       </View>
-      <View style={s.ausschnitt} />
-      <Image src="/naef-wortmarke.jpg" style={s.wortmarke} />
+      <View style={s.logoEcke} />
+      <Image src={assetPfad('/naef-wortmarke.jpg')} style={s.wortmarke} />
+      <View style={s.titelKasten} />
 
       <View style={s.titelText}>
         {daten.adresse && <Text style={s.titelZeile}>{daten.adresse}</Text>}
-        <Text style={s.titelZeile}>{daten.dokumentBezeichnung}</Text>
-        {daten.untertitel && <Text style={s.titelZeile}>{daten.untertitel}</Text>}
+        <Text style={[s.titelZeile, s.titelFett]}>{daten.dokumentBezeichnung}</Text>
       </View>
 
-      <View style={s.angabenBlock}>
-        <View style={s.angabenSpalte}>
-          <Text style={s.angabenTitel}>Auftraggeberin</Text>
-          {daten.auftraggeberin.map((z, i) => <Text key={i}>{z}</Text>)}
-        </View>
-        <View style={s.angabenSpalte}>
-          <Text style={s.angabenTitel}>Beauftragte</Text>
-          <Text>Naef & Partner Immobilien AG</Text>
-          <Text>Bleicherweg 10</Text>
-          <Text>8002 Zürich</Text>
-        </View>
-        <View style={s.angabenSpalte}>
-          <Text style={s.angabenTitel}>Datum</Text>
-          <Text>{datumCh(daten.datum)}</Text>
-        </View>
+      <View style={s.angaben}>
+        {bloecke.map((b) => (
+          <View key={b.label} style={s.angabenLinie}>
+            <View style={s.angabenZeile}>
+              <Text style={s.angabenLabel}>{b.label}</Text>
+              <View style={s.angabenWert}>
+                {b.zeilen.map((z, i) => <Text key={i}>{z}</Text>)}
+              </View>
+            </View>
+          </View>
+        ))}
+        {/* Abschliessende Linie unter dem letzten Block. */}
+        <View style={s.angabenLinie} />
+      </View>
+
+      <View style={s.fussTitel}>
+        <Text>{FUSSZEILE_TITEL}</Text>
       </View>
     </Page>
   )
 }
 
+/** Eine Zeile des Inhaltsverzeichnisses samt Trennlinie darunter. */
+function InhaltZeile({
+  nummer, label, seite, ebene,
+}: {
+  nummer: string
+  label: string
+  seite: string
+  ebene: 1 | 2
+}) {
+  const sp = ebene === 1 ? INHALT.ebene1 : INHALT.ebene2
+  return (
+    <View
+      style={[
+        s.tocLinie,
+        {
+          marginLeft: mm(sp.linieLinks - RAND.links),
+          marginTop: mm(ebene === 1 ? INHALT.vorEbene1 : 0),
+        },
+      ]}
+    >
+      <View style={[s.tocZeile, { paddingBottom: mm(INHALT.linieUnterText - 4.1) }]}>
+        <Text style={{
+          width: mm(sp.text - sp.nummer),
+          marginLeft: mm(sp.nummer - sp.linieLinks),
+          fontWeight: ebene === 1 ? 700 : 400,
+        }}>
+          {nummer}
+        </Text>
+        <Text style={{ flex: 1, fontWeight: ebene === 1 ? 700 : 400 }}>{label}</Text>
+        <Text style={[s.tocSeite, { fontWeight: ebene === 1 ? 700 : 400 }]}>{seite}</Text>
+      </View>
+    </View>
+  )
+}
+
 /**
- * Inhaltsverzeichnis. Die Seitenzahlen bleiben vorerst offen — sie stehen erst
- * fest, wenn die Kapitelinhalte gesetzt sind, und werden dann über die
- * Bookmark-/Zielseiten von @react-pdf nachgezogen.
+ * Inhaltsverzeichnis nach Vorlage: Überschrift „Inhalt", darunter je Kapitel
+ * eine Zeile aus Nummer, Titel und Seitenzahl, jeweils mit Trennlinie.
+ *
+ * Die Seitenzahlen bleiben vorerst offen — sie stehen erst fest, wenn die
+ * Fachkapitel gesetzt sind.
  */
 function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; daten: BerichtDaten }) {
   return (
     <Page size="A4" style={[s.seite, s.inhaltsSeite]}>
       <Kopfmarke />
-      <Text style={s.h1}>Inhaltsverzeichnis</Text>
-      {kapitel.map((k, i) => (
-        <View key={k.key} style={s.tocZeile}>
-          <Text>{i + 1}   {k.label}</Text>
-          <View style={s.tocPunkte} />
-          <Text>—</Text>
-        </View>
-      ))}
+      <View style={s.inhaltsFluss}>
+        <Text style={s.h1}>{INHALT.titel}</Text>
+        {kapitel.map((k, i) => (
+          <InhaltZeile key={k.key} nummer={String(i + 1)} label={k.label} seite="—" ebene={1} />
+        ))}
+      </View>
       <Fusszeile daten={daten} />
     </Page>
   )
@@ -223,11 +295,13 @@ function Inhaltsverzeichnis({ kapitel, daten }: { kapitel: BerichtKapitel[]; dat
 /**
  * Der Businessplan-Bericht als PDF-Dokument.
  *
- * Stand: Titelblatt und Inhaltsverzeichnis. Die Fachkapitel folgen einzeln —
- * ihre Schlüssel stehen bereits in `daten.kapitel` und im Inhaltsverzeichnis.
+ * Stand: Titelblatt und Inhaltsverzeichnis nach der Naef-Vorlage. Die
+ * Fachkapitel folgen einzeln — ihre Schlüssel stehen bereits in `daten.kapitel`.
  */
 export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
-  // Titelblatt und Inhaltsverzeichnis stehen im Verzeichnis selbst nicht.
+  // Hier statt beim Modulimport, damit eine abweichende Asset-Basis vorher
+  // gesetzt werden kann (Rendern ausserhalb des Browsers).
+  schriftRegistrieren()
   const fachkapitel = kapitelFuer(daten.kapitel).filter((k) => !k.fix)
 
   return (
