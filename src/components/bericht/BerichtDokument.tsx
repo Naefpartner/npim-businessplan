@@ -247,13 +247,25 @@ const s = StyleSheet.create({
 
   // ── Situationsplan ────────────────────────────────────────────────────────
   /**
-   * Der Situationsplan füllt die Spaltenbreite und über flexGrow die Resthöhe
-   * der Zeile. Da die Zeilenhöhe von der Auftragstabelle bestimmt wird, endet
-   * er genau auf deren unterster Linie — auch wenn eine Feldzeile umbricht,
-   * was eine gerechnete Höhe nicht auffangen könnte. `cover` beschneidet aus
-   * der Mitte, statt das Bild zu verzerren.
+   * Rahmen des Situationsplans: wächst über flexGrow auf die Resthöhe der
+   * Zeile, bringt aber selbst keine Höhe mit.
    */
-  plan: { width: '100%', flexGrow: 1, objectFit: 'cover' },
+  planRahmen: { flexGrow: 1, position: 'relative' },
+  /**
+   * Das Bild liegt absolut im Rahmen und bleibt damit aus dem Fluss — sonst
+   * bestimmte seine natürliche Höhe die Zeilenhöhe, sobald sie grösser ist als
+   * die Auftragstabelle (flexGrow wächst nur, es schrumpft nicht). So endet
+   * der Plan immer auf der untersten Tabellenlinie, egal welches Format der
+   * GIS-Ausschnitt hat. `cover` beschneidet aus der Mitte, statt zu verzerren.
+   */
+  plan: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
   /** Auftrag links, Situationsplan rechts. */
   zweiSpalten: { flexDirection: 'row' },
   spalteLinks: { flex: 1.15, paddingRight: mm(6) },
@@ -579,9 +591,13 @@ function Projektuebersicht({ daten }: { daten: BerichtDaten }) {
             </View>
             <View style={s.spalteRechts}>
               <Text style={s.h2}>Situationsplan</Text>
-              {u.situationsplanUrl
-                ? <Image src={u.situationsplanUrl} style={s.plan} />
-                : <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>}
+              {u.situationsplanUrl ? (
+                <View style={s.planRahmen}>
+                  <Image src={u.situationsplanUrl} style={s.plan} />
+                </View>
+              ) : (
+                <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
+              )}
             </View>
           </View>
 
