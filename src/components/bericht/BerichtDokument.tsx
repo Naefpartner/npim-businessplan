@@ -357,7 +357,11 @@ const s = StyleSheet.create({
    * beiden Spalten bliebe sonst zu wenig Breite für Bezeichnung, Wert und
    * Anteil, und die Zellen liefen ineinander.
    */
-  ringFlaeche: { marginBottom: mm(2.5), paddingLeft: mm(EINZUG) },
+  /**
+   * Der Ring steht mittig in seiner Spalte; der seitliche Einzug gilt nur für
+   * den Text darunter, an dem sich die Legende ausrichtet.
+   */
+  ringFlaeche: { marginBottom: mm(2.5), alignItems: 'center' },
   legendeZeile: {
     flexDirection: 'row',
     alignItems: 'center',
