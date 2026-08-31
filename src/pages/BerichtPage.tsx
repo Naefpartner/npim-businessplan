@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useBericht } from '@/contexts/BerichtContext'
 import { VariantDataProvider } from '@/contexts/VariantDataContext'
 import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
+import { useMengenDaten } from '@/components/bericht/mengenDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
 import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
 import { fetchVariant } from '@/hooks/useVariants'
@@ -91,6 +92,8 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const thumbnail = photos.find((p) => p.id === thumbnailPhotoId) ?? photos[0] ?? null
   const adresse = project ? projectAddressLine(project) : null
 
+  const mengen = useMengenDaten(umfang)
+
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null, kunde, anrede)
 
@@ -110,8 +113,10 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       kapitel: druckKapitel,
       etappenUmfang: umfang,
       uebersicht,
+      mengen,
     }
-  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde, uebersicht])
+  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
+      uebersicht, mengen])
 
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)
