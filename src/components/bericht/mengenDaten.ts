@@ -77,9 +77,6 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
-            // Die Haustitel stehen auf der hellsten Stufe: sie gliedern nur
-            // innerhalb der Eigentumsart und sollen ihr nicht Konkurrenz machen.
-            farbeHaus: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
             // Der Kopf hängt an der Eigentumsart: Verkaufsobjekte führen
             // Verkaufsflächen und Preise statt Mietflächen und Jahresmieten.
             kopf: [

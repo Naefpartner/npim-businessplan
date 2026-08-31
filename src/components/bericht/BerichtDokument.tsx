@@ -46,8 +46,6 @@ interface EigBlock {
   farbeUnter?: string
   /** Sehr helle Stufe — Hinterlegung der Summenzeile. */
   farbeGrund?: string
-  /** Titelbalken der Häuser innerhalb der Eigentumsart. */
-  farbeHaus?: string
 }
 
 /**
@@ -1417,7 +1415,7 @@ function MengenSeite({
           <Datentabelle
             key={i}
             titel={e.fortsetzung ? `${e.name} (Fortsetzung)` : e.name}
-            titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerZart}
+            titelFarbe={e.block.farbeUnter ?? BERICHT_FARBE.primaerHell}
             anschluss
             kopf={e.kopf}
             breiten={MENGEN_BREITEN}
