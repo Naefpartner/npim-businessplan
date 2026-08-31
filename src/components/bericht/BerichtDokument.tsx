@@ -343,15 +343,13 @@ const s = StyleSheet.create({
   /** Titel, der direkt unter einem anderen steht — ohne eigenen Vorabstand. */
   h2Anschluss: { marginTop: 0 },
   /**
-   * Titel ohne Kupferfläche, nur mit Linie. Im Mixbereich stehen vier Titel
-   * dicht beieinander; als Balken wögen sie schwerer als die Diagramme, die
-   * sie beschriften. Der seitliche Einzug bleibt, damit der Titel weiter auf
-   * der Flucht der Legenden- und Balkenzeilen steht.
+   * Untertitel im Mixbereich: weder Kupferfläche noch Linie. Der Balken bleibt
+   * dem Bereichstitel darüber vorbehalten, sonst wögen die Beschriftungen
+   * schwerer als die Diagramme, zu denen sie gehören. Der seitliche Einzug
+   * bleibt, damit sie auf der Flucht der Legenden- und Balkenzeilen stehen.
    */
   h2Schlicht: {
     backgroundColor: 'transparent',
-    borderBottomWidth: 0.5,
-    borderBottomColor: BERICHT_FARBE.linie,
     paddingTop: 0,
   },
   /**
@@ -1035,7 +1033,7 @@ function Mixbereich({ mix }: { mix: Nutzungsmix }) {
   const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
   return (
     <>
-      <Text style={[s.h2, s.h2Schlicht]}>{mix.titel}</Text>
+      <Text style={s.h2}>{mix.titel}</Text>
       {/* Die Ringe untereinander, der Wohnungsmix daneben. Die obersten Titel
           stehen direkt unter dem Bereichstitel und bringen deshalb keinen
           eigenen Vorabstand mit — sonst klafft dort eine Lücke. */}
