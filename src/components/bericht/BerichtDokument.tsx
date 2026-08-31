@@ -68,9 +68,14 @@ export interface MengenSicht {
     total: TabellenZeile
   })[]
   /** Wohnungsmix je Eigentumsart: Zimmerzahl, Anzahl, Fläche. */
-  wohnungsmix: (EigBlock & { segmentFarben?: string[]; zeilen: TabellenZeile[] })[]
+  wohnungsmix: (EigBlock & {
+    segmentFarben?: string[]
+    /** Ob der Block auf dem Blatt „Wohnungsmix und Erträge" erscheint. */
+    aufMixblatt: boolean
+    zeilen: TabellenZeile[]
+  })[]
   /** Ertragsübersicht je Eigentumsart. */
-  ertraege: (EigBlock & { kopf: string[]; zeilen: TabellenZeile[] })[]
+  ertraege: (EigBlock & { kopf: string[]; aufMixblatt: boolean; zeilen: TabellenZeile[] })[]
 }
 
 /** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
@@ -1372,9 +1377,17 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
   return seiten
 }
 
+/** Ob eine Sicht das Blatt „Wohnungsmix und Erträge" überhaupt füllt. */
+function hatMixblatt(sicht: MengenSicht): boolean {
+  return sicht.wohnungsmix.some((w) => w.aufMixblatt)
+    || sicht.ertraege.some((e) => e.aufMixblatt)
+}
+
 /** Blattzahl einer Sicht: Mengen (mehrseitig), Mix und Erträge, Grafik. */
 function sichtSeiten(sicht: MengenSicht): number {
-  return mengenSeiten(sicht).length + (sicht.wohnungsmix.length > 0 ? 2 : 1)
+  return mengenSeiten(sicht).length
+    + (hatMixblatt(sicht) ? 1 : 0)
+    + (sicht.wohnungsmix.length > 0 ? 1 : 0)
 }
 
 /** Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts. */
@@ -1449,7 +1462,7 @@ function MixUndErtragSeite({
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
       <Text style={s.h1}>Wohnungsmix und Erträge — {sicht.titel}</Text>
-      {sicht.wohnungsmix.map((w) => (
+      {sicht.wohnungsmix.filter((w) => w.aufMixblatt).map((w) => (
         <View key={`w-${w.label}`} style={s.zweiSpalten}>
           <View style={s.spalteEins}>
             <Datentabelle
@@ -1478,7 +1491,8 @@ function MixUndErtragSeite({
       ))}
       {/* Eigentumsarten ohne Wohnungen erscheinen nur mit ihren Erträgen. */}
       {sicht.ertraege
-        .filter((e) => !sicht.wohnungsmix.some((w) => w.label === e.label))
+        .filter((e) => e.aufMixblatt)
+        .filter((e) => !sicht.wohnungsmix.some((w) => w.aufMixblatt && w.label === e.label))
         .map((e) => (
           <Datentabelle
             key={`e-${e.label}`}
@@ -1558,10 +1572,12 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
           elemente={elemente} seite={nr++} seitenTotal={seitenTotal} erste={i === 0} />,
       )
     }
-    seiten.push(
-      <MixUndErtragSeite key={`${sicht.titel}-x`} daten={daten} sicht={sicht}
-        seite={nr++} seitenTotal={seitenTotal} />,
-    )
+    if (hatMixblatt(sicht)) {
+      seiten.push(
+        <MixUndErtragSeite key={`${sicht.titel}-x`} daten={daten} sicht={sicht}
+          seite={nr++} seitenTotal={seitenTotal} />,
+      )
+    }
     if (sicht.wohnungsmix.length > 0) {
       seiten.push(
         <WohnungsmixSeite key={`${sicht.titel}-g`} daten={daten} sicht={sicht}

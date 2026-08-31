@@ -15,6 +15,13 @@ import type { EtappenUmfang } from '@/lib/bericht'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
 import type { MengenDaten, MengenSicht, TabellenZeile } from '@/components/bericht/BerichtDokument'
 
+/**
+ * Eigentumsarten, die auf dem Blatt „Wohnungsmix und Erträge" erscheinen.
+ * Renditeobjekte bleiben dort aussen vor — ihre Mengen und Erträge stehen
+ * vollständig in der Mengentabelle, im Grafikblatt sind sie weiterhin dabei.
+ */
+const MIXBLATT_EIG: Eigentumsart[] = ['genossenschaft', 'verkaufsobjekt']
+
 /** Reihenfolge der Blöcke, gleich wie in der Projektübersicht. */
 const EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufsobjekt']
 
@@ -234,6 +241,7 @@ function wohnungsmixBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
         segmentFarben: RING_STUFEN.map((n) => CI[EIGENTUMSART_FAMILY[eig]][n]),
+        aufMixblatt: MIXBLATT_EIG.includes(eig),
         zeilen,
       }
     })
@@ -283,6 +291,7 @@ function ertragsBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
         kopf: ['Nutzung', verkauf ? 'Menge VKF' : 'Menge VMF', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr'],
+        aufMixblatt: MIXBLATT_EIG.includes(eig),
         zeilen,
       }
     })
