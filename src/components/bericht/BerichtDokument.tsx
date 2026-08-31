@@ -44,6 +44,8 @@ interface EigBlock {
   label: string
   farbe?: string
   farbeUnter?: string
+  /** Sehr helle Stufe — Hinterlegung der Summenzeile. */
+  farbeGrund?: string
 }
 
 /**
@@ -1399,7 +1401,15 @@ function MengenSeite({
           )
         }
         if (e.art === 'eigTotal') {
-          return <Summenzeile key={i} zeile={e.zeile} kopf={e.kopf} breiten={MENGEN_BREITEN} />
+          return (
+            <Summenzeile
+              key={i}
+              zeile={e.zeile}
+              kopf={e.kopf}
+              breiten={MENGEN_BREITEN}
+              grund={e.block.farbeGrund ?? BERICHT_FARBE.primaerZart}
+            />
+          )
         }
         return (
           <Datentabelle
@@ -1420,11 +1430,11 @@ function MengenSeite({
 
 /** Freistehende Summenzeile — das Total einer Eigentumsart ohne eigene Tabelle. */
 function Summenzeile({
-  zeile, kopf, breiten,
-}: { zeile: TabellenZeile; kopf: string[]; breiten: number[] }) {
+  zeile, kopf, breiten, grund,
+}: { zeile: TabellenZeile; kopf: string[]; breiten: number[]; grund: string }) {
   const t: Tabelle = { kopf, zeilen: [zeile], breiten, linksBis: 1 }
   return (
-    <View style={s.feldBlock}>
+    <View style={[s.feldBlock, { backgroundColor: grund }]}>
       <Datenzeile t={t} zeile={zeile} />
     </View>
   )
