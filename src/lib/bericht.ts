@@ -216,6 +216,7 @@ export const SCHRIFT = {
 /** Farben der Vorlage — deckungsgleich mit der CI im Tool (lib/ci.ts). */
 export const BERICHT_FARBE = {
   primaer: '#B98C74',   // accent1, Kupfer 7 — Titelfläche
+  primaerHell: '#F2D3C2', // Kupfer 3 — Untertitel unter einer Titelfläche
   text: '#000000',
   grau: '#F1F1F1',      // lt2, Flächen
   h4: '#95654B',        // Überschrift 4

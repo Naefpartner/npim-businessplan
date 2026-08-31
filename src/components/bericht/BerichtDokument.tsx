@@ -398,7 +398,7 @@ const s = StyleSheet.create({
    * Der Ring steht mittig in seiner Spalte; der seitliche Einzug gilt nur für
    * den Text darunter, an dem sich die Legende ausrichtet.
    */
-  ringFlaeche: { marginBottom: mm(2.5), alignItems: 'center' },
+  ringFlaeche: { marginTop: mm(2.5), marginBottom: mm(2.5), alignItems: 'center' },
   legendeZeile: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1174,6 +1174,9 @@ function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: bool
   const flaechen = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.flaeche, farbe: farbe(i) }))
   const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
   const ringGroesse = dreispaltig ? 24 : 30
+  // Ohne Nutzungsart-Farbe die helle Stufe des Kupfers — die Untertitel sind
+  // damit auch dort Balken, nur leiser als die Blocktitel darüber.
+  const unterFarbe = mix.farbeUnter ?? BERICHT_FARBE.primaerHell
 
   return (
     <>
@@ -1184,25 +1187,27 @@ function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: bool
         <View style={s.dreiSpalten}>
           <View style={s.drittel}>
             <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²"
-              anschluss titelFarbe={mix.farbeUnter} groesse={ringGroesse} />
+              anschluss titelFarbe={unterFarbe} groesse={ringGroesse} />
           </View>
           <View style={s.drittel}>
             <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF"
-              anschluss titelFarbe={mix.farbeUnter} groesse={ringGroesse} />
+              anschluss titelFarbe={unterFarbe} groesse={ringGroesse} />
           </View>
           <View style={s.drittelLetzte}>
             <Wohnungsmix zeilen={mix.wohnungsmix} anschluss
-              titelFarbe={mix.farbeUnter} balkenFarbe={mix.farbe} />
+              titelFarbe={unterFarbe} balkenFarbe={mix.farbe} />
           </View>
         </View>
       ) : (
         <View style={s.zweiSpalten}>
           <View style={s.spalteEins}>
-            <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²" anschluss />
-            <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF" />
+            <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²"
+              anschluss titelFarbe={unterFarbe} />
+            <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF"
+              titelFarbe={unterFarbe} />
           </View>
           <View style={s.spalteZwei}>
-            <Wohnungsmix zeilen={mix.wohnungsmix} anschluss />
+            <Wohnungsmix zeilen={mix.wohnungsmix} anschluss titelFarbe={unterFarbe} />
           </View>
         </View>
       )}
