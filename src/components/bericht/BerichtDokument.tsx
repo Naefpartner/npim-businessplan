@@ -317,6 +317,15 @@ const s = StyleSheet.create({
   /** Titel, der direkt unter einem anderen steht — ohne eigenen Vorabstand. */
   h2Anschluss: { marginTop: 0 },
   /**
+   * Linie unter dem Titel, wie sie die Tabellen aus ihrer Kopfzeile mitbringen.
+   * Die Diagramme haben keine, brauchen den Abschluss aber genauso.
+   */
+  h2Linie: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: BERICHT_FARBE.linie,
+    paddingBottom: mm(0.9),
+  },
+  /**
    * Der Ring steht über der Legende, nicht daneben: in der schmaleren der
    * beiden Spalten bliebe sonst zu wenig Breite für Bezeichnung, Wert und
    * Anteil, und die Zellen liefen ineinander.
@@ -901,7 +910,7 @@ function Ringdiagramm({
 
   return (
     <View style={s.ringBlock}>
-      <Text style={[s.h2, s.h2Anschluss]}>{titel} in {einheit}</Text>
+      <Text style={[s.h2, s.h2Anschluss, s.h2Linie]}>{titel} in {einheit}</Text>
       <View style={s.ringFlaeche}>
         <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
           {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
@@ -930,7 +939,7 @@ function Wohnungsmix({ zeilen }: { zeilen: { label: string; anzahl: number }[] }
   const total = zeilen.reduce((a, z) => a + z.anzahl, 0)
   return (
     <View style={s.ringBlock}>
-      <Text style={s.h2}>Wohnungsmix</Text>
+      <Text style={[s.h2, s.h2Linie]}>Wohnungsmix</Text>
       {zeilen.map((z) => (
         <View key={z.label} style={s.mixZeile}>
           <Text style={s.mixLabel}>{z.label}</Text>
@@ -957,7 +966,7 @@ function Mixbereich({ mix }: { mix: Nutzungsmix }) {
   const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
   return (
     <>
-      <Text style={s.h2}>{mix.titel}</Text>
+      <Text style={[s.h2, s.h2Linie]}>{mix.titel}</Text>
       {/* Die Diagrammtitel stehen unter dem Bereichstitel und bringen deshalb
           keinen eigenen Vorabstand mit — sonst klafft eine Lücke. */}
       <View style={s.zweiSpalten}>
