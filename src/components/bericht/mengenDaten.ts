@@ -342,7 +342,7 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
     }
     const gf = gfOi + gfUi
     return {
-      gfOi, gfUi,
+      gfOi, gfUi, gvOi: gv - gvUi, gvUi,
       anteilOi: gfOi > 0 ? vmf / gfOi : null,
       anteilTotal: gf > 0 ? vmf / gf : null,
       gvProGf: gf > 0 ? gv / gf : null,
@@ -353,6 +353,7 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
   // Einheiten stehen in der Zelle, nicht im Kopf: die Zeilen tragen
   // verschiedene — Flächen, Anteile und ein Verhältnis.
   const m2 = (v: number) => (v > 0 ? `${z(v)} m²` : '—')
+  const m3 = (v: number) => (v > 0 ? `${z(v)} m³` : '—')
   const pct = (v: number | null) => (v != null ? `${(v * 100).toFixed(1)} %` : '—')
   const quot = (v: number | null) => (v != null ? `${v.toFixed(2)} m³/m²` : '—')
 
@@ -361,6 +362,8 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
     zeilen: [
       { zellen: ['Geschossfläche oberirdisch', ...werte.map((w) => m2(w.gfOi))] },
       { zellen: ['Geschossfläche unterirdisch', ...werte.map((w) => m2(w.gfUi))] },
+      { zellen: ['Gebäudevolumen oberirdisch', ...werte.map((w) => m3(w.gvOi))] },
+      { zellen: ['Gebäudevolumen unterirdisch', ...werte.map((w) => m3(w.gvUi))] },
       { zellen: ['VMF (VKF) / GF oberirdisch', ...werte.map((w) => pct(w.anteilOi))] },
       { zellen: ['VMF (VKF) / GF total', ...werte.map((w) => pct(w.anteilTotal))] },
       { zellen: ['Gebäudevolumen / GF', ...werte.map((w) => quot(w.gvProGf))] },
