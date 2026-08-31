@@ -5,11 +5,10 @@ import { EIGENTUMSART_COLOR } from '@/lib/kategorieFarben'
 import { eigentumsartForBuilding } from '@/types'
 import { RenditeBerechnung } from '@/components/projects/RenditeBerechnung'
 import { etappenTabs } from '@/lib/etappenTabs'
+import { useRenditeModus } from '@/hooks/useRenditeModus'
 import { cn } from '@/lib/utils'
 
 const EIG: 'renditeobjekt' = 'renditeobjekt'
-
-type RenditeMode = 'rendite' | 'residual'
 
 // Hauptkategorie „Renditeberechnung" (für Renditeobjekte) — zwei Modi:
 // Renditeberechnung und Residualwert. Inhalt folgt.
@@ -17,7 +16,9 @@ type RenditeMode = 'rendite' | 'residual'
 export function RenditeSection({ variantId, defaultExpanded = false }: { variantId: string; defaultExpanded?: boolean }) {
   const ak = useAnlagekostenShared()
   const [expanded, setExpanded] = useState(defaultExpanded)
-  const [mode, setMode] = useState<RenditeMode>('rendite')
+  // Die Wahl gehört zur Variante, nicht zur Sitzung: der Bericht zeigt danach
+  // entweder die Renditeberechnung oder den Residualwert.
+  const { modus: mode, setModus: setMode } = useRenditeModus(variantId)
   const [activeTab, setActiveTab] = useState('konsolidiert')
 
   // Etappen, die überhaupt Renditeobjekte enthalten — nur die sind als Reiter
@@ -55,7 +56,7 @@ export function RenditeSection({ variantId, defaultExpanded = false }: { variant
               <button
                 key={m.key}
                 type="button"
-                onClick={() => setMode(m.key)}
+                onClick={() => void setMode(m.key)}
                 className={cn(
                   'px-4 py-1.5 text-sm font-medium transition',
                   i > 0 && 'border-l border-slate-300',

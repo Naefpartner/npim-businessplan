@@ -97,10 +97,20 @@ export interface ProjectVariant {
   mwst_satz: number
   /** Gewählte Erfassungsmethode der Anlagekosten (Kachelauswahl im Reiter). */
   kosten_methode: KostenMethode
+  /** Gewählte Betrachtung der Renditeobjekte (Migration 064). */
+  rendite_modus: RenditeModus
   created_by: string | null
   created_at: string
   updated_at: string
 }
+
+/**
+ * Betrachtung der Renditeobjekte je Variante (Migration 064):
+ *   'rendite'  — Erfolgsrechnung mit Brutto- und Nettorendite
+ *   'residual' — Ertragswert abzüglich Erstellungskosten = Landwert
+ * Die Wahl steuert auch, welcher Block im Bericht erscheint.
+ */
+export type RenditeModus = 'rendite' | 'residual'
 
 /**
  * Erfassungsmethode der Anlagekosten je Variante (Migration 059):

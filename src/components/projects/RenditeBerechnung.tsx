@@ -4,6 +4,7 @@ import { eigentumsartForBuilding } from '@/types'
 import { isGarageNutzung } from '@/lib/bkp2'
 import { USE_TYPE_COLOR_1 } from '@/lib/kategorieFarben'
 import { useRendite } from '@/hooks/useRendite'
+import { berechneRendite } from '@/lib/rendite'
 import { useUndoableSetter } from '@/contexts/UndoContext'
 import { cn, formatNumber } from '@/lib/utils'
 
@@ -57,14 +58,6 @@ export function RenditeBerechnung({
   }, [ak.buildings, etappeId])
 
   const mietertragSoll = ertraege.reduce((s, e) => s + e.ertrag, 0)
-  const leerstand = mietertragSoll * p.leerstand
-  const mietertragIst = mietertragSoll - leerstand
-  const betriebskosten = mietertragSoll * p.betriebskosten
-  const instandhaltung = p.instandhaltungProM2 * totalVmf
-  const baurechtszins = p.baurechtszins
-  const mietertragNetto = mietertragIst - betriebskosten - instandhaltung - baurechtszins
-  const instandsetzung = p.instandsetzungProM2 * totalVmf
-  const liegenschaftserfolg = mietertragNetto - instandsetzung
 
   // Anlagekosten Renditeobjekt (konsolidiert) brutto — aus der Erfassungsmethode,
   // die in den Anlagekosten gewählt ist (Detailkatalog oder keeValue).
@@ -85,13 +78,6 @@ export function RenditeBerechnung({
     return { investition: inv, erstellung: inv - land }
   }, [ak.konsolidiertEffektiv, ak.blockErgebnisseEffektiv, etappeId])
 
-  const bruttorendite = investition > 0 ? mietertragSoll / investition : 0
-  const nettorendite = investition > 0 ? liegenschaftserfolg / investition : 0
-
-  // Residualwert: Ertragswert = Liegenschaftserfolg / Nettokapitalisierungssatz,
-  // abzüglich Anlagekosten exkl. Grundstück (nur Pos. 010 raus) = residualer Landwert.
-  const ertragswert = p.nettoKapSatz > 0 ? liegenschaftserfolg / p.nettoKapSatz : 0
-  const landwert = ertragswert - erstellung
   // Grundstücksfläche des Reiters: konsolidiert die ganze Parzelle, auf
   // Etappenebene der Anteil, der in den Landkosten dieses Blocks steckt.
   const gsfReiter = useMemo(() => {
@@ -104,7 +90,15 @@ export function RenditeBerechnung({
     return gesamtLand > 0 ? ak.gsfTotal * (landBrutto / gesamtLand) : 0
   }, [etappeId, ak.blockErgebnisseEffektiv, ak.konsolidiertEffektiv, ak.gsfTotal])
 
-  const landwertProM2 = gsfReiter > 0 ? landwert / gsfReiter : 0
+  // Erfolgsrechnung und Residualwert kommen aus derselben Funktion wie im
+  // Bericht — sonst laufen die beiden Darstellungen auseinander.
+  const {
+    leerstand, mietertragIst, betriebskosten, instandhaltung, baurechtszins,
+    mietertragNetto, instandsetzung, liegenschaftserfolg,
+    bruttorendite, nettorendite, ertragswert, landwert, landwertProM2,
+  } = berechneRendite(p, {
+    mietertragSoll, totalVmf, investition, erstellung, gsf: gsfReiter,
+  })
 
   return (
     <div className="space-y-6">

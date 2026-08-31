@@ -5,8 +5,11 @@ import { formatNumber } from '@/lib/utils'
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
+import { useRendite } from '@/hooks/useRendite'
+import { berechneRendite } from '@/lib/rendite'
 import {
   PHASE_LABEL, EIGENTUMSART_LABEL, isNutzungWohnen, effektiveWohnungCounts,
+  eigentumsartForBuilding,
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
@@ -48,6 +51,8 @@ export function useUebersichtDaten(
   const ak = useAnlagekostenShared()
   // Parameter der Kostenmiete — nur für den Genossenschaftsblock nötig.
   const { params: kostenmieteParams } = useKostenmiete(variant?.id ?? '')
+  // Parameter der Renditerechnung — für Rendite wie Residualwert dieselben.
+  const { params: renditeParams } = useRendite(variant?.id ?? '')
 
   return useMemo(() => {
     if (!project || !variant) return undefined
@@ -302,7 +307,37 @@ export function useUebersichtDaten(
       // Einheit und Zahl getrennt — die Einheiten stehen damit untereinander
       // und die Beträge rechtsbündig, wie bei den Mengen.
       if (eig === 'renditeobjekt') {
-        wirtschaftBloecke.push({
+        // Vermietbare Fläche der Renditeobjekte — Bezug für Instandhaltung und
+        // Instandsetzung in der Erfolgsrechnung.
+        const vmfRendite = ak.buildings
+          .filter((b) => eigentumsartForBuilding(b.use_type) === 'renditeobjekt')
+          .reduce((a, b) => a + b.mietflaechen.reduce((x, m) => x + (m.flaeche_m2 || 0), 0), 0)
+        // Erstellungskosten = Anlagekosten ohne Position 010 (Grundstückerwerb).
+        const p010 = erg.positionen['010']
+        const land = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
+        const r = berechneRendite(renditeParams, {
+          mietertragSoll: eigErtrag, totalVmf: vmfRendite,
+          investition: invest, erstellung: invest - land, gsf: ak.gsfTotal,
+        })
+
+        // Welche der beiden Sichten gilt, ist an der Variante gespeichert.
+        wirtschaftBloecke.push(variant.rendite_modus === 'residual' ? {
+          titel: 'Residualwert (Renditeobjekt)',
+          felder: ohneLeere([
+            { label: 'Liegenschaftserfolg', einheit: 'CHF/a',
+              wert: r.liegenschaftserfolg !== 0 ? w(Math.round(r.liegenschaftserfolg)) : '—' },
+            { label: 'Nettokapitalisierung', einheit: '%',
+              wert: (renditeParams.nettoKapSatz * 100).toFixed(2) },
+            { label: 'Ertragswert', einheit: 'CHF',
+              wert: r.ertragswert !== 0 ? w(Math.round(r.ertragswert)) : '—' },
+            { label: 'Kosten ohne Land', einheit: 'CHF',
+              wert: invest - land > 0 ? w(Math.round(invest - land)) : '—' },
+            { label: 'Landwert', einheit: 'CHF',
+              wert: r.landwert !== 0 ? w(Math.round(r.landwert)) : '—' },
+            { label: 'Landwert je m²', einheit: 'CHF/m²',
+              wert: r.landwertProM2 !== 0 ? w(Math.round(r.landwertProM2)) : '—' },
+          ]),
+        } : {
           titel: 'Rendite (Renditeobjekt)',
           felder: ohneLeere([
             { label: 'Anlagekosten brutto', einheit: 'CHF',
@@ -310,8 +345,9 @@ export function useUebersichtDaten(
             { label: 'Mietertrag SOLL', einheit: 'CHF/a',
               wert: eigErtrag > 0 ? w(Math.round(eigErtrag)) : '—' },
             { label: 'Bruttorendite', einheit: '%',
-              wert: invest > 0 && eigErtrag > 0
-                ? ((eigErtrag / invest) * 100).toFixed(2) : '—' },
+              wert: invest > 0 && eigErtrag > 0 ? (r.bruttorendite * 100).toFixed(2) : '—' },
+            { label: 'Nettorendite', einheit: '%',
+              wert: invest > 0 && eigErtrag > 0 ? (r.nettorendite * 100).toFixed(2) : '—' },
           ]),
         })
       } else if (eig === 'verkaufsobjekt') {
@@ -377,5 +413,6 @@ export function useUebersichtDaten(
       mix,
       wirtschaft: wirtschaftBloecke,
     }
-  }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak, kostenmieteParams])
+  }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak,
+      kostenmieteParams, renditeParams])
 }
