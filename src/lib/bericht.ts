@@ -229,6 +229,7 @@ export const SCHRIFT = {
 /** Farben der Vorlage — deckungsgleich mit der CI im Tool (lib/ci.ts). */
 export const BERICHT_FARBE = {
   primaer: '#B98C74',   // accent1, Kupfer 7 — Titelfläche
+  primaerMittel: '#E7AF90', // Kupfer 5 — Untertitel eine Stufe unter dem Balken
   primaerHell: '#F2D3C2', // Kupfer 3 — Untertitel unter einer Titelfläche
   primaerZart: '#FAEFE9', // Kupfer 1 — Hinterlegung von Summenzeilen
   text: '#000000',

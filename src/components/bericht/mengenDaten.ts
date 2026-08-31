@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { formatNumber } from '@/lib/utils'
 import {
-  EIGENTUMSART_COLOR, USE_TYPE_COLOR_3, USE_TYPE_COLOR_1, EIGENTUMSART_FAMILY,
+  EIGENTUMSART_COLOR, USE_TYPE_COLOR_5, USE_TYPE_COLOR_3, USE_TYPE_COLOR_1,
+  EIGENTUMSART_FAMILY,
 } from '@/lib/kategorieFarben'
 import { CI } from '@/lib/ci'
 import {
@@ -77,6 +78,9 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
+            // Die Haustitel stehen genau eine Stufe unter dem Balken der
+            // Eigentumsart — nah genug, um zusammenzugehören.
+            farbeHaus: mehrere ? USE_TYPE_COLOR_5[eig] : undefined,
             // Der Kopf hängt an der Eigentumsart: Verkaufsobjekte führen
             // Verkaufsflächen und Preise statt Mietflächen und Jahresmieten.
             kopf: [
