@@ -430,7 +430,9 @@ const s = StyleSheet.create({
   },
   /** Trennlinie einer Datenzeile — nur dort, wo die Tabelle noch Zeilen hat. */
   tabLinie: { borderBottomWidth: 0.5, borderBottomColor: '#D8D8D8' },
-  tabTotal: { fontWeight: 700, borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
+  /** Die Totalzeile hebt sich über die Schrift ab, nicht über eine kräftigere
+   *  Linie — ihre Trennlinie ist dieselbe wie bei jeder anderen Zeile. */
+  tabTotal: { fontWeight: 700 },
   zelleRechts: { textAlign: 'right' },
 
   // Verzeichniszeile: Nummer, Text, Seitenzahl — jede mit Linie darunter.
