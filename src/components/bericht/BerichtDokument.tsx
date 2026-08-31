@@ -374,7 +374,14 @@ const s = StyleSheet.create({
   legendeMarke: { width: mm(2.2), height: mm(2.2), marginRight: mm(1.8), borderRadius: mm(1.1) },
   legendeLabel: { flex: 1, paddingRight: mm(2) },
   legendeWert: { textAlign: 'right' },
-  legendeAnteil: { width: mm(11), textAlign: 'right', color: '#6B6B6B' },
+  /** Der Anteil steht kleiner als der Wert — er ergänzt ihn, statt mit ihm zu
+   *  konkurrieren. */
+  legendeAnteil: {
+    width: mm(10),
+    textAlign: 'right',
+    color: '#6B6B6B',
+    fontSize: SCHRIFT.klein,
+  },
 
   mixZeile: {
     flexDirection: 'row',
