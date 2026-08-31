@@ -93,7 +93,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const thumbnail = photos.find((p) => p.id === thumbnailPhotoId) ?? photos[0] ?? null
   const adresse = project ? projectAddressLine(project) : null
 
-  const mengen = useMengenDaten(umfang)
+  const mengen = useMengenDaten(variantId, umfang)
 
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null, kunde, anrede)

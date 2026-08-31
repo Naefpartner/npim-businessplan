@@ -1,5 +1,11 @@
 import { useMemo } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
+import { useKostenmiete } from '@/hooks/useKostenmiete'
+import { useWbfZh } from '@/hooks/useWbfZh'
+import {
+  berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen,
+} from '@/lib/kostenmiete'
+import { buildUnits, wohnungsmieten, wohnungsmixKey } from '@/lib/mengenAnalyse'
 import { formatNumber } from '@/lib/utils'
 import {
   EIGENTUMSART_COLOR, USE_TYPE_COLOR_5, USE_TYPE_COLOR_3, USE_TYPE_COLOR_1,
@@ -9,7 +15,7 @@ import { CI } from '@/lib/ci'
 import {
   EIGENTUMSART_LABEL, eigentumsartForBuilding, effektiveWohnungCounts,
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
-  type Eigentumsart, type VariantEtappe,
+  type Eigentumsart, type VariantEtappe, type Wohnungsmix,
 } from '@/types'
 import type { EtappenUmfang } from '@/lib/bericht'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
@@ -58,8 +64,31 @@ function ertragVon(
  * pro Etappe oder beides. Ohne zweite Etappe bleibt es beim Gesamtprojekt —
  * eine Etappensicht wäre dann dieselbe Tabelle ein zweites Mal.
  */
-export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
+export function useMengenDaten(
+  variantId: string, umfang: EtappenUmfang,
+): MengenDaten | undefined {
   const ak = useAnlagekostenShared()
+  const { params: kostenmieteParams } = useKostenmiete(variantId)
+  const { params: wbf } = useWbfZh(variantId)
+
+  /**
+   * Monatsmiete je Wohnungstyp aus der Kostenmiete — dieselbe Verteilung über
+   * die WBF-Punkte wie in der Kostenmiete-Sektion. Sie greift nur dort, wo im
+   * Mengengerüst kein Mietzins erfasst ist; ein erfasster Wert übersteuert sie.
+   */
+  const kostenmieteJeTyp = useMemo(() => {
+    const erg = ak.konsolidiertEffektiv.get('genossenschaft')
+    if (!erg) return new Map<string, number>()
+    const m = sammleKostenmieteMengen(ak.buildings, null)
+    if (m.wohnenFlaeche <= 0) return new Map<string, number>()
+    const km = berechneKostenmiete(
+      basisFromErgebnis(erg, m.vmf, m.wohnenFlaeche, m.wohnungen),
+      kostenmieteParams, m.ertragsNutzungen)
+    const wohnungen = buildUnits(ak.buildings, ak.etappen)
+      .filter((u) => u.eig === 'genossenschaft' && u.istWohnen)
+    const verteilt = wohnungsmieten(wohnungen, wbf.punkte, km.maxMietertragWohnen)
+    return new Map(verteilt.rows.map((r) => [r.key, r.mieteMt]))
+  }, [ak.buildings, ak.etappen, ak.konsolidiertEffektiv, kostenmieteParams, wbf.punkte])
 
   return useMemo(() => {
     if (ak.buildings.length === 0) return undefined
@@ -94,10 +123,13 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
               'Geschoss', 'Nutzung', 'Stk', 'GF m²', 'GV m³',
               verkauf ? 'VKF m²' : 'VMF m²', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr',
             ],
-            haeuser: haeuser.map((b) => hausBlock(b, verkauf)),
+            haeuser: haeuser.map((b) => hausBlock(
+              b, verkauf, eig === 'genossenschaft' ? kostenmieteJeTyp : null)),
             // Bezeichnung in der zweiten Spalte: „Total Genossenschaft" bricht
             // in der schmalen Geschossspalte sonst um.
-            total: summenZeile('Total', EIGENTUMSART_LABEL[eig], haeuser, verkauf),
+            total: summenZeile(
+              'Total', EIGENTUMSART_LABEL[eig], haeuser, verkauf,
+              eig === 'genossenschaft' ? kostenmieteJeTyp : null),
           }
         })
         .filter((x) => x != null)
@@ -108,7 +140,7 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
         benchmarks: benchmarkTabelle(gebaeude, mehrere),
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
-        ertraege: ertragsBloecke(gebaeude, mehrere),
+        ertraege: ertragsBloecke(gebaeude, mehrere, kostenmieteJeTyp),
       }
     }
 
@@ -117,14 +149,43 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
       ...(proEtappe ? etappenMitGebaeuden.map((e) => sicht(e.name, e.id)) : []),
     ]
     return { sichten }
-  }, [ak, umfang])
+  }, [ak, umfang, kostenmieteJeTyp])
+}
+
+/**
+ * Ertrag einer Wohnfläche aus der Kostenmiete, wenn im Mengengerüst keiner
+ * erfasst ist: Monatsmiete des Wohnungstyps mal Anzahl mal zwölf. Ohne
+ * Zimmermix zählt die Stückzahl unter dem Sammelschlüssel.
+ */
+function kostenmieteErtrag(
+  m: { nutzung: string; wohnungsmix: Wohnungsmix | null; anzahl: number | null },
+  jeTyp: Map<string, number>,
+): number {
+  let summe = 0
+  for (const [key, anzahl] of effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)) {
+    summe += (jeTyp.get(wohnungsmixKey(key)) ?? 0) * anzahl * 12
+  }
+  return summe
+}
+
+/** Erfasster Ertrag, sonst der aus der Kostenmiete abgeleitete. */
+function ertragMitKostenmiete(
+  m: VariantBuildingFull['mietflaechen'][number],
+  verkauf: boolean,
+  jeTyp: Map<string, number> | null,
+): number {
+  const erfasst = ertragVon(m, verkauf)
+  if (erfasst > 0 || !jeTyp) return erfasst
+  return kostenmieteErtrag(m, jeTyp)
 }
 
 /** Geschosszeilen eines Hauses, samt Mieteinheiten und Zwischensumme. */
-function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
+function hausBlock(
+  b: VariantBuildingFull, verkauf: boolean, jeTyp: Map<string, number> | null,
+) {
   const zeilen: TabellenZeile[] = []
   for (const m of b.mietflaechen) {
-    const ertrag = ertragVon(m, verkauf)
+    const ertrag = ertragMitKostenmiete(m, verkauf, jeTyp)
     zeilen.push({
       zellen: [
         m.geschoss_bezeichnung ?? '—',
@@ -142,7 +203,13 @@ function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
     for (const e of m.mieteinheiten ?? []) {
       const name = [e.wohnungsnummer, e.wohnungstyp ?? e.bezeichnung]
         .filter(Boolean).join(' · ')
-      const eErtrag = ertragVon(e, verkauf)
+      // Auch die Einheit greift auf die Kostenmiete zurück, wenn sie selbst
+      // keinen Mietzins trägt — über ihre Zimmerzahl.
+      const eigen = ertragVon(e, verkauf)
+      const eErtrag = eigen > 0 || !jeTyp
+        ? eigen
+        : (jeTyp.get(wohnungsmixKey(e.zimmer != null ? e.zimmer.toFixed(1) : '')) ?? 0)
+          * e.anzahl * 12
       zeilen.push({
         einzug: true,
         zellen: [
@@ -161,7 +228,7 @@ function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
   return {
     name: b.name,
     zeilen,
-    total: summenZeile('Total', b.name, [b], verkauf),
+    total: summenZeile('Total', b.name, [b], verkauf, jeTyp),
     verkauf,
   }
 }
@@ -186,6 +253,7 @@ function ansatzVon(
 /** Summe über Gebäude — Anzahl, GF, GV, VMF und Ertrag der Mietflächen. */
 function summenZeile(
   label: string, bezug: string, gebaeude: VariantBuildingFull[], verkauf: boolean,
+  jeTyp: Map<string, number> | null,
 ): TabellenZeile {
   let anzahl = 0, gf = 0, gv = 0, vmf = 0, ertrag = 0
   for (const b of gebaeude) {
@@ -194,7 +262,7 @@ function summenZeile(
       gf += m.gf_m2 || 0
       gv += m.volumen_m3 || 0
       vmf += m.flaeche_m2 || 0
-      ertrag += ertragVon(m, verkauf)
+      ertrag += ertragMitKostenmiete(m, verkauf, jeTyp)
     }
   }
   return { total: true, zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf), '', z(ertrag)] }
@@ -308,7 +376,9 @@ function wohnungsmixBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
 }
 
 /** Ertragsübersicht je Eigentumsart, aufgeschlüsselt nach Nutzung. */
-function ertragsBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
+function ertragsBloecke(
+  gebaeude: VariantBuildingFull[], mehrere: boolean, jeTyp: Map<string, number>,
+) {
   return EIG_ORDER
     .map((eig) => {
       const haeuser = gebaeude.filter((b) => eigentumsartForBuilding(b.use_type) === eig)
@@ -321,7 +391,8 @@ function ertragsBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
           if (!(key in menge)) { reihenfolge.push(key); menge[key] = { flaeche: 0, anzahl: 0, ertrag: 0 } }
           menge[key].flaeche += m.flaeche_m2 || 0
           menge[key].anzahl += m.anzahl ?? 0
-          menge[key].ertrag += ertragVon(m, verkauf)
+          menge[key].ertrag += ertragMitKostenmiete(
+            m, verkauf, eig === 'genossenschaft' ? jeTyp : null)
         }
       }
       const zeilen: TabellenZeile[] = reihenfolge
