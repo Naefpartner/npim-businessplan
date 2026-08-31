@@ -61,6 +61,8 @@ export interface MengenDaten {
 export interface MengenSicht {
   /** „Gesamtprojekt" oder der Name der Etappe. */
   titel: string
+  /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
+  benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
   /** Mengen und Erträge auf Haus- und Geschossebene, je Eigentumsart. */
   eigentumsarten: (EigBlock & {
     kopf: string[]
@@ -1315,6 +1317,7 @@ const MH = {
 const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten
 
 type MengenElement =
+  | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'eigTitel'; block: EigBlock; kopf: string[] }
   | { art: 'haus'; block: EigBlock; kopf: string[]; name: string
       fortsetzung: boolean; zeilen: TabellenZeile[] }
@@ -1322,6 +1325,7 @@ type MengenElement =
 
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
+    case 'benchmarks': return MH.eigTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
     case 'eigTitel': return MH.eigTitel
     case 'haus':     return MH.hausTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
     case 'eigTotal': return MH.zeile + MH.blockEnde
@@ -1373,6 +1377,7 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
     }
     lege({ art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total })
   }
+  lege({ art: 'benchmarks', kopf: sicht.benchmarks.kopf, zeilen: sicht.benchmarks.zeilen })
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
 }
@@ -1408,6 +1413,17 @@ function MengenSeite({
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
       {erste && <Text style={s.h1}>Mengen und Erträge — {sicht.titel}</Text>}
       {elemente.map((e, i) => {
+        if (e.art === 'benchmarks') {
+          return (
+            <Datentabelle
+              key={i}
+              titel="Benchmarks"
+              kopf={e.kopf}
+              breiten={[2.4, ...e.kopf.slice(1).map(() => 1.2)]}
+              zeilen={e.zeilen}
+            />
+          )
+        }
         if (e.art === 'eigTitel') {
           return (
             <Text key={i} style={e.block.farbe ? titelStil(e.block.farbe) : s.h2}>

@@ -105,6 +105,7 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
 
       return {
         titel,
+        benchmarks: benchmarkTabelle(gebaeude, mehrere),
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
         ertraege: ertragsBloecke(gebaeude, mehrere),
@@ -197,6 +198,64 @@ function summenZeile(
     }
   }
   return { total: true, zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf), '', z(ertrag)] }
+}
+
+/**
+ * Kennwerte der Mengen — Flächen und ihre Verhältnisse. Je Eigentumsart eine
+ * Spalte, dazu das Total; bei nur einer Eigentumsart bleibt es beim Total.
+ *
+ * Als „oberirdisch" gilt, was nicht als unterirdisch erfasst ist; die
+ * Vermiet- beziehungsweise Verkaufsfläche wird nicht danach getrennt, weil
+ * sie sich auf das ganze Gebäude bezieht.
+ */
+function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
+  const spalten = [
+    ...(mehrere
+      ? EIG_ORDER
+          .filter((eig) => gebaeude.some((b) => eigentumsartForBuilding(b.use_type) === eig))
+          .map((eig) => ({
+            label: EIGENTUMSART_LABEL[eig],
+            haeuser: gebaeude.filter((b) => eigentumsartForBuilding(b.use_type) === eig),
+          }))
+      : []),
+    { label: 'Total', haeuser: gebaeude },
+  ]
+
+  const werte = spalten.map(({ haeuser }) => {
+    let gfOi = 0, gfUi = 0, vmf = 0, gv = 0
+    for (const b of haeuser) {
+      for (const m of b.mietflaechen) {
+        if (m.unterirdisch) gfUi += m.gf_m2 || 0
+        else gfOi += m.gf_m2 || 0
+        vmf += m.flaeche_m2 || 0
+        gv += m.volumen_m3 || 0
+      }
+    }
+    const gf = gfOi + gfUi
+    return {
+      gfOi, gfUi,
+      anteilOi: gfOi > 0 ? vmf / gfOi : null,
+      anteilTotal: gf > 0 ? vmf / gf : null,
+      gvProGf: gf > 0 ? gv / gf : null,
+    }
+  })
+
+  // Einheiten stehen in der Zelle, nicht im Kopf: die Zeilen tragen
+  // verschiedene — Flächen, Anteile und ein Verhältnis.
+  const m2 = (v: number) => (v > 0 ? `${z(v)} m²` : '—')
+  const pct = (v: number | null) => (v != null ? `${(v * 100).toFixed(1)} %` : '—')
+  const quot = (v: number | null) => (v != null ? `${v.toFixed(2)} m³/m²` : '—')
+
+  return {
+    kopf: ['Kennwert', ...spalten.map((sp) => sp.label)],
+    zeilen: [
+      { zellen: ['Geschossfläche oberirdisch', ...werte.map((w) => m2(w.gfOi))] },
+      { zellen: ['Geschossfläche unterirdisch', ...werte.map((w) => m2(w.gfUi))] },
+      { zellen: ['VMF (VKF) / GF oberirdisch', ...werte.map((w) => pct(w.anteilOi))] },
+      { zellen: ['VMF (VKF) / GF total', ...werte.map((w) => pct(w.anteilTotal))] },
+      { zellen: ['Gebäudevolumen / GF', ...werte.map((w) => quot(w.gvProGf))] },
+    ] as TabellenZeile[],
+  }
 }
 
 /** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. */
