@@ -86,6 +86,11 @@ export interface UebersichtDaten {
 /** Wirtschaftlichkeit und Erträge einer Eigentumsart. */
 export interface EigentumsartBlock {
   /**
+   * Obertitel über beiden Spalten — nur gesetzt, wenn mehrere Eigentumsarten
+   * vorkommen. Bei einer einzigen sagte er nichts, was nicht schon dasteht.
+   */
+  titel?: string
+  /**
    * Farbe des Titelbalkens — dieselbe wie in den Berechnungssektionen. Fehlt,
    * wenn nur eine Eigentumsart vorkommt: dann bleibt es beim Kupfer der
    * übrigen Blöcke.
@@ -649,6 +654,8 @@ interface Tabelle {
   titel?: string
   /** Abweichende Farbe des Titelbalkens (Eigentumsart). */
   titelFarbe?: string
+  /** Der Titel steht unter einem Obertitel und hält knapperen Vorabstand. */
+  anschluss?: boolean
   kopf: string[]
   zeilen: TabellenZeile[]
   /** Spaltenanteile; ohne Angabe erste Spalte doppelt so breit. */
@@ -693,14 +700,14 @@ function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
 }
 
 /** Einzelne Datentabelle mit Kopfzeile. */
-function Datentabelle({ titel, titelFarbe, kopf, zeilen, breiten, linksBis = 0 }: Tabelle) {
+function Datentabelle({
+  titel, titelFarbe, anschluss, kopf, zeilen, breiten, linksBis = 0,
+}: Tabelle) {
   if (zeilen.length === 0) return null
   const t: Tabelle = { kopf, zeilen, breiten, linksBis }
   return (
     <View style={s.feldBlock}>
-      {titel && (
-        <Text style={titelFarbe ? [s.h2, { backgroundColor: titelFarbe }] : s.h2}>{titel}</Text>
-      )}
+      {titel && <Text style={titelStil(titelFarbe, anschluss)}>{titel}</Text>}
       <Kopfzeile t={t} />
       {zeilen.map((z, r) => <Datenzeile key={r} t={t} zeile={z} />)}
     </View>
@@ -772,13 +779,25 @@ function kostenZeilen(kosten: BetragZeile[]): TabellenZeile[] {
   }))
 }
 
+/** Stil eines Blocktitels: Farbe der Eigentumsart, Vorabstand nach Kontext. */
+function titelStil(farbe?: string, anschluss?: boolean) {
+  return [
+    s.h2,
+    ...(farbe ? [{ backgroundColor: farbe }] : []),
+    ...(anschluss ? [s.h2Anschluss] : []),
+  ]
+}
+
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({
-  titel, titelFarbe, felder, labelBreite, einheitBreite, kopf, abstandUnten = true,
+  titel, titelFarbe, anschluss, felder, labelBreite, einheitBreite, kopf,
+  abstandUnten = true,
 }: {
   titel: string
   /** Abweichende Farbe des Titelbalkens (Eigentumsart). */
   titelFarbe?: string
+  /** Der Titel steht unter einem Obertitel und hält knapperen Vorabstand. */
+  anschluss?: boolean
   felder: Feld[]
   /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
   labelBreite?: number
@@ -801,7 +820,7 @@ function Feldtabelle({
   const mitEinheit = felder.some((f) => f.einheit)
   return (
     <View style={abstandUnten ? s.feldBlock : undefined}>
-      <Text style={titelFarbe ? [s.h2, { backgroundColor: titelFarbe }] : s.h2}>{titel}</Text>
+      <Text style={titelStil(titelFarbe, anschluss)}>{titel}</Text>
       {kopf && <View style={s.tabKopf}><Text>{kopf}</Text></View>}
       {felder.map((f, i) => (
         <View key={f.label} style={i === 0 ? undefined : s.feldLinie}>
@@ -922,7 +941,13 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
             rechts — die Erträge tragen vier Spalten und brauchen die breitere
             Seite. */}
         {u.bloecke.map((b, i) => (
-          <View key={i} style={s.zweiSpalten}>
+          <View key={i}>
+            {b.titel && (
+              <Text style={b.farbe ? [s.h2, { backgroundColor: b.farbe }] : s.h2}>
+                {b.titel}
+              </Text>
+            )}
+            <View style={s.zweiSpalten}>
             <View style={s.spalteEins}>
               {/* Der Spaltenkopf hat hier keine eigene Aussage, er hält aber
                   die Zeilen auf der Höhe der Ertragstabelle nebenan: ohne ihn
@@ -931,6 +956,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
                 <Feldtabelle
                   titel={b.wirtschaft.titel}
                   titelFarbe={b.farbe}
+                  anschluss={Boolean(b.titel)}
                   kopf="Kennzahlen"
                   felder={b.wirtschaft.felder}
                   labelBreite={33.5}
@@ -943,11 +969,13 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
                 <Datentabelle
                   titel={b.ertraege.titel}
                   titelFarbe={b.farbe}
+                  anschluss={Boolean(b.titel)}
                   kopf={b.ertraege.kopf}
                   breiten={[1.8, 1.2, 1.7, 1.55]}
                   zeilen={b.ertraege.zeilen}
                 />
               )}
+            </View>
             </View>
           </View>
         ))}

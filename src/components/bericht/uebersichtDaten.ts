@@ -253,11 +253,10 @@ export function useUebersichtDaten(
       }
 
       const bezeichnung = verkauf ? 'Verkaufserlös' : 'Mieterträge'
+      // Die Eigentumsart steht als Obertitel über dem Block, sobald mehrere
+      // vorkommen — hier wäre sie doppelt.
       ertragProEig.set(eig, {
-        // Die Eigentumsart nur dazu, wenn mehr als eine vorkommt — sonst
-        // steht sie sinnlos über der einzigen Aufstellung.
-        titel: ak.presentEig.length > 1
-          ? `${bezeichnung} (${EIGENTUMSART_LABEL[eig]})` : bezeichnung,
+        titel: bezeichnung,
         kopf: [
           'Nutzung', verkauf ? 'Menge VKF' : 'Menge VMF', 'Ansatz',
           verkauf ? 'CHF' : 'CHF/Jahr',
@@ -350,7 +349,7 @@ export function useUebersichtDaten(
               wert: r.landwertProM2 !== 0 ? w(Math.round(r.landwertProM2)) : '—' },
           ]),
         } : {
-          titel: 'Rendite (Renditeobjekt)',
+          titel: 'Rendite',
           felder: ohneLeere([
             { label: 'Anlagekosten brutto', einheit: 'CHF',
               wert: invest > 0 ? w(Math.round(invest)) : '—' },
@@ -365,7 +364,7 @@ export function useUebersichtDaten(
       } else if (eig === 'verkaufsobjekt') {
         const gewinn = eigErtrag - invest
         wirtschaftProEig.set(eig, {
-          titel: 'Verkaufsgewinn (Stockwerkeigentum)',
+          titel: 'Verkaufsgewinn',
           felder: ohneLeere([
             { label: 'Verkaufserlös', einheit: 'CHF',
               wert: eigErtrag > 0 ? w(Math.round(eigErtrag)) : '—' },
@@ -418,6 +417,7 @@ export function useUebersichtDaten(
     const bloecke: EigentumsartBlock[] = BERICHT_EIG_ORDER
       .filter((eig) => wirtschaftProEig.has(eig) || ertragProEig.has(eig))
       .map((eig) => ({
+        titel: mehrere ? EIGENTUMSART_LABEL[eig] : undefined,
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         wirtschaft: wirtschaftProEig.get(eig) ?? null,
         ertraege: ertragProEig.get(eig) ?? null,
