@@ -343,6 +343,18 @@ const s = StyleSheet.create({
   /** Titel, der direkt unter einem anderen steht — ohne eigenen Vorabstand. */
   h2Anschluss: { marginTop: 0 },
   /**
+   * Titel ohne Kupferfläche, nur mit Linie. Im Mixbereich stehen vier Titel
+   * dicht beieinander; als Balken wögen sie schwerer als die Diagramme, die
+   * sie beschriften. Der seitliche Einzug bleibt, damit der Titel weiter auf
+   * der Flucht der Legenden- und Balkenzeilen steht.
+   */
+  h2Schlicht: {
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0.5,
+    borderBottomColor: BERICHT_FARBE.linie,
+    paddingTop: 0,
+  },
+  /**
    * Der Ring steht über der Legende, nicht daneben: in der schmaleren der
    * beiden Spalten bliebe sonst zu wenig Breite für Bezeichnung, Wert und
    * Anteil, und die Zellen liefen ineinander.
@@ -963,7 +975,9 @@ function Ringdiagramm({
 
   return (
     <View style={s.ringBlock}>
-      <Text style={anschluss ? [s.h2, s.h2Anschluss] : s.h2}>{titel} in {einheit}</Text>
+      <Text style={[s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>
+        {titel} in {einheit}
+      </Text>
       <View style={s.ringFlaeche}>
         <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
           {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
@@ -994,7 +1008,7 @@ function Wohnungsmix({
   const total = zeilen.reduce((a, z) => a + z.anzahl, 0)
   return (
     <View style={s.ringBlock}>
-      <Text style={anschluss ? [s.h2, s.h2Anschluss] : s.h2}>Wohnungsmix</Text>
+      <Text style={[s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>Wohnungsmix</Text>
       {zeilen.map((z) => (
         <View key={z.label} style={s.mixZeile}>
           <Text style={s.mixLabel}>{z.label}</Text>
@@ -1021,7 +1035,7 @@ function Mixbereich({ mix }: { mix: Nutzungsmix }) {
   const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
   return (
     <>
-      <Text style={s.h2}>{mix.titel}</Text>
+      <Text style={[s.h2, s.h2Schlicht]}>{mix.titel}</Text>
       {/* Die Ringe untereinander, der Wohnungsmix daneben. Die obersten Titel
           stehen direkt unter dem Bereichstitel und bringen deshalb keinen
           eigenen Vorabstand mit — sonst klafft dort eine Lücke. */}
