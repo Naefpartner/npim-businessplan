@@ -14,7 +14,7 @@ import {
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
-import { EIGENTUMSART_COLOR } from '@/lib/kategorieFarben'
+import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
 import type {
   Feld, UebersichtDaten, TabellenZeile, BetragZeile, EigentumsartBlock,
 } from '@/components/bericht/BerichtDokument'
@@ -419,6 +419,8 @@ export function useUebersichtDaten(
       .map((eig) => ({
         titel: mehrere ? EIGENTUMSART_LABEL[eig] : undefined,
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
+        // Untertitel eine Stufe heller, wie die Subtabellen im Designsystem.
+        farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
         wirtschaft: wirtschaftProEig.get(eig) ?? null,
         ertraege: ertragProEig.get(eig) ?? null,
       }))

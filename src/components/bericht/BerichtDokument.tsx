@@ -91,11 +91,13 @@ export interface EigentumsartBlock {
    */
   titel?: string
   /**
-   * Farbe des Titelbalkens — dieselbe wie in den Berechnungssektionen. Fehlt,
+   * Farbe des Obertitels — dieselbe wie in den Berechnungssektionen. Fehlt,
    * wenn nur eine Eigentumsart vorkommt: dann bleibt es beim Kupfer der
    * übrigen Blöcke.
    */
   farbe?: string
+  /** Hellere Stufe derselben Farbfamilie für die beiden Untertitel. */
+  farbeUnter?: string
   wirtschaft: { titel: string; felder: Feld[] } | null
   ertraege: { titel: string; kopf: string[]; zeilen: TabellenZeile[] } | null
 }
@@ -955,7 +957,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
               {b.wirtschaft && (
                 <Feldtabelle
                   titel={b.wirtschaft.titel}
-                  titelFarbe={b.farbe}
+                  titelFarbe={b.farbeUnter}
                   anschluss={Boolean(b.titel)}
                   kopf="Kennzahlen"
                   felder={b.wirtschaft.felder}
@@ -968,7 +970,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
               {b.ertraege && (
                 <Datentabelle
                   titel={b.ertraege.titel}
-                  titelFarbe={b.farbe}
+                  titelFarbe={b.farbeUnter}
                   anschluss={Boolean(b.titel)}
                   kopf={b.ertraege.kopf}
                   breiten={[1.8, 1.2, 1.7, 1.55]}
