@@ -74,15 +74,25 @@ export interface UebersichtDaten {
   /** Anlagekosten je BKP-Hauptgruppe 0–9, inklusive Grundstück, samt Total. */
   kosten: BetragZeile[]
   /**
-   * Ertragsaufstellung je Nutzung — ein Block je Eigentumsart, weil sich
-   * Bezeichnung und Bezugsgrösse unterscheiden: Mieterträge pro Jahr bei
-   * Rendite und Genossenschaft, Verkaufserlös bei Stockwerkeigentum.
+   * Je Eigentumsart eine Zeile: links die Wirtschaftlichkeit, rechts die
+   * Erträge. Getrennt gesetzt liessen sich die beiden nicht nebeneinander
+   * halten, sobald mehrere Eigentumsarten vorkommen.
    */
-  ertraege: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[]
-  /** Gewinn, Rendite oder Kostenmiete — je nach vorhandener Nutzungsart. */
-  wirtschaft: { titel: string; felder: Feld[] }[]
+  bloecke: EigentumsartBlock[]
   /** Nutzungs- und Wohnungsmix; fehlt, wenn keine Nutzung erfasst ist. */
   mix: Nutzungsmix | null
+}
+
+/** Wirtschaftlichkeit und Erträge einer Eigentumsart. */
+export interface EigentumsartBlock {
+  /**
+   * Farbe des Titelbalkens — dieselbe wie in den Berechnungssektionen. Fehlt,
+   * wenn nur eine Eigentumsart vorkommt: dann bleibt es beim Kupfer der
+   * übrigen Blöcke.
+   */
+  farbe?: string
+  wirtschaft: { titel: string; felder: Feld[] } | null
+  ertraege: { titel: string; kopf: string[]; zeilen: TabellenZeile[] } | null
 }
 
 /**
@@ -637,6 +647,8 @@ function Inhaltsverzeichnis({
 /** Beschreibung einer Datentabelle. */
 interface Tabelle {
   titel?: string
+  /** Abweichende Farbe des Titelbalkens (Eigentumsart). */
+  titelFarbe?: string
   kopf: string[]
   zeilen: TabellenZeile[]
   /** Spaltenanteile; ohne Angabe erste Spalte doppelt so breit. */
@@ -681,12 +693,14 @@ function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
 }
 
 /** Einzelne Datentabelle mit Kopfzeile. */
-function Datentabelle({ titel, kopf, zeilen, breiten, linksBis = 0 }: Tabelle) {
+function Datentabelle({ titel, titelFarbe, kopf, zeilen, breiten, linksBis = 0 }: Tabelle) {
   if (zeilen.length === 0) return null
   const t: Tabelle = { kopf, zeilen, breiten, linksBis }
   return (
     <View style={s.feldBlock}>
-      {titel && <Text style={s.h2}>{titel}</Text>}
+      {titel && (
+        <Text style={titelFarbe ? [s.h2, { backgroundColor: titelFarbe }] : s.h2}>{titel}</Text>
+      )}
       <Kopfzeile t={t} />
       {zeilen.map((z, r) => <Datenzeile key={r} t={t} zeile={z} />)}
     </View>
@@ -760,9 +774,11 @@ function kostenZeilen(kosten: BetragZeile[]): TabellenZeile[] {
 
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({
-  titel, felder, labelBreite, einheitBreite, kopf, abstandUnten = true,
+  titel, titelFarbe, felder, labelBreite, einheitBreite, kopf, abstandUnten = true,
 }: {
   titel: string
+  /** Abweichende Farbe des Titelbalkens (Eigentumsart). */
+  titelFarbe?: string
   felder: Feld[]
   /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
   labelBreite?: number
@@ -785,7 +801,7 @@ function Feldtabelle({
   const mitEinheit = felder.some((f) => f.einheit)
   return (
     <View style={abstandUnten ? s.feldBlock : undefined}>
-      <Text style={s.h2}>{titel}</Text>
+      <Text style={titelFarbe ? [s.h2, { backgroundColor: titelFarbe }] : s.h2}>{titel}</Text>
       {kopf && <View style={s.tabKopf}><Text>{kopf}</Text></View>}
       {felder.map((f, i) => (
         <View key={f.label} style={i === 0 ? undefined : s.feldLinie}>
@@ -902,36 +918,39 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
       {/* Fortsetzung ohne eigene Überschrift — die Tabellentitel tragen die
           Gliederung, und im Inhaltsverzeichnis steht nur das Kapitel. */}
       <InhaltsSeite daten={daten} seite={seite + 1} seitenTotal={seitenTotal}>
-        {/* Wirtschaftlichkeit links, Ertragsaufstellung rechts — die Erträge
-            tragen vier Spalten und brauchen die breitere Seite. */}
-        <View style={s.zweiSpalten}>
-          <View style={s.spalteEins}>
-            {/* Der Spaltenkopf hat hier keine eigene Aussage, er hält aber die
-                Zeilen auf der Höhe der Ertragstabelle nebenan: ohne ihn
-                begännen die Feldzeilen um die Kopfzeilenhöhe weiter oben. */}
-            {u.wirtschaft.map((b) => (
-              <Feldtabelle
-                key={b.titel}
-                titel={b.titel}
-                kopf="Kennzahlen"
-                felder={b.felder}
-                labelBreite={33.5}
-                einheitBreite={11.5}
-              />
-            ))}
+        {/* Je Eigentumsart eine Zeile: Wirtschaftlichkeit links, Erträge
+            rechts — die Erträge tragen vier Spalten und brauchen die breitere
+            Seite. */}
+        {u.bloecke.map((b, i) => (
+          <View key={i} style={s.zweiSpalten}>
+            <View style={s.spalteEins}>
+              {/* Der Spaltenkopf hat hier keine eigene Aussage, er hält aber
+                  die Zeilen auf der Höhe der Ertragstabelle nebenan: ohne ihn
+                  begännen die Feldzeilen um die Kopfzeilenhöhe weiter oben. */}
+              {b.wirtschaft && (
+                <Feldtabelle
+                  titel={b.wirtschaft.titel}
+                  titelFarbe={b.farbe}
+                  kopf="Kennzahlen"
+                  felder={b.wirtschaft.felder}
+                  labelBreite={33.5}
+                  einheitBreite={11.5}
+                />
+              )}
+            </View>
+            <View style={s.spalteZwei}>
+              {b.ertraege && (
+                <Datentabelle
+                  titel={b.ertraege.titel}
+                  titelFarbe={b.farbe}
+                  kopf={b.ertraege.kopf}
+                  breiten={[1.8, 1.2, 1.7, 1.55]}
+                  zeilen={b.ertraege.zeilen}
+                />
+              )}
+            </View>
           </View>
-          <View style={s.spalteZwei}>
-            {u.ertraege.map((e) => (
-              <Datentabelle
-                key={e.titel}
-                titel={e.titel}
-                kopf={e.kopf}
-                breiten={[1.8, 1.2, 1.7, 1.55]}
-                zeilen={e.zeilen}
-              />
-            ))}
-          </View>
-        </View>
+        ))}
 
         {u.mix && <Mixbereich mix={u.mix} />}
       </InhaltsSeite>

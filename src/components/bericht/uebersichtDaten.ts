@@ -9,14 +9,22 @@ import { useRendite } from '@/hooks/useRendite'
 import { berechneRendite } from '@/lib/rendite'
 import {
   PHASE_LABEL, EIGENTUMSART_LABEL, isNutzungWohnen, effektiveWohnungCounts,
-  eigentumsartForBuilding,
+  eigentumsartForBuilding, type Eigentumsart,
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
+import { EIGENTUMSART_COLOR } from '@/lib/kategorieFarben'
 import type {
-  Feld, UebersichtDaten, TabellenZeile, BetragZeile,
+  Feld, UebersichtDaten, TabellenZeile, BetragZeile, EigentumsartBlock,
 } from '@/components/bericht/BerichtDokument'
+
+/**
+ * Reihenfolge der Blöcke im Bericht: Genossenschaft, Renditeobjekt,
+ * Verkaufsobjekt. Bewusst eine eigene Konstante — die Reihenfolge der
+ * Berechnung (EIGENTUMSART_ORDER) folgt einer anderen Logik.
+ */
+const BERICHT_EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufsobjekt']
 
 /** Wert oder Gedankenstrich — leere Zeilen sollen im Bericht sichtbar leer sein. */
 function w(v: string | number | null | undefined, einheit = ''): string {
@@ -194,7 +202,7 @@ export function useUebersichtDaten(
     // Jahresmieten aus, Stockwerkeigentum Verkaufserlöse. Nutzungen ohne
     // Fläche (Parkplätze, Garagen) rechnen nach Stück, deshalb steht die
     // Einheit in der Zelle und nicht im Spaltenkopf.
-    const ertragBloecke: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[] = []
+    const ertragProEig = new Map<string, { titel: string; kopf: string[]; zeilen: TabellenZeile[] }>()
     // Nebenbei für den Nutzungsmix mitgeführt: dieselben Zahlen, aber über
     // alle Eigentumsarten zusammengezogen und ohne Ertragsfilter — eine
     // Nutzung kann Fläche beitragen, ohne Ertrag zu tragen.
@@ -245,7 +253,7 @@ export function useUebersichtDaten(
       }
 
       const bezeichnung = verkauf ? 'Verkaufserlös' : 'Mieterträge'
-      ertragBloecke.push({
+      ertragProEig.set(eig, {
         // Die Eigentumsart nur dazu, wenn mehr als eine vorkommt — sonst
         // steht sie sinnlos über der einzigen Aufstellung.
         titel: ak.presentEig.length > 1
@@ -296,7 +304,7 @@ export function useUebersichtDaten(
     // ── Wirtschaftlichkeit je Nutzungsart ───────────────────────────────────
     // Renditeobjekt → Rendite, Verkaufsobjekt → Gewinn, Genossenschaft →
     // Kostenmiete. Es erscheint nur, was in der Variante auch vorkommt.
-    const wirtschaftBloecke: { titel: string; felder: Feld[] }[] = []
+    const wirtschaftProEig = new Map<string, { titel: string; felder: Feld[] }>()
     for (const eig of ak.presentEig) {
       const erg = ak.konsolidiertEffektiv.get(eig)
       if (!erg) continue
@@ -321,7 +329,7 @@ export function useUebersichtDaten(
         })
 
         // Welche der beiden Sichten gilt, ist an der Variante gespeichert.
-        wirtschaftBloecke.push(variant.rendite_modus === 'residual' ? {
+        wirtschaftProEig.set(eig, variant.rendite_modus === 'residual' ? {
           titel: 'Residualwert Grundstück',
           felder: ohneLeere([
             { label: 'Liegenschaftserfolg', einheit: 'CHF/a',
@@ -356,7 +364,7 @@ export function useUebersichtDaten(
         })
       } else if (eig === 'verkaufsobjekt') {
         const gewinn = eigErtrag - invest
-        wirtschaftBloecke.push({
+        wirtschaftProEig.set(eig, {
           titel: 'Verkaufsgewinn (Stockwerkeigentum)',
           felder: ohneLeere([
             { label: 'Verkaufserlös', einheit: 'CHF',
@@ -377,7 +385,7 @@ export function useUebersichtDaten(
         const baurechtszins = (km?.posten ?? [])
           .filter((x) => x.key.startsWith('baurecht'))
           .reduce((a, x) => a + x.betrag, 0)
-        wirtschaftBloecke.push({
+        wirtschaftProEig.set(eig, {
           titel: 'Kostenmiete',
           felder: ohneLeere([
             { label: 'Kosten BKP 1–9', einheit: 'CHF',
@@ -403,6 +411,18 @@ export function useUebersichtDaten(
       }
     }
 
+    // Je Eigentumsart eine Zeile, in fester Reihenfolge. Kommt mehr als eine
+    // vor, färbt ihre Farbe aus den Berechnungssektionen den Titelbalken —
+    // bei nur einer bleibt es beim Kupfer der übrigen Blöcke.
+    const mehrere = ak.presentEig.length > 1
+    const bloecke: EigentumsartBlock[] = BERICHT_EIG_ORDER
+      .filter((eig) => wirtschaftProEig.has(eig) || ertragProEig.has(eig))
+      .map((eig) => ({
+        farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
+        wirtschaft: wirtschaftProEig.get(eig) ?? null,
+        ertraege: ertragProEig.get(eig) ?? null,
+      }))
+
     return {
       situationsplanUrl,
       auftrag,
@@ -413,9 +433,8 @@ export function useUebersichtDaten(
       },
       mengen: flaechen,
       kosten,
-      ertraege: ertragBloecke,
+      bloecke,
       mix,
-      wirtschaft: wirtschaftBloecke,
     }
   }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak,
       kostenmieteParams, renditeParams])
