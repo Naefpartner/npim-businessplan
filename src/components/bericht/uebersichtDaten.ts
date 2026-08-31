@@ -334,6 +334,10 @@ export function useUebersichtDaten(
               wert: invest - land > 0 ? w(Math.round(invest - land)) : '—' },
             { label: 'Landwert', einheit: 'CHF',
               wert: r.landwert !== 0 ? w(Math.round(r.landwert)) : '—' },
+            // Die Bezugsfläche steht vor dem Wert je m², damit die Rechnung
+            // nachvollziehbar bleibt.
+            { label: 'Grundstücksfläche', einheit: 'm²',
+              wert: ak.gsfTotal > 0 ? w(Math.round(ak.gsfTotal)) : '—' },
             { label: 'Landwert je m²', einheit: 'CHF/m²',
               wert: r.landwertProM2 !== 0 ? w(Math.round(r.landwertProM2)) : '—' },
           ]),
