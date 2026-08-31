@@ -328,8 +328,14 @@ const s = StyleSheet.create({
    * Alle geteilten Zeilen nutzen dieselben Werte, damit die Spaltenkanten
    * über die Zeilen hinweg auf einer Flucht stehen.
    */
-  spalteEins: { flex: 0.85, marginRight: mm(6) },
-  spalteZwei: { flex: 1.3 },
+  /**
+   * Grundbreite null, damit die Spalten sich die Breite nach ihrem Anteil
+   * teilen und nicht nach dem, was gerade in ihnen steht. Das allein genügt
+   * allerdings nicht — die Innenabstände zählen weiterhin mit, siehe
+   * `tabZeile`.
+   */
+  spalteEins: { flexGrow: 0.85, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
+  spalteZwei: { flexGrow: 1.3, flexShrink: 1, flexBasis: '0%' },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
 
   // ── Ringdiagramme und Mixbalken ───────────────────────────────────────────
@@ -376,14 +382,19 @@ const s = StyleSheet.create({
     fontSize: SCHRIFT.klein,
     color: '#4A4A4A',
   },
+  /**
+   * Geometrie einer Datenzeile ohne Linie. In der Doppeltabelle bekommt sie
+   * auch die leere Gegenspalte: fehlen dort die Innenabstände, wird die Spalte
+   * schmaler und die Nachbarspalte rückt seitlich weg.
+   */
   tabZeile: {
     flexDirection: 'row',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#D8D8D8',
     paddingTop: mm(ZEILE.oben),
     paddingBottom: mm(ZEILE.unten),
     paddingLeft: mm(EINZUG),
   },
+  /** Trennlinie einer Datenzeile — nur dort, wo die Tabelle noch Zeilen hat. */
+  tabLinie: { borderBottomWidth: 0.5, borderBottomColor: '#D8D8D8' },
   tabTotal: { fontWeight: 700, borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
   zelleRechts: { textAlign: 'right' },
 
@@ -604,8 +615,12 @@ interface Tabelle {
  */
 function zellenStil(t: Tabelle, i: number) {
   const anteile = t.breiten ?? t.kopf.map((_, k) => (k === 0 ? 2 : 1))
+  // Grundbreite null: die Spaltenanteile sollen die Breite bestimmen, nicht
+  // die Länge des Zellinhalts.
   return {
-    flex: anteile[i] ?? 1,
+    flexGrow: anteile[i] ?? 1,
+    flexShrink: 1,
+    flexBasis: 0,
     ...(i > (t.linksBis ?? 0) ? { textAlign: 'right' as const } : {}),
     ...(i < t.kopf.length - 1 ? { paddingRight: mm(3) } : {}),
   }
@@ -622,7 +637,7 @@ function Kopfzeile({ t }: { t: Tabelle }) {
 
 function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
   return (
-    <View style={[s.tabZeile, ...(zeile.total ? [s.tabTotal] : [])]}>
+    <View style={[s.tabZeile, s.tabLinie, ...(zeile.total ? [s.tabTotal] : [])]}>
       <Zellen t={t} werte={zeile.zellen} />
     </View>
   )
@@ -670,10 +685,15 @@ function Doppeltabelle({ links, rechts }: { links: Tabelle; rechts: Tabelle }) {
         const re = rechts.zeilen[r]
         return (
           <View key={r} style={s.zweiSpalten}>
-            <View style={[s.spalteEins, ...(l ? [s.tabZeile] : []), ...(l?.total ? [s.tabTotal] : [])]}>
+            {/* Die Innenabstände trägt jede Spalte, auch die leere — sonst
+                verschiebt sich die Nachbarspalte, sobald eine Tabelle endet.
+                Nur Linie und Totalauszeichnung hängen am Inhalt. */}
+            <View style={[s.spalteEins, s.tabZeile,
+                          ...(l ? [s.tabLinie] : []), ...(l?.total ? [s.tabTotal] : [])]}>
               {l && <Zellen t={links} werte={l.zellen} />}
             </View>
-            <View style={[s.spalteZwei, ...(re ? [s.tabZeile] : []), ...(re?.total ? [s.tabTotal] : [])]}>
+            <View style={[s.spalteZwei, s.tabZeile,
+                          ...(re ? [s.tabLinie] : []), ...(re?.total ? [s.tabTotal] : [])]}>
               {re && <Zellen t={rechts} werte={re.zellen} />}
             </View>
           </View>
