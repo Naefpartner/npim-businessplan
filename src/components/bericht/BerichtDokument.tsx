@@ -904,10 +904,14 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
             tragen vier Spalten und brauchen die breitere Seite. */}
         <View style={s.zweiSpalten}>
           <View style={s.spalteEins}>
+            {/* Der Spaltenkopf hat hier keine eigene Aussage, er hält aber die
+                Zeilen auf der Höhe der Ertragstabelle nebenan: ohne ihn
+                begännen die Feldzeilen um die Kopfzeilenhöhe weiter oben. */}
             {u.wirtschaft.map((b) => (
               <Feldtabelle
                 key={b.titel}
                 titel={b.titel}
+                kopf="Kennzahlen"
                 felder={b.felder}
                 labelBreite={33.5}
                 einheitBreite={11.5}
