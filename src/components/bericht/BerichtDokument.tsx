@@ -79,8 +79,11 @@ export interface UebersichtDaten {
    * halten, sobald mehrere Eigentumsarten vorkommen.
    */
   bloecke: EigentumsartBlock[]
-  /** Nutzungs- und Wohnungsmix; fehlt, wenn keine Nutzung erfasst ist. */
-  mix: Nutzungsmix | null
+  /**
+   * Nutzungs- und Wohnungsmix. Bei einer Eigentumsart ein Block über alles,
+   * bei mehreren einer je Nutzungsart — dann auf einer eigenen Seite.
+   */
+  mix: Nutzungsmix[]
 }
 
 /** Wirtschaftlichkeit und Erträge einer Eigentumsart. */
@@ -109,6 +112,11 @@ export interface EigentumsartBlock {
  */
 export interface Nutzungsmix {
   titel: string
+  /** Farben der Nutzungsart; fehlen, wenn nur eine vorkommt. */
+  farbe?: string
+  farbeUnter?: string
+  /** Abstufungen für die Ringsegmente; ohne Angabe die allgemeine Palette. */
+  segmentFarben?: string[]
   flaechenTitel: string
   ertraegeTitel: string
   nutzungen: { label: string; flaeche: number; ertrag: number }[]
@@ -340,6 +348,15 @@ const s = StyleSheet.create({
     objectFit: 'cover',
   },
   zweiSpalten: { flexDirection: 'row', flexShrink: 0 },
+  /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
+  dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
+  /**
+   * Nicht gedrittelt, sondern nach Bedarf: die Ringlegenden tragen
+   * Bezeichnung, Betrag und Anteil, der Wohnungsmix nur Bezeichnung, Balken
+   * und Zahl — er kommt mit weniger aus.
+   */
+  drittel: { flexGrow: 1.15, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
+  drittelLetzte: { flexGrow: 0.9, flexShrink: 1, flexBasis: '0%' },
   /**
    * Die Spaltenteilung der Übersicht: links etwas schmaler, rechts breiter.
    * Alle geteilten Zeilen nutzen dieselben Werte, damit die Spaltenkanten
@@ -404,7 +421,7 @@ const s = StyleSheet.create({
    * stehen Wert und Anteil auf 0.00 mm genau auf derselben Unterkante.
    */
   legendeAnteil: {
-    width: mm(10),
+    width: mm(11.5),
     textAlign: 'right',
     color: '#6B6B6B',
     fontSize: SCHRIFT.klein,
@@ -599,11 +616,17 @@ export function InhaltsSeite({
 }
 
 /**
- * Seiten je Fachkapitel. Kapitel, die mehr als eine Seite füllen, stehen hier
- * ausdrücklich: der Umbruch wird gesetzt und nicht dem Fluss überlassen, weil
- * der am Seitenfuss keinen Platz für die Fusszeile reserviert.
+ * Seiten eines Fachkapitels. Der Umbruch wird gesetzt und nicht dem Fluss
+ * überlassen, weil der am Seitenfuss keinen Platz für die Fusszeile reserviert.
+ *
+ * Die Projektübersicht braucht eine dritte Seite, sobald mehrere
+ * Eigentumsarten vorkommen: dann steht der Mix je Nutzungsart getrennt und
+ * passt nicht mehr unter die Erträge.
  */
-const KAPITEL_SEITEN: Record<string, number> = { projektuebersicht: 2 }
+function kapitelSeiten(key: string, daten: BerichtDaten): number {
+  if (key !== 'projektuebersicht') return 1
+  return (daten.uebersicht?.mix.length ?? 0) > 1 ? 3 : 2
+}
 
 interface SeitenplanEintrag { kapitel: BerichtKapitel; seite: number }
 type Seitenplan = SeitenplanEintrag[]
@@ -612,20 +635,20 @@ type Seitenplan = SeitenplanEintrag[]
  * Erste Seite jedes Fachkapitels. Titelblatt ist Seite 1, das
  * Inhaltsverzeichnis Seite 2 — die Fachkapitel folgen ab 3.
  */
-function seitenPlan(kapitel: BerichtKapitel[]): Seitenplan {
+function seitenPlan(kapitel: BerichtKapitel[], daten: BerichtDaten): Seitenplan {
   const plan: Seitenplan = []
   let seite = 3
   for (const k of kapitel) {
     plan.push({ kapitel: k, seite })
-    seite += KAPITEL_SEITEN[k.key] ?? 1
+    seite += kapitelSeiten(k.key, daten)
   }
   return plan
 }
 
 /** Gesamtzahl der Seiten des Berichts. */
-function seitenTotalVon(plan: Seitenplan): number {
+function seitenTotalVon(plan: Seitenplan, daten: BerichtDaten): number {
   const letzte = plan[plan.length - 1]
-  return letzte ? letzte.seite + (KAPITEL_SEITEN[letzte.kapitel.key] ?? 1) - 1 : 2
+  return letzte ? letzte.seite + kapitelSeiten(letzte.kapitel.key, daten) - 1 : 2
 }
 
 /**
@@ -982,8 +1005,18 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
           </View>
         ))}
 
-        {u.mix && <Mixbereich mix={u.mix} />}
+        {/* Bei einer Nutzungsart passt der Mix noch unter die Erträge. */}
+        {u.mix.length === 1 && <Mixbereich mix={u.mix[0]} />}
       </InhaltsSeite>
+
+      {/* Mehrere Nutzungsarten: der Mix bekommt eine eigene Seite und steht
+          dort je Nutzungsart getrennt, damit sich Miet- und Verkaufsflächen
+          nicht in einem Ring vermischen. */}
+      {u.mix.length > 1 && (
+        <InhaltsSeite daten={daten} seite={seite + 2} seitenTotal={seitenTotal}>
+          {u.mix.map((m) => <Mixbereich key={m.titel} mix={m} dreispaltig />)}
+        </InhaltsSeite>
+      )}
     </>
   )
 }
@@ -1039,21 +1072,30 @@ function ringPfade(
  * die Verhältnisse, deshalb steht in ihm keine Beschriftung.
  */
 function Ringdiagramm({
-  titel, segmente, einheit, anschluss,
-}: { titel: string; segmente: RingSegment[]; einheit: string; anschluss?: boolean }) {
+  titel, segmente, einheit, anschluss, titelFarbe, groesse = 30,
+}: {
+  titel: string
+  segmente: RingSegment[]
+  einheit: string
+  anschluss?: boolean
+  titelFarbe?: string
+  /** Aussenmass in Millimetern; schmaler, wenn drei Blöcke auf eine Seite müssen. */
+  groesse?: number
+}) {
   const echte = segmente.filter((x) => x.wert > 0)
   const summe = echte.reduce((a, x) => a + x.wert, 0)
   if (summe <= 0) return null
 
-  const groesse = 30           // mm, Aussenmass des Rings
-  const dicke = 6.5            // mm, Ringbreite
+  const dicke = groesse * 0.22 // mm, Ringbreite
   const mitte = groesse / 2
   const radius = mitte - dicke / 2
   const pfade = ringPfade(echte, mitte, radius)
 
   return (
     <View style={s.ringBlock}>
-      <Text style={[s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>
+      <Text style={titelFarbe
+        ? titelStil(titelFarbe, anschluss)
+        : [s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>
         {titel} in {einheit}
       </Text>
       <View style={s.ringFlaeche}>
@@ -1079,19 +1121,32 @@ function Ringdiagramm({
 
 /** Wohnungsmix als Balken — die Zimmerzahlen lesen sich so als Verteilung. */
 function Wohnungsmix({
-  zeilen, anschluss,
-}: { zeilen: { label: string; anzahl: number }[]; anschluss?: boolean }) {
+  zeilen, anschluss, titelFarbe, balkenFarbe,
+}: {
+  zeilen: { label: string; anzahl: number }[]
+  anschluss?: boolean
+  titelFarbe?: string
+  balkenFarbe?: string
+}) {
   if (zeilen.length === 0) return null
   const groesste = Math.max(...zeilen.map((z) => z.anzahl))
   const total = zeilen.reduce((a, z) => a + z.anzahl, 0)
   return (
     <View style={s.ringBlock}>
-      <Text style={[s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>Wohnungsmix</Text>
+      <Text style={titelFarbe
+        ? titelStil(titelFarbe, anschluss)
+        : [s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>
+        Wohnungsmix
+      </Text>
       {zeilen.map((z) => (
         <View key={z.label} style={s.mixZeile}>
           <Text style={s.mixLabel}>{z.label}</Text>
           <View style={s.mixSpur}>
-            <View style={[s.mixBalken, { width: `${(z.anzahl / groesste) * 100}%` }]} />
+            <View style={[
+              s.mixBalken,
+              { width: `${(z.anzahl / groesste) * 100}%` },
+              ...(balkenFarbe ? [{ backgroundColor: balkenFarbe }] : []),
+            ]} />
           </View>
           <Text style={s.mixWert}>{z.anzahl}</Text>
         </View>
@@ -1107,25 +1162,50 @@ function Wohnungsmix({
 }
 
 /** Nutzungs- und Wohnungsmix: zwei Ringe nebeneinander, darunter die Balken. */
-function Mixbereich({ mix }: { mix: Nutzungsmix }) {
-  const farbe = (i: number) => CHART_PALETTE[i % CHART_PALETTE.length]
+/**
+ * Ein Mixblock. Steht er allein, nehmen die Ringe die linke Spalte
+ * untereinander ein und der Wohnungsmix die rechte. Kommen mehrere
+ * Nutzungsarten vor, muss jeder Block flacher werden: dann stehen die drei
+ * Darstellungen nebeneinander und die Ringe kleiner.
+ */
+function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: boolean }) {
+  const palette = mix.segmentFarben ?? CHART_PALETTE
+  const farbe = (i: number) => palette[i % palette.length]
   const flaechen = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.flaeche, farbe: farbe(i) }))
   const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
+  const ringGroesse = dreispaltig ? 24 : 30
+
   return (
     <>
-      <Text style={s.h2}>{mix.titel}</Text>
-      {/* Die Ringe untereinander, der Wohnungsmix daneben. Die obersten Titel
-          stehen direkt unter dem Bereichstitel und bringen deshalb keinen
-          eigenen Vorabstand mit — sonst klafft dort eine Lücke. */}
-      <View style={s.zweiSpalten}>
-        <View style={s.spalteEins}>
-          <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²" anschluss />
-          <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF" />
+      <Text style={mix.farbe ? titelStil(mix.farbe) : s.h2}>{mix.titel}</Text>
+      {/* Die obersten Titel stehen unter dem Bereichstitel und halten deshalb
+          nur den knappen Vorabstand. */}
+      {dreispaltig ? (
+        <View style={s.dreiSpalten}>
+          <View style={s.drittel}>
+            <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²"
+              anschluss titelFarbe={mix.farbeUnter} groesse={ringGroesse} />
+          </View>
+          <View style={s.drittel}>
+            <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF"
+              anschluss titelFarbe={mix.farbeUnter} groesse={ringGroesse} />
+          </View>
+          <View style={s.drittelLetzte}>
+            <Wohnungsmix zeilen={mix.wohnungsmix} anschluss
+              titelFarbe={mix.farbeUnter} balkenFarbe={mix.farbe} />
+          </View>
         </View>
-        <View style={s.spalteZwei}>
-          <Wohnungsmix zeilen={mix.wohnungsmix} anschluss />
+      ) : (
+        <View style={s.zweiSpalten}>
+          <View style={s.spalteEins}>
+            <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²" anschluss />
+            <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF" />
+          </View>
+          <View style={s.spalteZwei}>
+            <Wohnungsmix zeilen={mix.wohnungsmix} anschluss />
+          </View>
         </View>
-      </View>
+      )}
     </>
   )
 }
@@ -1171,8 +1251,8 @@ export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
   // Hier statt beim Modulimport, damit eine abweichende Asset-Basis vorher
   // gesetzt werden kann (Rendern ausserhalb des Browsers).
   schriftRegistrieren()
-  const plan = seitenPlan(kapitelFuer(daten.kapitel).filter((k) => !k.fix))
-  const seitenTotal = seitenTotalVon(plan)
+  const plan = seitenPlan(kapitelFuer(daten.kapitel).filter((k) => !k.fix), daten)
+  const seitenTotal = seitenTotalVon(plan, daten)
 
   return (
     <Document

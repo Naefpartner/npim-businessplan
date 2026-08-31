@@ -14,9 +14,10 @@ import {
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
-import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
+import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_3, EIGENTUMSART_FAMILY } from '@/lib/kategorieFarben'
+import { CI } from '@/lib/ci'
 import type {
-  Feld, UebersichtDaten, TabellenZeile, BetragZeile, EigentumsartBlock,
+  Feld, UebersichtDaten, TabellenZeile, BetragZeile, EigentumsartBlock, Nutzungsmix,
 } from '@/components/bericht/BerichtDokument'
 
 /**
@@ -25,6 +26,12 @@ import type {
  * Berechnung (EIGENTUMSART_ORDER) folgt einer anderen Logik.
  */
 const BERICHT_EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufsobjekt']
+
+/**
+ * Abstufungen für die Ringsegmente innerhalb einer Nutzungsart. Stufe 1 fehlt
+ * bewusst — sie ist fast weiss und als Sektor nicht mehr zu erkennen.
+ */
+const RING_STUFEN = [9, 7, 5, 3] as const
 
 /** Wert oder Gedankenstrich — leere Zeilen sollen im Bericht sichtbar leer sein. */
 function w(v: string | number | null | undefined, einheit = ''): string {
@@ -203,12 +210,10 @@ export function useUebersichtDaten(
     // Fläche (Parkplätze, Garagen) rechnen nach Stück, deshalb steht die
     // Einheit in der Zelle und nicht im Spaltenkopf.
     const ertragProEig = new Map<string, { titel: string; kopf: string[]; zeilen: TabellenZeile[] }>()
-    // Nebenbei für den Nutzungsmix mitgeführt: dieselben Zahlen, aber über
-    // alle Eigentumsarten zusammengezogen und ohne Ertragsfilter — eine
-    // Nutzung kann Fläche beitragen, ohne Ertrag zu tragen.
-    const mixFlaeche: Record<string, number> = {}
-    const mixErtrag: Record<string, number> = {}
-    const mixReihenfolge: string[] = []
+    // Nebenbei für den Nutzungsmix mitgeführt: dieselben Zahlen, aber je
+    // Eigentumsart und ohne Ertragsfilter — eine Nutzung kann Fläche
+    // beitragen, ohne Ertrag zu tragen.
+    const mixProEig = new Map<string, { label: string; flaeche: number; ertrag: number }[]>()
     for (const eig of ak.presentEig) {
       // Bei der Genossenschaft trägt Wohnen die Restkosten: der Mietzins ist
       // nicht erfasst, sondern fällt aus der Kostenmiete an. Über den
@@ -218,11 +223,10 @@ export function useUebersichtDaten(
         .map((d) => (eig === 'genossenschaft' && km && isNutzungWohnen(d.nutzung)
           ? { ...d, ertrag: km.proM2Jahr * d.flaecheM2 }
           : d))
-      for (const d of detail) {
-        if (!(d.nutzung in mixFlaeche)) mixReihenfolge.push(d.nutzung)
-        mixFlaeche[d.nutzung] = (mixFlaeche[d.nutzung] ?? 0) + d.flaecheM2
-        mixErtrag[d.nutzung] = (mixErtrag[d.nutzung] ?? 0) + d.ertrag
-      }
+      mixProEig.set(eig, detail
+        .map((d) => ({ label: d.nutzung, flaeche: d.flaecheM2, ertrag: d.ertrag }))
+        .filter((n) => n.flaeche > 0 || n.ertrag > 0)
+        .sort((a, b) => b.ertrag - a.ertrag || b.flaeche - a.flaeche))
 
       const mitErtrag = detail.filter((d) => d.ertrag > 0)
       if (mitErtrag.length === 0) continue
@@ -266,39 +270,37 @@ export function useUebersichtDaten(
     }
 
     // ── Wohnungs- und Nutzungsmix ───────────────────────────────────────────
-    // Zimmerzahlen über alle Gebäude; ohne erfassten Mix zählt die reine
+    // Zimmerzahlen je Eigentumsart; ohne erfassten Mix zählt die reine
     // Stückzahl als Wohnungen ohne Zimmerangabe.
-    const zimmer: Record<string, number> = {}
-    for (const b of ak.buildings) {
-      for (const m of b.mietflaechen) {
-        for (const [k, c] of effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)) {
-          zimmer[k] = (zimmer[k] ?? 0) + c
+    function wohnungsmixFuer(eig: Eigentumsart | null) {
+      const zimmer: Record<string, number> = {}
+      for (const b of ak.buildings) {
+        if (eig && eigentumsartForBuilding(b.use_type) !== eig) continue
+        for (const m of b.mietflaechen) {
+          for (const [k, c] of effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)) {
+            zimmer[k] = (zimmer[k] ?? 0) + c
+          }
         }
       }
+      return [...WOHNUNGSMIX_KEYS, WOHNUNG_FALLBACK_KEY]
+        .filter((k) => (zimmer[k] ?? 0) > 0)
+        .map((k) => ({
+          label: k === WOHNUNG_FALLBACK_KEY
+            ? 'ohne Angabe'
+            : k === 'joker' ? 'Joker' : `${WOHNUNGSMIX_LABEL[k as keyof typeof WOHNUNGSMIX_LABEL]} Zi.`,
+          anzahl: zimmer[k],
+        }))
     }
-    const wohnungsmix = [...WOHNUNGSMIX_KEYS, WOHNUNG_FALLBACK_KEY]
-      .filter((k) => (zimmer[k] ?? 0) > 0)
-      .map((k) => ({
-        label: k === WOHNUNG_FALLBACK_KEY
-          ? 'ohne Angabe'
-          : k === 'joker' ? 'Joker' : `${WOHNUNGSMIX_LABEL[k as keyof typeof WOHNUNGSMIX_LABEL]} Zi.`,
-        anzahl: zimmer[k],
-      }))
 
-    const nutzungen = mixReihenfolge
-      .map((n) => ({ label: n, flaeche: mixFlaeche[n], ertrag: mixErtrag[n] }))
-      .filter((n) => n.flaeche > 0 || n.ertrag > 0)
-      .sort((a, b) => b.ertrag - a.ertrag || b.flaeche - a.flaeche)
-
-    const mix = nutzungen.length > 0 ? {
-      titel: wohnungsmix.length > 0 ? 'Wohnungs- und Nutzungsmix' : 'Nutzungsmix',
-      flaechenTitel: hatVerkauf && hatMiete
-        ? 'Miet- und Verkaufsflächen' : hatVerkauf ? 'Verkaufsflächen' : 'Mietflächen',
-      ertraegeTitel: hatVerkauf && hatMiete
-        ? 'Mieterträge und Verkaufserlöse' : hatVerkauf ? 'Verkaufserlöse' : 'Mieterträge',
-      nutzungen,
-      wohnungsmix,
-    } : null
+    /** Beschriftung der beiden Ringe — Miete, Verkauf oder beides. */
+    function mixTitel(miete: boolean, verkauf: boolean) {
+      return {
+        flaechen: verkauf && miete
+          ? 'Miet- und Verkaufsflächen' : verkauf ? 'Verkaufsflächen' : 'Mietflächen',
+        ertraege: verkauf && miete
+          ? 'Mieterträge und Verkaufserlöse' : verkauf ? 'Verkaufserlöse' : 'Mieterträge',
+      }
+    }
 
     // ── Wirtschaftlichkeit je Nutzungsart ───────────────────────────────────
     // Renditeobjekt → Rendite, Verkaufsobjekt → Gewinn, Genossenschaft →
@@ -414,6 +416,50 @@ export function useUebersichtDaten(
     // vor, färbt ihre Farbe aus den Berechnungssektionen den Titelbalken —
     // bei nur einer bleibt es beim Kupfer der übrigen Blöcke.
     const mehrere = ak.presentEig.length > 1
+
+    // Der Mix: bei einer Eigentumsart ein Block über alles, bei mehreren je
+    // einer pro Nutzungsart — sonst vermischten sich Mietflächen und
+    // Verkaufsflächen in einem Ring.
+    const alleNutzungen = new Map<string, { label: string; flaeche: number; ertrag: number }>()
+    for (const liste of mixProEig.values()) {
+      for (const n of liste) {
+        const v = alleNutzungen.get(n.label) ?? { label: n.label, flaeche: 0, ertrag: 0 }
+        alleNutzungen.set(n.label, {
+          label: n.label, flaeche: v.flaeche + n.flaeche, ertrag: v.ertrag + n.ertrag,
+        })
+      }
+    }
+    const gesamtMixWohnungen = wohnungsmixFuer(null)
+    const mix: Nutzungsmix[] = mehrere
+      ? BERICHT_EIG_ORDER
+          .filter((eig) => (mixProEig.get(eig) ?? []).length > 0)
+          .map((eig) => {
+            const t = mixTitel(eig !== 'verkaufsobjekt', eig === 'verkaufsobjekt')
+            return {
+              titel: EIGENTUMSART_LABEL[eig],
+              farbe: EIGENTUMSART_COLOR[eig],
+              farbeUnter: USE_TYPE_COLOR_3[eig],
+              /** Ringsegmente in Abstufungen derselben Farbfamilie. */
+              segmentFarben: RING_STUFEN.map((n) => CI[EIGENTUMSART_FAMILY[eig]][n]),
+              flaechenTitel: t.flaechen,
+              ertraegeTitel: t.ertraege,
+              nutzungen: mixProEig.get(eig) ?? [],
+              wohnungsmix: wohnungsmixFuer(eig),
+            }
+          })
+      : (() => {
+          const nutzungen = [...alleNutzungen.values()]
+            .sort((a, b) => b.ertrag - a.ertrag || b.flaeche - a.flaeche)
+          if (nutzungen.length === 0) return []
+          const t = mixTitel(hatMiete, hatVerkauf)
+          return [{
+            titel: gesamtMixWohnungen.length > 0 ? 'Wohnungs- und Nutzungsmix' : 'Nutzungsmix',
+            flaechenTitel: t.flaechen,
+            ertraegeTitel: t.ertraege,
+            nutzungen,
+            wohnungsmix: gesamtMixWohnungen,
+          }]
+        })()
     const bloecke: EigentumsartBlock[] = BERICHT_EIG_ORDER
       .filter((eig) => wirtschaftProEig.has(eig) || ertragProEig.has(eig))
       .map((eig) => ({
