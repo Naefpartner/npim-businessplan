@@ -107,6 +107,14 @@ const T = TITELBLATT
  */
 const ZEILE = { oben: 1.2, unten: 0.9 } as const
 
+/**
+ * Seitlicher Einzug des Textes in Millimetern, gemessen am Kupferbalken der
+ * Vorlage. Balken und Tabellenzeilen teilen ihn sich, damit die erste Spalte
+ * unter dem Titel steht und nicht davor.
+ */
+// Nur links: rechts sollen die Zahlen bündig am Spaltenrand abschliessen.
+const EINZUG = 2.3
+
 const s = StyleSheet.create({
   /**
    * Der Zeilenabstand gehört auf die Seite. Auf View oder Text wirkt er in
@@ -258,8 +266,8 @@ const s = StyleSheet.create({
     lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
     fontWeight: 700,
     backgroundColor: BERICHT_FARBE.primaer,
-    paddingLeft: mm(2.3),
-    paddingRight: mm(2.3),
+    paddingLeft: mm(EINZUG),
+    paddingRight: mm(EINZUG),
     paddingTop: mm(0.9),
     paddingBottom: mm(0.7),
     marginTop: mm(6.3),
@@ -277,15 +285,16 @@ const s = StyleSheet.create({
   feldBlock: { marginBottom: mm(2), flexShrink: 0 },
   /** Trennlinie zwischen zwei Feldzeilen — so hell wie in den Datentabellen. */
   feldLinie: { borderTopWidth: 0.5, borderTopColor: '#D8D8D8' },
-  /** Erste Linie einer Feldtabelle ohne Spaltenkopf: kräftig wie eine Kopflinie. */
-  feldLinieKopf: { borderTopWidth: 0.5, borderTopColor: BERICHT_FARBE.linie },
   feldZeile: {
     flexDirection: 'row',
     paddingTop: mm(ZEILE.oben),
     paddingBottom: mm(ZEILE.unten),
+    paddingLeft: mm(EINZUG),
   },
-  feldLabel: { width: mm(52) },
-  feldEinheit: { width: mm(9) },
+  // Abstand nach rechts, damit Bezeichnung, Einheit und Zahl in schmalen
+  // Spalten nicht aneinanderstossen.
+  feldLabel: { width: mm(52), paddingRight: mm(1.5) },
+  feldEinheit: { width: mm(9), paddingRight: mm(1.5) },
   feldZahl: { flex: 1, textAlign: 'right' },
   // Werte stehen wie die Bezeichnungen in normaler Schrift — fett bleibt den
   // Totalzeilen vorbehalten, damit sie sich abheben.
@@ -332,14 +341,24 @@ const s = StyleSheet.create({
    * beiden Spalten bliebe sonst zu wenig Breite für Bezeichnung, Wert und
    * Anteil, und die Zellen liefen ineinander.
    */
-  ringFlaeche: { marginBottom: mm(2.5) },
-  legendeZeile: { flexDirection: 'row', alignItems: 'center', paddingBottom: mm(0.8) },
+  ringFlaeche: { marginBottom: mm(2.5), paddingLeft: mm(EINZUG) },
+  legendeZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: mm(0.8),
+    paddingLeft: mm(EINZUG),
+  },
   legendeMarke: { width: mm(2.2), height: mm(2.2), marginRight: mm(1.8), borderRadius: mm(1.1) },
   legendeLabel: { flex: 1, paddingRight: mm(2) },
   legendeWert: { textAlign: 'right' },
   legendeAnteil: { width: mm(11), textAlign: 'right', color: '#6B6B6B' },
 
-  mixZeile: { flexDirection: 'row', alignItems: 'center', paddingBottom: mm(1.2) },
+  mixZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: mm(1.2),
+    paddingLeft: mm(EINZUG),
+  },
   mixLabel: { width: mm(16) },
   /** Spur des Balkens; der Balken selbst liegt als Anteil darin. */
   mixSpur: { flex: 1, height: mm(2.6), backgroundColor: '#EFEBE8' },
@@ -353,6 +372,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: BERICHT_FARBE.linie,
     paddingBottom: mm(0.9),
+    paddingLeft: mm(EINZUG),
     fontSize: SCHRIFT.klein,
     color: '#4A4A4A',
   },
@@ -362,6 +382,7 @@ const s = StyleSheet.create({
     borderBottomColor: '#D8D8D8',
     paddingTop: mm(ZEILE.oben),
     paddingBottom: mm(ZEILE.unten),
+    paddingLeft: mm(EINZUG),
   },
   tabTotal: { fontWeight: 700, borderBottomWidth: 0.5, borderBottomColor: BERICHT_FARBE.linie },
   zelleRechts: { textAlign: 'right' },
@@ -680,23 +701,16 @@ function kostenZeilen(kosten: BetragZeile[]): TabellenZeile[] {
   }))
 }
 
-/**
- * Linie über einer Feldzeile. Die erste übernimmt die Rolle der Kopflinie —
- * ausser ein Spaltenkopf steht darüber, der sie schon mitbringt.
- */
-function zeilenLinie(i: number, kopf?: string) {
-  if (i > 0) return s.feldLinie
-  return kopf ? undefined : s.feldLinieKopf
-}
-
 /** Tabelle aus Bezeichnung und Wert, durch dünne Linien getrennt. */
 function Feldtabelle({
-  titel, felder, labelBreite, kopf, abstandUnten = true,
+  titel, felder, labelBreite, einheitBreite, kopf, abstandUnten = true,
 }: {
   titel: string
   felder: Feld[]
   /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
   labelBreite?: number
+  /** Breite der Einheitenspalte in mm; je nach längster Einheit. */
+  einheitBreite?: number
   /**
    * Beschriftung der Bezeichnungsspalte, wie sie die Datentabellen tragen.
    * Sie bringt die Linie schon mit — die erste Feldzeile lässt ihre eigene
@@ -717,12 +731,16 @@ function Feldtabelle({
       <Text style={s.h2}>{titel}</Text>
       {kopf && <View style={s.tabKopf}><Text>{kopf}</Text></View>}
       {felder.map((f, i) => (
-        <View key={f.label} style={zeilenLinie(i, kopf)}>
+        <View key={f.label} style={i === 0 ? undefined : s.feldLinie}>
           <View style={s.feldZeile}>
             <Text style={[s.feldLabel, ...(labelBreite ? [{ width: mm(labelBreite) }] : [])]}>
               {f.label}
             </Text>
-            {mitEinheit && <Text style={s.feldEinheit}>{f.einheit ?? ''}</Text>}
+            {mitEinheit && (
+              <Text style={[s.feldEinheit, ...(einheitBreite ? [{ width: mm(einheitBreite) }] : [])]}>
+                {f.einheit ?? ''}
+              </Text>
+            )}
             <Text style={mitEinheit ? s.feldZahl : s.feldWert}>{f.wert}</Text>
           </View>
         </View>
@@ -827,19 +845,32 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
       {/* Fortsetzung ohne eigene Überschrift — die Tabellentitel tragen die
           Gliederung, und im Inhaltsverzeichnis steht nur das Kapitel. */}
       <InhaltsSeite daten={daten} seite={seite + 1} seitenTotal={seitenTotal}>
-        {u.ertraege.map((e) => (
-          <Datentabelle
-            key={e.titel}
-            titel={e.titel}
-            kopf={e.kopf}
-            breiten={[2.2, 1.3, 1.3, 1.4]}
-            zeilen={e.zeilen}
-          />
-        ))}
-
-        {u.wirtschaft.map((b) => (
-          <Feldtabelle key={b.titel} titel={b.titel} felder={b.felder} />
-        ))}
+        {/* Wirtschaftlichkeit links, Ertragsaufstellung rechts — die Erträge
+            tragen vier Spalten und brauchen die breitere Seite. */}
+        <View style={s.zweiSpalten}>
+          <View style={s.spalteEins}>
+            {u.wirtschaft.map((b) => (
+              <Feldtabelle
+                key={b.titel}
+                titel={b.titel}
+                felder={b.felder}
+                labelBreite={33.5}
+                einheitBreite={11.5}
+              />
+            ))}
+          </View>
+          <View style={s.spalteZwei}>
+            {u.ertraege.map((e) => (
+              <Datentabelle
+                key={e.titel}
+                titel={e.titel}
+                kopf={e.kopf}
+                breiten={[1.8, 1.2, 1.7, 1.55]}
+                zeilen={e.zeilen}
+              />
+            ))}
+          </View>
+        </View>
 
         {u.mix && <Mixbereich mix={u.mix} />}
       </InhaltsSeite>

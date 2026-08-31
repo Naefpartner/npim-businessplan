@@ -218,8 +218,11 @@ export function useUebersichtDaten(
         .sort((a, b) => b.ertrag - a.ertrag)
         .map((d) => {
           const nachFlaeche = d.flaecheM2 > 0
+          // Ob VMF oder VKF gilt für die ganze Tabelle und steht deshalb im
+          // Spaltenkopf — in der Zelle kostete es die Breite, die der
+          // Nutzungsname braucht.
           const menge = nachFlaeche
-            ? `${formatNumber(Math.round(d.flaecheM2))} m² ${verkauf ? 'VKF' : 'VMF'}`
+            ? `${formatNumber(Math.round(d.flaecheM2))} m²`
             : `${formatNumber(d.anzahl)} Stk`
           // Monatsmiete je Stück; beim Verkauf ist der Stückwert ein Preis.
           const teiler = nachFlaeche ? d.flaecheM2 : d.anzahl * (verkauf ? 1 : 12)
@@ -241,7 +244,10 @@ export function useUebersichtDaten(
         // steht sie sinnlos über der einzigen Aufstellung.
         titel: ak.presentEig.length > 1
           ? `${bezeichnung} (${EIGENTUMSART_LABEL[eig]})` : bezeichnung,
-        kopf: ['Nutzung', 'Menge', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr'],
+        kopf: [
+          'Nutzung', verkauf ? 'Menge VKF' : 'Menge VMF', 'Ansatz',
+          verkauf ? 'CHF' : 'CHF/Jahr',
+        ],
         zeilen,
       })
     }
@@ -292,14 +298,19 @@ export function useUebersichtDaten(
       const eigErtrag = Object.values(ak.ertragProNutzungByEig.get(eig) ?? {})
         .reduce((a, v) => a + v, 0)
 
+      // Einheit und Zahl getrennt — die Einheiten stehen damit untereinander
+      // und die Beträge rechtsbündig, wie bei den Mengen.
       if (eig === 'renditeobjekt') {
         wirtschaftBloecke.push({
           titel: 'Rendite (Renditeobjekt)',
           felder: ohneLeere([
-            { label: 'Anlagekosten inkl. MwSt', wert: invest > 0 ? w(Math.round(invest), 'CHF') : '—' },
-            { label: 'Mietertrag SOLL p.a.',    wert: eigErtrag > 0 ? w(Math.round(eigErtrag), 'CHF') : '—' },
-            { label: 'Bruttorendite',           wert: invest > 0 && eigErtrag > 0
-                ? `${((eigErtrag / invest) * 100).toFixed(2)} %` : '—' },
+            { label: 'Anlagekosten brutto', einheit: 'CHF',
+              wert: invest > 0 ? w(Math.round(invest)) : '—' },
+            { label: 'Mietertrag SOLL', einheit: 'CHF/a',
+              wert: eigErtrag > 0 ? w(Math.round(eigErtrag)) : '—' },
+            { label: 'Bruttorendite', einheit: '%',
+              wert: invest > 0 && eigErtrag > 0
+                ? ((eigErtrag / invest) * 100).toFixed(2) : '—' },
           ]),
         })
       } else if (eig === 'verkaufsobjekt') {
@@ -307,20 +318,26 @@ export function useUebersichtDaten(
         wirtschaftBloecke.push({
           titel: 'Verkaufsgewinn (Stockwerkeigentum)',
           felder: ohneLeere([
-            { label: 'Verkaufserlös',           wert: eigErtrag > 0 ? w(Math.round(eigErtrag), 'CHF') : '—' },
-            { label: 'Anlagekosten inkl. MwSt', wert: invest > 0 ? w(Math.round(invest), 'CHF') : '—' },
-            { label: 'Verkaufsgewinn',          wert: eigErtrag > 0 ? w(Math.round(gewinn), 'CHF') : '—' },
-            { label: 'Marge auf dem Erlös',     wert: eigErtrag > 0
-                ? `${((gewinn / eigErtrag) * 100).toFixed(1)} %` : '—' },
+            { label: 'Verkaufserlös', einheit: 'CHF',
+              wert: eigErtrag > 0 ? w(Math.round(eigErtrag)) : '—' },
+            { label: 'Anlagekosten brutto', einheit: 'CHF',
+              wert: invest > 0 ? w(Math.round(invest)) : '—' },
+            { label: 'Verkaufsgewinn', einheit: 'CHF',
+              wert: eigErtrag > 0 ? w(Math.round(gewinn)) : '—' },
+            { label: 'Marge auf dem Erlös', einheit: '%',
+              wert: eigErtrag > 0 ? ((gewinn / eigErtrag) * 100).toFixed(1) : '—' },
           ]),
         })
       } else if (eig === 'genossenschaft') {
         wirtschaftBloecke.push({
           titel: 'Kostenmiete (Genossenschaft)',
           felder: ohneLeere([
-            { label: 'Anlagekosten inkl. MwSt', wert: invest > 0 ? w(Math.round(invest), 'CHF') : '—' },
-            { label: 'Kostenmiete Wohnen',      wert: km ? `${formatNumber(Math.round(km.proM2Jahr))} CHF/m²·a` : '—' },
-            { label: 'Maximaler Mietertrag',    wert: km ? w(Math.round(km.maxMietertragWohnen), 'CHF') : '—' },
+            { label: 'Anlagekosten brutto', einheit: 'CHF',
+              wert: invest > 0 ? w(Math.round(invest)) : '—' },
+            { label: 'Kostenmiete Wohnen', einheit: 'CHF/m²',
+              wert: km ? formatNumber(Math.round(km.proM2Jahr)) : '—' },
+            { label: 'Max. Mietertrag', einheit: 'CHF/a',
+              wert: km ? w(Math.round(km.maxMietertragWohnen)) : '—' },
           ]),
         })
       }
