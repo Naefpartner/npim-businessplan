@@ -1305,16 +1305,23 @@ function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: bool
  * (der reserviert am Seitenfuss keinen Platz für die Fusszeile).
  */
 const MH = {
-  h1: 22.0,
-  eigTitel: 13.7,
-  hausTitel: 9.9,
+  /** Kapiteltitel samt Abstand darunter. */
+  h1: 10.5,
+  /** Balken der Eigentumsart mit vollem Vorabstand. */
+  eigTitel: 14.5,
+  /** Balken eines Hauses mit knappem Vorabstand. */
+  hausTitel: 10.7,
   kopfzeile: 5.0,
   zeile: 6.52,
   blockEnde: 2.0,
 }
 
-/** Nutzbare Höhe einer A4-Inhaltsseite. */
-const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten
+/**
+ * Nutzbare Höhe einer A4-Inhaltsseite, abzüglich einer Reserve. Ohne sie kippt
+ * eine randvolle Seite: react-pdf bricht dann von sich aus um und hängt eine
+ * leere Seite an, die weder Seitenplan noch Fusszeile kennen.
+ */
+const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 4
 
 type MengenElement =
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
@@ -1354,25 +1361,52 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
     hoehe += h
   }
 
+  /**
+   * Umbruch vor einem Haus. Stand der Titel der Eigentumsart als Letztes auf
+   * der Seite, wandert er mit — allein am Seitenfuss sagt er nichts.
+   */
+  function umbruchVorHaus() {
+    const letzte = laufend[laufend.length - 1]
+    if (letzte?.art === 'eigTitel') {
+      laufend.pop()
+      neueSeite()
+      lege(letzte)
+    } else {
+      neueSeite()
+    }
+  }
+
   for (const eig of sicht.eigentumsarten) {
     lege({ art: 'eigTitel', block: eig, kopf: eig.kopf })
     for (const haus of eig.haeuser) {
       const alle = [...haus.zeilen, haus.total]
-      // Passt das Haus im Ganzen? Sonst so viele Zeilen wie möglich und den
-      // Rest auf die Folgeseite.
+      const rahmen = MH.hausTitel + MH.kopfzeile + MH.blockEnde
+      const ganz = rahmen + alle.length * MH.zeile
+
+      // Passt das Haus überhaupt auf eine ganze Seite, bleibt es zusammen und
+      // rückt notfalls als Ganzes weiter. Nur was für sich schon zu lang ist,
+      // wird geteilt.
+      if (ganz <= SEITENHOEHE) {
+        if (laufend.length > 0 && hoehe + ganz > SEITENHOEHE) umbruchVorHaus()
+        lege({
+          art: 'haus', block: eig, kopf: eig.kopf, name: haus.name,
+          fortsetzung: false, zeilen: alle,
+        })
+        continue
+      }
+
       let rest = alle
-      let ersteHaelfte = true
+      let erste = true
       while (rest.length > 0) {
-        const platz = SEITENHOEHE - hoehe - MH.hausTitel - MH.kopfzeile - MH.blockEnde
-        const passt = Math.floor(platz / MH.zeile)
-        if (passt < 3 && laufend.length > 0) { neueSeite(); continue }
+        const passt = Math.floor((SEITENHOEHE - hoehe - rahmen) / MH.zeile)
+        if (passt < 3 && laufend.length > 0) { umbruchVorHaus(); continue }
         const nimm = Math.min(rest.length, Math.max(passt, 3))
         lege({
           art: 'haus', block: eig, kopf: eig.kopf, name: haus.name,
-          fortsetzung: !ersteHaelfte, zeilen: rest.slice(0, nimm),
+          fortsetzung: !erste, zeilen: rest.slice(0, nimm),
         })
         rest = rest.slice(nimm)
-        ersteHaelfte = false
+        erste = false
       }
     }
     lege({ art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total })
