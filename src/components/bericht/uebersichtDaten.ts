@@ -322,7 +322,7 @@ export function useUebersichtDaten(
 
         // Welche der beiden Sichten gilt, ist an der Variante gespeichert.
         wirtschaftBloecke.push(variant.rendite_modus === 'residual' ? {
-          titel: 'Residualwert (Renditeobjekt)',
+          titel: 'Residualwert Grundstück',
           felder: ohneLeere([
             { label: 'Liegenschaftserfolg', einheit: 'CHF/a',
               wert: r.liegenschaftserfolg !== 0 ? w(Math.round(r.liegenschaftserfolg)) : '—' },
