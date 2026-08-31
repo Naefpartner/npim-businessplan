@@ -340,8 +340,11 @@ const s = StyleSheet.create({
 
   // ── Ringdiagramme und Mixbalken ───────────────────────────────────────────
   ringBlock: { flexShrink: 0, marginBottom: mm(2) },
-  /** Titel, der direkt unter einem anderen steht — ohne eigenen Vorabstand. */
-  h2Anschluss: { marginTop: 0 },
+  /**
+   * Titel, der unter einem anderen steht: knapperer Vorabstand als der volle
+   * Blockabstand, aber nicht null — sonst klebt er am Balken darüber.
+   */
+  h2Anschluss: { marginTop: mm(2.5) },
   /**
    * Untertitel im Mixbereich: weder Kupferfläche noch Linie. Der Balken bleibt
    * dem Bereichstitel darüber vorbehalten, sonst wögen die Beschriftungen
