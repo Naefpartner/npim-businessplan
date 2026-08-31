@@ -61,6 +61,11 @@ export interface MengenDaten {
 export interface MengenSicht {
   /** „Gesamtprojekt" oder der Name der Etappe. */
   titel: string
+  /**
+   * Ob der Balken der einzigen Nutzungsart bereits die Sicht benennt. Dann
+   * bleibt der Kapiteltitel ohne Zusatz.
+   */
+  titelImBalken: boolean
   /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
   /** Mengen und Erträge auf Haus- und Geschossebene, je Eigentumsart. */
@@ -1445,7 +1450,11 @@ function MengenSeite({
 }) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      {erste && <Text style={s.h1}>Mengen und Erträge — {sicht.titel}</Text>}
+      {erste && (
+        <Text style={s.h1}>
+          {sicht.titelImBalken ? 'Mengen und Erträge' : `Mengen und Erträge — ${sicht.titel}`}
+        </Text>
+      )}
       {elemente.map((e, i) => {
         if (e.art === 'benchmarks') {
           return (

@@ -113,13 +113,20 @@ export function useMengenDaten(
     function sicht(titel: string, etappeId: string | null): MengenSicht {
       const gebaeude = ak.buildings.filter((b) => etappeId == null || b.etappe_id === etappeId)
 
+      // Kommt in dieser Sicht nur eine Nutzungsart vor, sagt ihr Name nichts,
+      // was nicht schon feststeht — der Balken trägt dann die Sicht selbst.
+      const vorhanden = EIG_ORDER.filter(
+        (eig) => gebaeude.some((b) => eigentumsartForBuilding(b.use_type) === eig))
+      const einzeln = vorhanden.length === 1
+
       const eigentumsarten = EIG_ORDER
         .map((eig) => {
           const haeuser = gebaeude.filter((b) => eigentumsartForBuilding(b.use_type) === eig)
           if (haeuser.length === 0) return null
           const verkauf = eig === 'verkaufsobjekt'
+          const label = einzeln ? titel : EIGENTUMSART_LABEL[eig]
           return {
-            label: EIGENTUMSART_LABEL[eig],
+            label,
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
@@ -137,7 +144,7 @@ export function useMengenDaten(
             // Bezeichnung in der zweiten Spalte: „Total Genossenschaft" bricht
             // in der schmalen Geschossspalte sonst um.
             total: summenZeile(
-              'Total', EIGENTUMSART_LABEL[eig], haeuser, verkauf,
+              'Total', label, haeuser, verkauf,
               eig === 'genossenschaft' ? kostenmieteJeTyp : null),
           }
         })
@@ -146,6 +153,9 @@ export function useMengenDaten(
 
       return {
         titel,
+        // Ohne zweite Nutzungsart steht die Sicht schon im Balken; der
+        // Kapiteltitel wiederholte sie sonst.
+        titelImBalken: einzeln,
         benchmarks: benchmarkTabelle(gebaeude, mehrere),
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
