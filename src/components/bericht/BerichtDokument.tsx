@@ -365,26 +365,33 @@ const s = StyleSheet.create({
    * den Text darunter, an dem sich die Legende ausrichtet.
    */
   ringFlaeche: { marginBottom: mm(2.5), alignItems: 'center' },
-  /**
-   * Auf der Grundlinie ausgerichtet, nicht mittig: der Anteil steht kleiner
-   * als der Wert und sässe sonst zu hoch.
-   */
   legendeZeile: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     paddingBottom: mm(0.8),
     paddingLeft: mm(EINZUG),
   },
   legendeMarke: { width: mm(2.2), height: mm(2.2), marginRight: mm(1.8), borderRadius: mm(1.1) },
   legendeLabel: { flex: 1, paddingRight: mm(2) },
   legendeWert: { textAlign: 'right', paddingRight: mm(3) },
-  /** Der Anteil steht kleiner als der Wert — er ergänzt ihn, statt mit ihm zu
-   *  konkurrieren. */
+  /**
+   * Der Anteil steht kleiner als der Wert — er ergänzt ihn, statt mit ihm zu
+   * konkurrieren.
+   *
+   * Der Vorabstand bringt ihn auf dieselbe Grundlinie. `alignItems` hilft hier
+   * nicht: die Textboxen füllen die Zeilenhöhe ohnehin aus, und innerhalb
+   * ihrer Box sitzt die kleinere Schrift höher.
+   *
+   * Der Wert ist eingemessen und nicht gerechnet: der Abstand wächst die
+   * Zeile mit, sodass gut die Hälfte davon wieder verlorengeht. Bei 0.7 mm
+   * stehen Wert und Anteil auf 0.00 mm genau auf derselben Unterkante.
+   */
   legendeAnteil: {
     width: mm(10),
     textAlign: 'right',
     color: '#6B6B6B',
     fontSize: SCHRIFT.klein,
+    paddingTop: mm(0.7),
   },
 
   mixZeile: {
