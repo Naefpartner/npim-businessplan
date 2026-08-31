@@ -346,16 +346,16 @@ export function useUebersichtDaten(
             { label: '% GV-Wert', einheit: '%', wert: (kp.gvwFaktor * 100).toFixed(1) },
             { label: 'GV-Wert', einheit: 'CHF',
               wert: gvWert > 0 ? w(Math.round(gvWert)) : '—' },
-            { label: 'Ref. Zinssatz', einheit: '%',
-              wert: (kp.referenzzinssatz * 100).toFixed(2) },
-            { label: 'Betriebskosten', einheit: '%',
-              wert: (kp.betriebskostenSatz * 100).toFixed(2) },
             kp.imBaurecht
               ? { label: 'Baurechtszins', einheit: 'CHF/a',
                   wert: baurechtszins > 0 ? w(Math.round(baurechtszins)) : '—' }
               : { label: 'Landwert', einheit: 'CHF',
                   wert: basisG && basisG.grundstueckBrutto > 0
                     ? w(Math.round(basisG.grundstueckBrutto)) : '—' },
+            { label: 'Ref. Zinssatz', einheit: '%',
+              wert: (kp.referenzzinssatz * 100).toFixed(2) },
+            { label: 'Betriebskosten', einheit: '%',
+              wert: (kp.betriebskostenSatz * 100).toFixed(2) },
             { label: 'Max. Miete Wohnen', einheit: 'CHF/a',
               wert: km ? w(Math.round(km.maxMietertragWohnen)) : '—' },
           ]),
