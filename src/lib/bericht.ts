@@ -36,6 +36,19 @@ export type AuftragAnrede = 'Auftraggeberin' | 'Auftraggeber'
 export const AUFTRAG_ANREDEN: AuftragAnrede[] = ['Auftraggeberin', 'Auftraggeber']
 
 /**
+ * Umfang der Kapitel, die es sowohl für das Gesamtprojekt als auch je Etappe
+ * gibt — derzeit die Mengen. Ohne zweite Etappe fällt die Wahl weg, dann gibt
+ * es nur das Gesamtprojekt.
+ */
+export type EtappenUmfang = 'gesamt' | 'etappen' | 'beide'
+
+export const ETAPPEN_UMFANG: { key: EtappenUmfang; label: string; beschrieb: string }[] = [
+  { key: 'gesamt',  label: 'Gesamt',  beschrieb: 'Nur das Gesamtprojekt' },
+  { key: 'etappen', label: 'Etappen', beschrieb: 'Nur die Etappen einzeln' },
+  { key: 'beide',   label: 'Beides',  beschrieb: 'Gesamtprojekt und Etappen' },
+]
+
+/**
  * Katalog der Kapitel in Druckreihenfolge. Die Schlüssel landen in den
  * gespeicherten Vorlagen (Migration 063) — beim Umbenennen eines Kapitels
  * bleibt der Schlüssel deshalb stehen.

@@ -3,7 +3,9 @@ import {
   type ReactNode,
 } from 'react'
 import { useLocation } from 'react-router-dom'
-import { FIXE_KAPITEL, sortiereKapitel, type AuftragAnrede } from '@/lib/bericht'
+import {
+  FIXE_KAPITEL, sortiereKapitel, type AuftragAnrede, type EtappenUmfang,
+} from '@/lib/bericht'
 import type { BerichtVorlage } from '@/types'
 
 /** Vorauswahl für einen neuen Bericht. */
@@ -26,6 +28,9 @@ interface BerichtWert {
   /** Beschriftung des Auftraggeber-Blocks auf dem Titelblatt. */
   anrede: AuftragAnrede
   setAnrede: (a: AuftragAnrede) => void
+  /** Ob Kapitel mit Etappenbezug gesamt, je Etappe oder beides zeigen. */
+  umfang: EtappenUmfang
+  setUmfang: (u: EtappenUmfang) => void
 }
 
 const Ctx = createContext<BerichtWert | null>(null)
@@ -48,6 +53,7 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
   const [auswahl, setAuswahl] = useState<string[]>(STANDARD_AUSWAHL)
   const [aktiveVorlage, setAktiveVorlage] = useState<BerichtVorlage | null>(null)
   const [anrede, setAnrede] = useState<AuftragAnrede>('Auftraggeberin')
+  const [umfang, setUmfang] = useState<EtappenUmfang>('beide')
 
   // Beim Wechsel der Variante auf die Vorauswahl zurück — die Kapitel einer
   // anderen Variante sagen über diese nichts aus.
@@ -77,9 +83,9 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
 
   const wert = useMemo<BerichtWert>(() => ({
     kontext, auswahl, druckKapitel, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
-    anrede, setAnrede,
+    anrede, setAnrede, umfang, setUmfang,
   }), [kontext, auswahl, druckKapitel, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
-       anrede])
+       anrede, umfang])
 
   return <Ctx.Provider value={wert}>{children}</Ctx.Provider>
 }

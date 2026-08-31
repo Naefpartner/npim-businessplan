@@ -51,7 +51,7 @@ export function BerichtPage() {
 }
 
 function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId: string }) {
-  const { druckKapitel, anrede } = useBericht()
+  const { druckKapitel, anrede, umfang } = useBericht()
   const { photos, thumbnailPhotoId } = useProjectPhotos(projektId)
   // Erster GIS-Ausschnitt dient als Situationsplan der Projektübersicht.
   const { items: gisBilder } = useProjectGisScreenshots(projektId)
@@ -108,9 +108,10 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       datum: new Date(),
       titelbildUrl: thumbnail?.publicUrl ?? null,
       kapitel: druckKapitel,
+      etappenUmfang: umfang,
       uebersicht,
     }
-  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, kunde, uebersicht])
+  }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde, uebersicht])
 
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)

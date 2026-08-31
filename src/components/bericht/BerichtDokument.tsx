@@ -2,7 +2,8 @@ import { Document, Page, View, Text, Image, StyleSheet, Svg, Path, Circle } from
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
   FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
-  kapitelFuer, type BerichtKapitel, type SeitenFormat, type AuftragAnrede,
+  kapitelFuer,
+  type BerichtKapitel, type SeitenFormat, type AuftragAnrede, type EtappenUmfang,
 } from '@/lib/bericht'
 import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 import { formatNumber } from '@/lib/utils'
@@ -26,6 +27,12 @@ export interface BerichtDaten {
   titelbildUrl: string | null
   /** Kapitelschlüssel in Druckreihenfolge. */
   kapitel: string[]
+  /**
+   * Ob Kapitel mit Etappenbezug das Gesamtprojekt, die Etappen einzeln oder
+   * beides zeigen. Wirkt heute auf die Mengen; ohne zweite Etappe bleibt es
+   * beim Gesamtprojekt, unabhängig von der Wahl.
+   */
+  etappenUmfang: EtappenUmfang
   /** Inhalt der Projektübersicht; fehlt, solange die Daten laden. */
   uebersicht?: UebersichtDaten
 }
