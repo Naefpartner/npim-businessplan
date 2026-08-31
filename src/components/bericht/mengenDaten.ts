@@ -331,10 +331,10 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
   ]
 
   const werte = spalten.map(({ haeuser }) => {
-    let gfOi = 0, gfUi = 0, vmf = 0, gv = 0
+    let gfOi = 0, gfUi = 0, vmf = 0, gv = 0, gvUi = 0
     for (const b of haeuser) {
       for (const m of b.mietflaechen) {
-        if (m.unterirdisch) gfUi += m.gf_m2 || 0
+        if (m.unterirdisch) { gfUi += m.gf_m2 || 0; gvUi += m.volumen_m3 || 0 }
         else gfOi += m.gf_m2 || 0
         vmf += m.flaeche_m2 || 0
         gv += m.volumen_m3 || 0
@@ -346,6 +346,7 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
       anteilOi: gfOi > 0 ? vmf / gfOi : null,
       anteilTotal: gf > 0 ? vmf / gf : null,
       gvProGf: gf > 0 ? gv / gf : null,
+      gvAnteilUi: gv > 0 ? gvUi / gv : null,
     }
   })
 
@@ -363,6 +364,7 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
       { zellen: ['VMF (VKF) / GF oberirdisch', ...werte.map((w) => pct(w.anteilOi))] },
       { zellen: ['VMF (VKF) / GF total', ...werte.map((w) => pct(w.anteilTotal))] },
       { zellen: ['Gebäudevolumen / GF', ...werte.map((w) => quot(w.gvProGf))] },
+      { zellen: ['Anteil Gebäudevolumen unterirdisch', ...werte.map((w) => pct(w.gvAnteilUi))] },
     ] as TabellenZeile[],
   }
 }
