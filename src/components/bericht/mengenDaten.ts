@@ -364,10 +364,10 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
       { zellen: ['Geschossfläche unterirdisch', ...werte.map((w) => m2(w.gfUi))] },
       { zellen: ['Gebäudevolumen oberirdisch', ...werte.map((w) => m3(w.gvOi))] },
       { zellen: ['Gebäudevolumen unterirdisch', ...werte.map((w) => m3(w.gvUi))] },
+      { zellen: ['Anteil Gebäudevolumen unterirdisch', ...werte.map((w) => pct(w.gvAnteilUi))] },
       { zellen: ['VMF (VKF) / GF oberirdisch', ...werte.map((w) => pct(w.anteilOi))] },
       { zellen: ['VMF (VKF) / GF total', ...werte.map((w) => pct(w.anteilTotal))] },
       { zellen: ['Gebäudevolumen / GF', ...werte.map((w) => quot(w.gvProGf))] },
-      { zellen: ['Anteil Gebäudevolumen unterirdisch', ...werte.map((w) => pct(w.gvAnteilUi))] },
     ] as TabellenZeile[],
   }
 }
