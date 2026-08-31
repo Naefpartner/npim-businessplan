@@ -338,7 +338,7 @@ export function useUebersichtDaten(
           .filter((x) => x.key.startsWith('baurecht'))
           .reduce((a, x) => a + x.betrag, 0)
         wirtschaftBloecke.push({
-          titel: 'Kostenmiete (Genossenschaft)',
+          titel: 'Kostenmiete',
           felder: ohneLeere([
             { label: 'Kosten BKP 1–9', einheit: 'CHF',
               wert: basisG && basisG.erstellungBrutto > 0
