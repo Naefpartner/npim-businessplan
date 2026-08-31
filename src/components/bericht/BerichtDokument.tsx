@@ -949,8 +949,8 @@ function ringPfade(
  * die Verhältnisse, deshalb steht in ihm keine Beschriftung.
  */
 function Ringdiagramm({
-  titel, segmente, einheit,
-}: { titel: string; segmente: RingSegment[]; einheit: string }) {
+  titel, segmente, einheit, anschluss,
+}: { titel: string; segmente: RingSegment[]; einheit: string; anschluss?: boolean }) {
   const echte = segmente.filter((x) => x.wert > 0)
   const summe = echte.reduce((a, x) => a + x.wert, 0)
   if (summe <= 0) return null
@@ -963,7 +963,7 @@ function Ringdiagramm({
 
   return (
     <View style={s.ringBlock}>
-      <Text style={[s.h2, s.h2Anschluss]}>{titel} in {einheit}</Text>
+      <Text style={anschluss ? [s.h2, s.h2Anschluss] : s.h2}>{titel} in {einheit}</Text>
       <View style={s.ringFlaeche}>
         <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
           {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
@@ -986,13 +986,15 @@ function Ringdiagramm({
 }
 
 /** Wohnungsmix als Balken — die Zimmerzahlen lesen sich so als Verteilung. */
-function Wohnungsmix({ zeilen }: { zeilen: { label: string; anzahl: number }[] }) {
+function Wohnungsmix({
+  zeilen, anschluss,
+}: { zeilen: { label: string; anzahl: number }[]; anschluss?: boolean }) {
   if (zeilen.length === 0) return null
   const groesste = Math.max(...zeilen.map((z) => z.anzahl))
   const total = zeilen.reduce((a, z) => a + z.anzahl, 0)
   return (
     <View style={s.ringBlock}>
-      <Text style={s.h2}>Wohnungsmix</Text>
+      <Text style={anschluss ? [s.h2, s.h2Anschluss] : s.h2}>Wohnungsmix</Text>
       {zeilen.map((z) => (
         <View key={z.label} style={s.mixZeile}>
           <Text style={s.mixLabel}>{z.label}</Text>
@@ -1020,17 +1022,18 @@ function Mixbereich({ mix }: { mix: Nutzungsmix }) {
   return (
     <>
       <Text style={s.h2}>{mix.titel}</Text>
-      {/* Die Diagrammtitel stehen unter dem Bereichstitel und bringen deshalb
-          keinen eigenen Vorabstand mit — sonst klafft eine Lücke. */}
+      {/* Die Ringe untereinander, der Wohnungsmix daneben. Die obersten Titel
+          stehen direkt unter dem Bereichstitel und bringen deshalb keinen
+          eigenen Vorabstand mit — sonst klafft dort eine Lücke. */}
       <View style={s.zweiSpalten}>
         <View style={s.spalteEins}>
-          <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²" />
-        </View>
-        <View style={s.spalteZwei}>
+          <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²" anschluss />
           <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF" />
         </View>
+        <View style={s.spalteZwei}>
+          <Wohnungsmix zeilen={mix.wohnungsmix} anschluss />
+        </View>
       </View>
-      <Wohnungsmix zeilen={mix.wohnungsmix} />
     </>
   )
 }
