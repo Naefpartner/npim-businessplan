@@ -177,10 +177,11 @@ export function useUebersichtDaten(
     // Ertrag ist das Ergebnis dieser Rechnung und wird unten eingesetzt.
     const mengenG = sammleKostenmieteMengen(ak.buildings, null)
     const ergG = ak.konsolidiertEffektiv.get('genossenschaft')
-    const km = ergG && mengenG.wohnenFlaeche > 0
-      ? berechneKostenmiete(
-          basisFromErgebnis(ergG, mengenG.vmf, mengenG.wohnenFlaeche, mengenG.wohnungen),
-          kostenmieteParams, mengenG.ertragsNutzungen)
+    const basisG = ergG
+      ? basisFromErgebnis(ergG, mengenG.vmf, mengenG.wohnenFlaeche, mengenG.wohnungen)
+      : null
+    const km = basisG && mengenG.wohnenFlaeche > 0
+      ? berechneKostenmiete(basisG, kostenmieteParams, mengenG.ertragsNutzungen)
       : null
 
     // ── Erträge je Nutzung ──────────────────────────────────────────────────
@@ -329,14 +330,33 @@ export function useUebersichtDaten(
           ]),
         })
       } else if (eig === 'genossenschaft') {
+        const kp = kostenmieteParams
+        const gvWert = basisG ? basisG.erstellungBrutto * kp.gvwFaktor : 0
+        // Im Baurecht ersetzt der Baurechtszins die Verzinsung des Landes; er
+        // steht in zwei Posten, subventioniert und nicht subventioniert.
+        const baurechtszins = (km?.posten ?? [])
+          .filter((x) => x.key.startsWith('baurecht'))
+          .reduce((a, x) => a + x.betrag, 0)
         wirtschaftBloecke.push({
           titel: 'Kostenmiete (Genossenschaft)',
           felder: ohneLeere([
-            { label: 'Anlagekosten brutto', einheit: 'CHF',
-              wert: invest > 0 ? w(Math.round(invest)) : '—' },
-            { label: 'Kostenmiete Wohnen', einheit: 'CHF/m²',
-              wert: km ? formatNumber(Math.round(km.proM2Jahr)) : '—' },
-            { label: 'Max. Mietertrag', einheit: 'CHF/a',
+            { label: 'Kosten BKP 1–9', einheit: 'CHF',
+              wert: basisG && basisG.erstellungBrutto > 0
+                ? w(Math.round(basisG.erstellungBrutto)) : '—' },
+            { label: '% GV-Wert', einheit: '%', wert: (kp.gvwFaktor * 100).toFixed(1) },
+            { label: 'GV-Wert', einheit: 'CHF',
+              wert: gvWert > 0 ? w(Math.round(gvWert)) : '—' },
+            { label: 'Ref. Zinssatz', einheit: '%',
+              wert: (kp.referenzzinssatz * 100).toFixed(2) },
+            { label: 'Betriebskosten', einheit: '%',
+              wert: (kp.betriebskostenSatz * 100).toFixed(2) },
+            kp.imBaurecht
+              ? { label: 'Baurechtszins', einheit: 'CHF/a',
+                  wert: baurechtszins > 0 ? w(Math.round(baurechtszins)) : '—' }
+              : { label: 'Landwert', einheit: 'CHF',
+                  wert: basisG && basisG.grundstueckBrutto > 0
+                    ? w(Math.round(basisG.grundstueckBrutto)) : '—' },
+            { label: 'Max. Miete Wohnen', einheit: 'CHF/a',
               wert: km ? w(Math.round(km.maxMietertragWohnen)) : '—' },
           ]),
         })
