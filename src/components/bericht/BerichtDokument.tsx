@@ -247,12 +247,23 @@ const s = StyleSheet.create({
   },
 
   // ── Kapitel und Feldtabellen ──────────────────────────────────────────────
+  /**
+   * Blocktitel auf dem Kupferbalken der Vorlage. Dort trägt ihn die Kopfzeile
+   * der Tabelle; im Bericht steht der Titel über der Tabelle, bekommt aber
+   * dieselbe Fläche — gemessen an der Vorlage: Kupfer 7, Text 2.3 mm
+   * eingerückt.
+   */
   h2: {
     fontSize: SCHRIFT.h2,
     lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
     fontWeight: 700,
+    backgroundColor: BERICHT_FARBE.primaer,
+    paddingLeft: mm(2.3),
+    paddingRight: mm(2.3),
+    paddingTop: mm(0.9),
+    paddingBottom: mm(0.7),
     marginTop: mm(6.3),
-    marginBottom: mm(1.8),
+    marginBottom: mm(1.4),
   },
   /**
    * Feldtabelle im Stil des Titelblatts: dünne Linien, Label links.
@@ -316,15 +327,6 @@ const s = StyleSheet.create({
   ringBlock: { flexShrink: 0, marginBottom: mm(2) },
   /** Titel, der direkt unter einem anderen steht — ohne eigenen Vorabstand. */
   h2Anschluss: { marginTop: 0 },
-  /**
-   * Linie unter dem Titel, wie sie die Tabellen aus ihrer Kopfzeile mitbringen.
-   * Die Diagramme haben keine, brauchen den Abschluss aber genauso.
-   */
-  h2Linie: {
-    borderBottomWidth: 0.5,
-    borderBottomColor: BERICHT_FARBE.linie,
-    paddingBottom: mm(0.9),
-  },
   /**
    * Der Ring steht über der Legende, nicht daneben: in der schmaleren der
    * beiden Spalten bliebe sonst zu wenig Breite für Bezeichnung, Wert und
@@ -910,7 +912,7 @@ function Ringdiagramm({
 
   return (
     <View style={s.ringBlock}>
-      <Text style={[s.h2, s.h2Anschluss, s.h2Linie]}>{titel} in {einheit}</Text>
+      <Text style={[s.h2, s.h2Anschluss]}>{titel} in {einheit}</Text>
       <View style={s.ringFlaeche}>
         <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
           {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
@@ -939,7 +941,7 @@ function Wohnungsmix({ zeilen }: { zeilen: { label: string; anzahl: number }[] }
   const total = zeilen.reduce((a, z) => a + z.anzahl, 0)
   return (
     <View style={s.ringBlock}>
-      <Text style={[s.h2, s.h2Linie]}>Wohnungsmix</Text>
+      <Text style={s.h2}>Wohnungsmix</Text>
       {zeilen.map((z) => (
         <View key={z.label} style={s.mixZeile}>
           <Text style={s.mixLabel}>{z.label}</Text>
@@ -966,7 +968,7 @@ function Mixbereich({ mix }: { mix: Nutzungsmix }) {
   const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
   return (
     <>
-      <Text style={[s.h2, s.h2Linie]}>{mix.titel}</Text>
+      <Text style={s.h2}>{mix.titel}</Text>
       {/* Die Diagrammtitel stehen unter dem Bereichstitel und bringen deshalb
           keinen eigenen Vorabstand mit — sonst klafft eine Lücke. */}
       <View style={s.zweiSpalten}>
