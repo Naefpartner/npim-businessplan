@@ -1396,7 +1396,7 @@ function sichtSeiten(sicht: MengenSicht): number {
 }
 
 /** Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts. */
-const MENGEN_BREITEN = [1.4, 2.3, 0.9, 1.1, 1.2, 1.1, 1.5, 1.5]
+const MENGEN_BREITEN = [1.3, 2.15, 0.85, 1.0, 1.1, 1.0, 1.8, 1.45]
 
 /** Eine Mengenseite: Kennzahlen, Häuser und Zwischensummen in der Reihenfolge. */
 function MengenSeite({

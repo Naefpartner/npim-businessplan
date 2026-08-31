@@ -34,6 +34,13 @@ const EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufso
 /** Abstufungen für die Ringsegmente; Stufe 1 ist als Sektor zu blass. */
 const RING_STUFEN = [9, 7, 5, 3] as const
 
+/** Beschriftung einer Wohnungskategorie. */
+function zimmerLabel(key: string): string {
+  if (key === WOHNUNG_FALLBACK_KEY) return 'Wohnungen'
+  if (key === 'joker') return 'Joker'
+  return `${WOHNUNGSMIX_LABEL[key as keyof typeof WOHNUNGSMIX_LABEL] ?? key} Zi.`
+}
+
 /** Zahl oder Gedankenstrich — leere Mengen sollen sichtbar leer sein. */
 function z(v: number | null | undefined): string {
   return v != null && v !== 0 ? formatNumber(Math.round(v)) : '—'
@@ -198,9 +205,36 @@ function hausBlock(
         z(ertrag),
       ],
     })
+    // Ohne erfasste Mieteinheiten die Wohnungen aus dem Zimmermix auflisten —
+    // so steht auch dort je Wohnungstyp der Mietzins, der ihn trägt.
+    const einheiten = m.mieteinheiten ?? []
+    if (einheiten.length === 0 && jeTyp) {
+      const mix = effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)
+      const stkTotal = mix.reduce((a, [, c]) => a + c, 0)
+      for (const [key, anzahl] of mix) {
+        // Ohne eigenen Mietzins der Wohnung gilt der Ansatz der Kostenmiete;
+        // ein erfasster Mietzins der Fläche wird anteilig verteilt.
+        const jeMonat = ertragVon(m, verkauf) > 0
+          ? (stkTotal > 0 ? ertragVon(m, verkauf) / stkTotal / 12 : 0)
+          : (jeTyp.get(wohnungsmixKey(key)) ?? 0)
+        zeilen.push({
+          einzug: true,
+          zellen: [
+            '',
+            zimmerLabel(key),
+            formatNumber(anzahl),
+            '—',
+            '—',
+            z(stkTotal > 0 ? (m.flaeche_m2 || 0) * (anzahl / stkTotal) : 0),
+            jeMonat > 0 ? `${z(jeMonat)} CHF/Mt` : '—',
+            z(jeMonat * anzahl * 12),
+          ],
+        })
+      }
+    }
     // Erfasste Mieteinheiten stehen eingerückt unter ihrer Fläche — sie sind
     // deren Aufschlüsselung und dürfen nicht wie eigene Geschosse wirken.
-    for (const e of m.mieteinheiten ?? []) {
+    for (const e of einheiten) {
       const name = [e.wohnungsnummer, e.wohnungstyp ?? e.bezeichnung]
         .filter(Boolean).join(' · ')
       // Auch die Einheit greift auf die Kostenmiete zurück, wenn sie selbst
@@ -219,7 +253,11 @@ function hausBlock(
           z(e.gf_m2),
           z(e.volumen_m3),
           z(e.flaeche_m2),
-          ansatzVon(e.flaeche_m2, e.anzahl, eErtrag, verkauf),
+          // Bei Wohnungen liest sich der Monatszins je Einheit besser als ein
+          // Quadratmeteransatz.
+          jeTyp && e.anzahl > 0
+            ? `${z(eErtrag / e.anzahl / 12)} CHF/Mt`
+            : ansatzVon(e.flaeche_m2, e.anzahl, eErtrag, verkauf),
           z(eErtrag),
         ],
       })
