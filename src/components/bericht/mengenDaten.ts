@@ -12,7 +12,7 @@ import {
 } from '@/types'
 import type { EtappenUmfang } from '@/lib/bericht'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
-import type { MengenDaten, MengenSicht, TabellenZeile, Feld } from '@/components/bericht/BerichtDokument'
+import type { MengenDaten, MengenSicht, TabellenZeile } from '@/components/bericht/BerichtDokument'
 
 /** Reihenfolge der Blöcke, gleich wie in der Projektübersicht. */
 const EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufsobjekt']
@@ -27,7 +27,14 @@ function z(v: number | null | undefined): string {
 
 /** Jahresertrag einer Mietfläche; Verkaufsobjekte führen Preise statt Mieten. */
 function ertragVon(
-  m: VariantBuildingFull['mietflaechen'][number], verkauf: boolean,
+  m: {
+    flaeche_m2: number
+    anzahl: number | null
+    miete_chf_pa: number | null
+    miete_chf_m2_pa: number | null
+    miete_chf_stk_mt: number | null
+  },
+  verkauf: boolean,
 ): number {
   const f = verkauf ? 1 : 12
   return (m.miete_chf_pa || 0)
@@ -55,8 +62,6 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
     const proEtappe = etappenMitGebaeuden.length > 1 && umfang !== 'gesamt'
     const gesamt = !proEtappe || umfang === 'beide'
 
-    const gesamtVmf = ak.buildings.reduce(
-      (a, b) => a + b.mietflaechen.reduce((x, m) => x + (m.flaeche_m2 || 0), 0), 0)
 
     /** Eine Sicht — Gesamtprojekt oder eine Etappe. */
     function sicht(titel: string, etappeId: string | null): MengenSicht {
@@ -71,40 +76,23 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
             label: EIGENTUMSART_LABEL[eig],
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
+            // Der Kopf hängt an der Eigentumsart: Verkaufsobjekte führen
+            // Verkaufsflächen und Preise statt Mietflächen und Jahresmieten.
+            kopf: [
+              'Geschoss', 'Nutzung', 'Stk', 'GF m²', 'GV m³',
+              verkauf ? 'VKF m²' : 'VMF m²', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr',
+            ],
             haeuser: haeuser.map((b) => hausBlock(b, verkauf)),
             // Bezeichnung in der zweiten Spalte: „Total Genossenschaft" bricht
             // in der schmalen Geschossspalte sonst um.
-            total: summenZeile('Total', EIGENTUMSART_LABEL[eig], haeuser),
+            total: summenZeile('Total', EIGENTUMSART_LABEL[eig], haeuser, verkauf),
           }
         })
         .filter((x) => x != null)
 
-      const gf = gebaeude.reduce((a, b) => a + b.mietflaechen.reduce((x, m) => x + (m.gf_m2 || 0), 0), 0)
-      const gv = gebaeude.reduce((a, b) => a + b.mietflaechen.reduce((x, m) => x + (m.volumen_m3 || 0), 0), 0)
-      const gvUi = gebaeude.reduce((a, b) => a + b.mietflaechen
-        .filter((m) => m.unterirdisch).reduce((x, m) => x + (m.volumen_m3 || 0), 0), 0)
-      const vmf = gebaeude.reduce((a, b) => a + b.mietflaechen.reduce((x, m) => x + (m.flaeche_m2 || 0), 0), 0)
-      const wohnungen = gebaeude.reduce((a, b) => a + b.mietflaechen.reduce(
-        (x, m) => x + effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)
-          .reduce((s, [, c]) => s + c, 0), 0), 0)
-
-      const kennzahlen: Feld[] = [
-        { label: 'Gebäude', einheit: 'Stk', wert: String(gebaeude.length) },
-        { label: 'Geschossfläche GF', einheit: 'm²', wert: z(gf) },
-        { label: 'Gebäudevolumen GV', einheit: 'm³', wert: z(gv) },
-        { label: 'davon unter Terrain', einheit: '%',
-          wert: gv > 0 ? ((gvUi / gv) * 100).toFixed(1) : '—' },
-        { label: 'Miet-/Verkaufsfläche', einheit: 'm²', wert: z(vmf) },
-        { label: 'Wohnungen', einheit: 'Stk', wert: wohnungen > 0 ? String(wohnungen) : '—' },
-        ...(etappeId != null && gesamtVmf > 0
-          ? [{ label: 'Anteil an Gesamt', einheit: '%',
-               wert: ((vmf / gesamtVmf) * 100).toFixed(1) }]
-          : []),
-      ]
 
       return {
         titel,
-        kennzahlen,
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
         ertraege: ertragsBloecke(gebaeude, mehrere),
@@ -123,6 +111,7 @@ export function useMengenDaten(umfang: EtappenUmfang): MengenDaten | undefined {
 function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
   const zeilen: TabellenZeile[] = []
   for (const m of b.mietflaechen) {
+    const ertrag = ertragVon(m, verkauf)
     zeilen.push({
       zellen: [
         m.geschoss_bezeichnung ?? '—',
@@ -131,6 +120,8 @@ function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
         z(m.gf_m2),
         z(m.volumen_m3),
         z(m.flaeche_m2),
+        ansatzVon(m.flaeche_m2, m.anzahl, ertrag, verkauf),
+        z(ertrag),
       ],
     })
     // Erfasste Mieteinheiten stehen eingerückt unter ihrer Fläche — sie sind
@@ -138,6 +129,7 @@ function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
     for (const e of m.mieteinheiten ?? []) {
       const name = [e.wohnungsnummer, e.wohnungstyp ?? e.bezeichnung]
         .filter(Boolean).join(' · ')
+      const eErtrag = ertragVon(e, verkauf)
       zeilen.push({
         einzug: true,
         zellen: [
@@ -147,6 +139,8 @@ function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
           z(e.gf_m2),
           z(e.volumen_m3),
           z(e.flaeche_m2),
+          ansatzVon(e.flaeche_m2, e.anzahl, eErtrag, verkauf),
+          z(eErtrag),
         ],
       })
     }
@@ -154,25 +148,43 @@ function hausBlock(b: VariantBuildingFull, verkauf: boolean) {
   return {
     name: b.name,
     zeilen,
-    total: summenZeile('Total', b.name, [b]),
+    total: summenZeile('Total', b.name, [b], verkauf),
     verkauf,
   }
 }
 
-/** Summe über Gebäude — Anzahl, GF, GV und VMF der Mietflächen. */
+/**
+ * Ansatz einer Zeile — je nach Bezugsgrösse CHF/m², CHF pro Monat und Stück
+ * oder, beim Verkauf, CHF je Stück. Zurückgerechnet aus Ertrag und Menge,
+ * damit er zur ausgewiesenen Summe passt.
+ */
+function ansatzVon(
+  flaeche: number, anzahl: number | null, ertrag: number, verkauf: boolean,
+): string {
+  if (ertrag <= 0) return '—'
+  if (flaeche > 0) return `${z(ertrag / flaeche)} CHF/m²`
+  const stk = anzahl ?? 0
+  if (stk <= 0) return '—'
+  return verkauf
+    ? `${z(ertrag / stk)} CHF/Stk`
+    : `${z(ertrag / (stk * 12))} CHF/Mt`
+}
+
+/** Summe über Gebäude — Anzahl, GF, GV, VMF und Ertrag der Mietflächen. */
 function summenZeile(
-  label: string, bezug: string, gebaeude: VariantBuildingFull[],
+  label: string, bezug: string, gebaeude: VariantBuildingFull[], verkauf: boolean,
 ): TabellenZeile {
-  let anzahl = 0, gf = 0, gv = 0, vmf = 0
+  let anzahl = 0, gf = 0, gv = 0, vmf = 0, ertrag = 0
   for (const b of gebaeude) {
     for (const m of b.mietflaechen) {
       anzahl += m.anzahl ?? 0
       gf += m.gf_m2 || 0
       gv += m.volumen_m3 || 0
       vmf += m.flaeche_m2 || 0
+      ertrag += ertragVon(m, verkauf)
     }
   }
-  return { total: true, zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf)] }
+  return { total: true, zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf), '', z(ertrag)] }
 }
 
 /** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. */

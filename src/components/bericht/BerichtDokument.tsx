@@ -57,9 +57,9 @@ export interface MengenDaten {
 export interface MengenSicht {
   /** „Gesamtprojekt" oder der Name der Etappe. */
   titel: string
-  kennzahlen: Feld[]
-  /** Mengen auf Haus- und Geschossebene, gruppiert nach Eigentumsart. */
+  /** Mengen und Erträge auf Haus- und Geschossebene, je Eigentumsart. */
   eigentumsarten: (EigBlock & {
+    kopf: string[]
     haeuser: { name: string; zeilen: TabellenZeile[]; total: TabellenZeile }[]
     total: TabellenZeile
   })[]
@@ -1306,17 +1306,16 @@ const MH = {
 const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten
 
 type MengenElement =
-  | { art: 'kennzahlen'; felder: Feld[] }
-  | { art: 'eigTitel'; block: EigBlock }
-  | { art: 'haus'; block: EigBlock; name: string; fortsetzung: boolean; zeilen: TabellenZeile[] }
-  | { art: 'eigTotal'; block: EigBlock; zeile: TabellenZeile }
+  | { art: 'eigTitel'; block: EigBlock; kopf: string[] }
+  | { art: 'haus'; block: EigBlock; kopf: string[]; name: string
+      fortsetzung: boolean; zeilen: TabellenZeile[] }
+  | { art: 'eigTotal'; block: EigBlock; kopf: string[]; zeile: TabellenZeile }
 
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
-    case 'kennzahlen': return MH.eigTitel + MH.kopfzeile + e.felder.length * MH.zeile + MH.blockEnde
-    case 'eigTitel':   return MH.eigTitel
-    case 'haus':       return MH.hausTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
-    case 'eigTotal':   return MH.zeile + MH.blockEnde
+    case 'eigTitel': return MH.eigTitel
+    case 'haus':     return MH.hausTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
+    case 'eigTotal': return MH.zeile + MH.blockEnde
   }
 }
 
@@ -1342,10 +1341,8 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
     hoehe += h
   }
 
-  lege({ art: 'kennzahlen', felder: sicht.kennzahlen })
-
   for (const eig of sicht.eigentumsarten) {
-    lege({ art: 'eigTitel', block: eig })
+    lege({ art: 'eigTitel', block: eig, kopf: eig.kopf })
     for (const haus of eig.haeuser) {
       const alle = [...haus.zeilen, haus.total]
       // Passt das Haus im Ganzen? Sonst so viele Zeilen wie möglich und den
@@ -1358,14 +1355,14 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
         if (passt < 3 && laufend.length > 0) { neueSeite(); continue }
         const nimm = Math.min(rest.length, Math.max(passt, 3))
         lege({
-          art: 'haus', block: eig, name: haus.name,
+          art: 'haus', block: eig, kopf: eig.kopf, name: haus.name,
           fortsetzung: !ersteHaelfte, zeilen: rest.slice(0, nimm),
         })
         rest = rest.slice(nimm)
         ersteHaelfte = false
       }
     }
-    lege({ art: 'eigTotal', block: eig, zeile: eig.total })
+    lege({ art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total })
   }
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
@@ -1376,8 +1373,8 @@ function sichtSeiten(sicht: MengenSicht): number {
   return mengenSeiten(sicht).length + (sicht.wohnungsmix.length > 0 ? 2 : 1)
 }
 
-const MENGEN_KOPF = ['Geschoss', 'Nutzung', 'Stk', 'GF m²', 'GV m³', 'VMF m²']
-const MENGEN_BREITEN = [1.5, 2.2, 0.8, 1.2, 1.3, 1.2]
+/** Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts. */
+const MENGEN_BREITEN = [1.4, 2.3, 0.9, 1.1, 1.2, 1.1, 1.5, 1.5]
 
 /** Eine Mengenseite: Kennzahlen, Häuser und Zwischensummen in der Reihenfolge. */
 function MengenSeite({
@@ -1394,22 +1391,6 @@ function MengenSeite({
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
       {erste && <Text style={s.h1}>Mengen und Erträge — {sicht.titel}</Text>}
       {elemente.map((e, i) => {
-        if (e.art === 'kennzahlen') {
-          return (
-            <View key={i} style={s.zweiSpalten}>
-              <View style={s.spalteEins}>
-                <Feldtabelle
-                  titel="Kennzahlen"
-                  kopf="Menge"
-                  felder={e.felder}
-                  labelBreite={33.5}
-                  einheitBreite={11.5}
-                />
-              </View>
-              <View style={s.spalteZwei} />
-            </View>
-          )
-        }
         if (e.art === 'eigTitel') {
           return (
             <Text key={i} style={e.block.farbe ? titelStil(e.block.farbe) : s.h2}>
@@ -1418,7 +1399,7 @@ function MengenSeite({
           )
         }
         if (e.art === 'eigTotal') {
-          return <Summenzeile key={i} zeile={e.zeile} breiten={MENGEN_BREITEN} />
+          return <Summenzeile key={i} zeile={e.zeile} kopf={e.kopf} breiten={MENGEN_BREITEN} />
         }
         return (
           <Datentabelle
@@ -1426,7 +1407,7 @@ function MengenSeite({
             titel={e.fortsetzung ? `${e.name} (Fortsetzung)` : e.name}
             titelFarbe={e.block.farbeUnter}
             anschluss
-            kopf={MENGEN_KOPF}
+            kopf={e.kopf}
             breiten={MENGEN_BREITEN}
             linksBis={1}
             zeilen={e.zeilen}
@@ -1438,8 +1419,10 @@ function MengenSeite({
 }
 
 /** Freistehende Summenzeile — das Total einer Eigentumsart ohne eigene Tabelle. */
-function Summenzeile({ zeile, breiten }: { zeile: TabellenZeile; breiten: number[] }) {
-  const t: Tabelle = { kopf: MENGEN_KOPF, zeilen: [zeile], breiten, linksBis: 1 }
+function Summenzeile({
+  zeile, kopf, breiten,
+}: { zeile: TabellenZeile; kopf: string[]; breiten: number[] }) {
+  const t: Tabelle = { kopf, zeilen: [zeile], breiten, linksBis: 1 }
   return (
     <View style={s.feldBlock}>
       <Datenzeile t={t} zeile={zeile} />
