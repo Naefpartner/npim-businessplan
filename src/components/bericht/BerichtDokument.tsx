@@ -1,4 +1,4 @@
-import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, View, Text, Image, StyleSheet, Svg, Path, Circle } from '@react-pdf/renderer'
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
   FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
@@ -6,6 +6,7 @@ import {
 } from '@/lib/bericht'
 import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 import { formatNumber } from '@/lib/utils'
+import { CHART_PALETTE } from '@/lib/ci'
 
 /** Alles, was der Bericht über Projekt und Variante wissen muss. */
 export interface BerichtDaten {
@@ -80,6 +81,21 @@ export interface UebersichtDaten {
   ertraege: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[]
   /** Gewinn, Rendite oder Kostenmiete — je nach vorhandener Nutzungsart. */
   wirtschaft: { titel: string; felder: Feld[] }[]
+  /** Nutzungs- und Wohnungsmix; fehlt, wenn keine Nutzung erfasst ist. */
+  mix: Nutzungsmix | null
+}
+
+/**
+ * Grundlage der Mixdarstellung. Die Nutzungen stehen in einer gemeinsamen
+ * Liste, damit beide Ringe dieselbe Reihenfolge und dieselben Farben
+ * verwenden — sonst wäre ein Vergleich zwischen ihnen wertlos.
+ */
+export interface Nutzungsmix {
+  titel: string
+  flaechenTitel: string
+  ertraegeTitel: string
+  nutzungen: { label: string; flaeche: number; ertrag: number }[]
+  wohnungsmix: { label: string; anzahl: number }[]
 }
 
 const T = TITELBLATT
@@ -295,6 +311,28 @@ const s = StyleSheet.create({
   spalteEins: { flex: 0.85, marginRight: mm(6) },
   spalteZwei: { flex: 1.3 },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
+
+  // ── Ringdiagramme und Mixbalken ───────────────────────────────────────────
+  ringBlock: { flexShrink: 0, marginBottom: mm(2) },
+  /**
+   * Der Ring steht über der Legende, nicht daneben: in der schmaleren der
+   * beiden Spalten bliebe sonst zu wenig Breite für Bezeichnung, Wert und
+   * Anteil, und die Zellen liefen ineinander.
+   */
+  ringFlaeche: { marginBottom: mm(2.5) },
+  legendeZeile: { flexDirection: 'row', alignItems: 'center', paddingBottom: mm(0.8) },
+  legendeMarke: { width: mm(2.2), height: mm(2.2), marginRight: mm(1.8), borderRadius: mm(1.1) },
+  legendeLabel: { flex: 1, paddingRight: mm(2) },
+  legendeWert: { textAlign: 'right' },
+  legendeAnteil: { width: mm(11), textAlign: 'right', color: '#6B6B6B' },
+
+  mixZeile: { flexDirection: 'row', alignItems: 'center', paddingBottom: mm(1.2) },
+  mixLabel: { width: mm(16) },
+  /** Spur des Balkens; der Balken selbst liegt als Anteil darin. */
+  mixSpur: { flex: 1, height: mm(2.6), backgroundColor: '#EFEBE8' },
+  mixLeer: { flex: 1 },
+  mixBalken: { height: '100%', backgroundColor: BERICHT_FARBE.primaer },
+  mixWert: { width: mm(10), textAlign: 'right' },
 
   // ── Datentabellen ─────────────────────────────────────────────────────────
   tabKopf: {
@@ -789,7 +827,144 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
         {u.wirtschaft.map((b) => (
           <Feldtabelle key={b.titel} titel={b.titel} felder={b.felder} />
         ))}
+
+        {u.mix && <Mixbereich mix={u.mix} />}
       </InhaltsSeite>
+    </>
+  )
+}
+
+// ─── Ringdiagramme ───────────────────────────────────────────────────────────
+
+/** Ein Sektor des Rings. */
+interface RingSegment {
+  label: string
+  wert: number
+  farbe: string
+}
+
+/** Punkt auf dem Kreis; 0 liegt oben, gezählt wird im Uhrzeigersinn. */
+function ringPunkt(mitte: number, radius: number, anteil: number): [number, number] {
+  const winkel = anteil * 2 * Math.PI - Math.PI / 2
+  return [mitte + radius * Math.cos(winkel), mitte + radius * Math.sin(winkel)]
+}
+
+/**
+ * Sektoren als Bogenpfade. Der Ring entsteht aus der Strichstärke, nicht aus
+ * einer Kreisringfläche — ein Bogen je Sektor genügt damit.
+ *
+ * Ausserhalb der Komponente, weil die Anteile kumuliert werden müssen und der
+ * React-Compiler Mutationen im Komponentenrumpf nicht zulässt.
+ */
+function ringPfade(
+  segmente: RingSegment[], mitte: number, radius: number,
+): { d: string; farbe: string }[] {
+  const summe = segmente.reduce((a, x) => a + x.wert, 0)
+  if (summe <= 0) return []
+  const pfade: { d: string; farbe: string }[] = []
+  let gelaufen = 0
+  for (const seg of segmente) {
+    const anteil = seg.wert / summe
+    if (anteil <= 0) continue
+    const [x0, y0] = ringPunkt(mitte, radius, gelaufen)
+    const [x1, y1] = ringPunkt(mitte, radius, gelaufen + anteil)
+    // Ein Bogen kann keinen Vollkreis beschreiben — Start und Ende fielen
+    // zusammen. Knapp darunter abschneiden, der Spalt ist unsichtbar.
+    const bis = Math.min(anteil, 0.9995)
+    pfade.push({
+      d: `M ${x0} ${y0} A ${radius} ${radius} 0 ${bis > 0.5 ? 1 : 0} 1 ${x1} ${y1}`,
+      farbe: seg.farbe,
+    })
+    gelaufen += anteil
+  }
+  return pfade
+}
+
+/**
+ * Ringdiagramm mit Legende. Die Legende trägt die Zahlen; der Ring zeigt nur
+ * die Verhältnisse, deshalb steht in ihm keine Beschriftung.
+ */
+function Ringdiagramm({
+  titel, segmente, einheit,
+}: { titel: string; segmente: RingSegment[]; einheit: string }) {
+  const echte = segmente.filter((x) => x.wert > 0)
+  const summe = echte.reduce((a, x) => a + x.wert, 0)
+  if (summe <= 0) return null
+
+  const groesse = 30           // mm, Aussenmass des Rings
+  const dicke = 6.5            // mm, Ringbreite
+  const mitte = groesse / 2
+  const radius = mitte - dicke / 2
+  const pfade = ringPfade(echte, mitte, radius)
+
+  return (
+    <View style={s.ringBlock}>
+      <Text style={s.h2}>{titel} in {einheit}</Text>
+      <View style={s.ringFlaeche}>
+        <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
+          {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
+          <Circle cx={mitte} cy={mitte} r={radius} stroke="#EFEBE8" strokeWidth={dicke} fill="none" />
+          {pfade.map((p, i) => (
+            <Path key={i} d={p.d} stroke={p.farbe} strokeWidth={dicke} fill="none" />
+          ))}
+        </Svg>
+      </View>
+      {echte.map((seg) => (
+        <View key={seg.label} style={s.legendeZeile}>
+          <View style={[s.legendeMarke, { backgroundColor: seg.farbe }]} />
+          <Text style={s.legendeLabel}>{seg.label}</Text>
+          <Text style={s.legendeWert}>{formatNumber(Math.round(seg.wert))}</Text>
+          <Text style={s.legendeAnteil}>{((seg.wert / summe) * 100).toFixed(1)} %</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+/** Wohnungsmix als Balken — die Zimmerzahlen lesen sich so als Verteilung. */
+function Wohnungsmix({ zeilen }: { zeilen: { label: string; anzahl: number }[] }) {
+  if (zeilen.length === 0) return null
+  const groesste = Math.max(...zeilen.map((z) => z.anzahl))
+  const total = zeilen.reduce((a, z) => a + z.anzahl, 0)
+  return (
+    <View style={s.ringBlock}>
+      <Text style={s.h2}>Wohnungsmix</Text>
+      {zeilen.map((z) => (
+        <View key={z.label} style={s.mixZeile}>
+          <Text style={s.mixLabel}>{z.label}</Text>
+          <View style={s.mixSpur}>
+            <View style={[s.mixBalken, { width: `${(z.anzahl / groesste) * 100}%` }]} />
+          </View>
+          <Text style={s.mixWert}>{z.anzahl}</Text>
+        </View>
+      ))}
+      <View style={s.mixZeile}>
+        <Text style={s.mixLabel}>Total</Text>
+        {/* Ohne Spur: eine leere Spur läse sich als Anteil von null. */}
+        <View style={s.mixLeer} />
+        <Text style={s.mixWert}>{total}</Text>
+      </View>
+    </View>
+  )
+}
+
+/** Nutzungs- und Wohnungsmix: zwei Ringe nebeneinander, darunter die Balken. */
+function Mixbereich({ mix }: { mix: Nutzungsmix }) {
+  const farbe = (i: number) => CHART_PALETTE[i % CHART_PALETTE.length]
+  const flaechen = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.flaeche, farbe: farbe(i) }))
+  const ertraege = mix.nutzungen.map((n, i) => ({ label: n.label, wert: n.ertrag, farbe: farbe(i) }))
+  return (
+    <>
+      <Text style={s.h1}>{mix.titel}</Text>
+      <View style={s.zweiSpalten}>
+        <View style={s.spalteEins}>
+          <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²" />
+        </View>
+        <View style={s.spalteZwei}>
+          <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF" />
+        </View>
+      </View>
+      <Wohnungsmix zeilen={mix.wohnungsmix} />
     </>
   )
 }

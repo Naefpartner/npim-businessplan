@@ -6,7 +6,8 @@ import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen } from '@/lib/kostenmiete'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
 import {
-  PHASE_LABEL, EIGENTUMSART_LABEL, isNutzungWohnen,
+  PHASE_LABEL, EIGENTUMSART_LABEL, isNutzungWohnen, effektiveWohnungCounts,
+  WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
   type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
 } from '@/types'
 import type { AuftragAnrede } from '@/lib/bericht'
@@ -188,6 +189,12 @@ export function useUebersichtDaten(
     // Fläche (Parkplätze, Garagen) rechnen nach Stück, deshalb steht die
     // Einheit in der Zelle und nicht im Spaltenkopf.
     const ertragBloecke: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }[] = []
+    // Nebenbei für den Nutzungsmix mitgeführt: dieselben Zahlen, aber über
+    // alle Eigentumsarten zusammengezogen und ohne Ertragsfilter — eine
+    // Nutzung kann Fläche beitragen, ohne Ertrag zu tragen.
+    const mixFlaeche: Record<string, number> = {}
+    const mixErtrag: Record<string, number> = {}
+    const mixReihenfolge: string[] = []
     for (const eig of ak.presentEig) {
       // Bei der Genossenschaft trägt Wohnen die Restkosten: der Mietzins ist
       // nicht erfasst, sondern fällt aus der Kostenmiete an. Über den
@@ -197,11 +204,17 @@ export function useUebersichtDaten(
         .map((d) => (eig === 'genossenschaft' && km && isNutzungWohnen(d.nutzung)
           ? { ...d, ertrag: km.proM2Jahr * d.flaecheM2 }
           : d))
-        .filter((d) => d.ertrag > 0)
-      if (detail.length === 0) continue
+      for (const d of detail) {
+        if (!(d.nutzung in mixFlaeche)) mixReihenfolge.push(d.nutzung)
+        mixFlaeche[d.nutzung] = (mixFlaeche[d.nutzung] ?? 0) + d.flaecheM2
+        mixErtrag[d.nutzung] = (mixErtrag[d.nutzung] ?? 0) + d.ertrag
+      }
+
+      const mitErtrag = detail.filter((d) => d.ertrag > 0)
+      if (mitErtrag.length === 0) continue
       const verkauf = eig === 'verkaufsobjekt'
 
-      const zeilen: TabellenZeile[] = [...detail]
+      const zeilen: TabellenZeile[] = [...mitErtrag]
         .sort((a, b) => b.ertrag - a.ertrag)
         .map((d) => {
           const nachFlaeche = d.flaecheM2 > 0
@@ -217,7 +230,7 @@ export function useUebersichtDaten(
           return { zellen: [d.nutzung, menge, ansatz, formatNumber(Math.round(d.ertrag))] }
         })
 
-      const summe = detail.reduce((a, d) => a + d.ertrag, 0)
+      const summe = mitErtrag.reduce((a, d) => a + d.ertrag, 0)
       if (zeilen.length > 1) {
         zeilen.push({ zellen: ['Total', '', '', formatNumber(Math.round(summe))], total: true })
       }
@@ -232,6 +245,41 @@ export function useUebersichtDaten(
         zeilen,
       })
     }
+
+    // ── Wohnungs- und Nutzungsmix ───────────────────────────────────────────
+    // Zimmerzahlen über alle Gebäude; ohne erfassten Mix zählt die reine
+    // Stückzahl als Wohnungen ohne Zimmerangabe.
+    const zimmer: Record<string, number> = {}
+    for (const b of ak.buildings) {
+      for (const m of b.mietflaechen) {
+        for (const [k, c] of effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)) {
+          zimmer[k] = (zimmer[k] ?? 0) + c
+        }
+      }
+    }
+    const wohnungsmix = [...WOHNUNGSMIX_KEYS, WOHNUNG_FALLBACK_KEY]
+      .filter((k) => (zimmer[k] ?? 0) > 0)
+      .map((k) => ({
+        label: k === WOHNUNG_FALLBACK_KEY
+          ? 'ohne Angabe'
+          : k === 'joker' ? 'Joker' : `${WOHNUNGSMIX_LABEL[k as keyof typeof WOHNUNGSMIX_LABEL]} Zi.`,
+        anzahl: zimmer[k],
+      }))
+
+    const nutzungen = mixReihenfolge
+      .map((n) => ({ label: n, flaeche: mixFlaeche[n], ertrag: mixErtrag[n] }))
+      .filter((n) => n.flaeche > 0 || n.ertrag > 0)
+      .sort((a, b) => b.ertrag - a.ertrag || b.flaeche - a.flaeche)
+
+    const mix = nutzungen.length > 0 ? {
+      titel: wohnungsmix.length > 0 ? 'Wohnungs- und Nutzungsmix' : 'Nutzungsmix',
+      flaechenTitel: hatVerkauf && hatMiete
+        ? 'Miet- und Verkaufsflächen' : hatVerkauf ? 'Verkaufsflächen' : 'Mietflächen',
+      ertraegeTitel: hatVerkauf && hatMiete
+        ? 'Mieterträge und Verkaufserlöse' : hatVerkauf ? 'Verkaufserlöse' : 'Mieterträge',
+      nutzungen,
+      wohnungsmix,
+    } : null
 
     // ── Wirtschaftlichkeit je Nutzungsart ───────────────────────────────────
     // Renditeobjekt → Rendite, Verkaufsobjekt → Gewinn, Genossenschaft →
@@ -289,6 +337,7 @@ export function useUebersichtDaten(
       mengen: flaechen,
       kosten,
       ertraege: ertragBloecke,
+      mix,
       wirtschaft: wirtschaftBloecke,
     }
   }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak, kostenmieteParams])
