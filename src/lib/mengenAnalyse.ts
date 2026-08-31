@@ -107,7 +107,12 @@ function zimmerLabelFromKey(key: string): string {
   if (key === 'joker') return 'Joker'
   return `${WOHNUNGSMIX_LABEL[key as keyof Wohnungsmix] ?? key} Zi`
 }
-function zimmerFromEinheit(u: BuildingMieteinheit): { zimmer: number | null; key: string; label: string } {
+/**
+ * Wohnungskategorie einer Mieteinheit. Die Zimmerzahl ist oft nicht direkt
+ * erfasst, sondern nur als Mix der Einheit — dann zählt die häufigste. Ohne
+ * beides bleibt der Sammelschlüssel.
+ */
+export function zimmerFromEinheit(u: BuildingMieteinheit): { zimmer: number | null; key: string; label: string } {
   if (u.zimmer != null && u.zimmer > 0) return { zimmer: u.zimmer, key: String(u.zimmer), label: `${u.zimmer} Zi` }
   // Sonst aus dem Mix der Einheit die dominante Zimmerzahl ableiten.
   const counts = effektiveWohnungCounts('Wohnen', u.wohnungsmix, u.anzahl)

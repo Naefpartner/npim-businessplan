@@ -5,7 +5,9 @@ import { useWbfZh } from '@/hooks/useWbfZh'
 import {
   berechneKostenmiete, basisFromErgebnis, sammleKostenmieteMengen,
 } from '@/lib/kostenmiete'
-import { buildUnits, wohnungsmieten, wohnungsmixKey } from '@/lib/mengenAnalyse'
+import {
+  buildUnits, wohnungsmieten, wohnungsmixKey, zimmerFromEinheit,
+} from '@/lib/mengenAnalyse'
 import { formatNumber } from '@/lib/utils'
 import {
   EIGENTUMSART_COLOR, USE_TYPE_COLOR_5, USE_TYPE_COLOR_3, USE_TYPE_COLOR_1,
@@ -239,11 +241,12 @@ function hausBlock(
         .filter(Boolean).join(' · ')
       // Auch die Einheit greift auf die Kostenmiete zurück, wenn sie selbst
       // keinen Mietzins trägt — über ihre Zimmerzahl.
+      // Die Kategorie kommt aus derselben Ableitung wie in der Mengenanalyse:
+      // erfasste Zimmerzahl, sonst der Mix der Einheit, sonst der Sammelwert.
       const eigen = ertragVon(e, verkauf)
       const eErtrag = eigen > 0 || !jeTyp
         ? eigen
-        : (jeTyp.get(wohnungsmixKey(e.zimmer != null ? e.zimmer.toFixed(1) : '')) ?? 0)
-          * e.anzahl * 12
+        : (jeTyp.get(wohnungsmixKey(zimmerFromEinheit(e).key)) ?? 0) * e.anzahl * 12
       zeilen.push({
         einzug: true,
         zellen: [
