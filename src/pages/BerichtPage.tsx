@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useBericht } from '@/contexts/BerichtContext'
 import { VariantDataProvider } from '@/contexts/VariantDataContext'
 import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
@@ -12,7 +13,7 @@ import { fetchVariant } from '@/hooks/useVariants'
 import { supabase } from '@/lib/supabase'
 // Nur der Typ statisch — die Komponenten ziehen @react-pdf nach sich und
 // werden deshalb erst hier auf der Seite geladen.
-import type { BerichtDaten } from '@/components/bericht/BerichtDokument'
+import { berichtSeitenplan, type BerichtDaten } from '@/components/bericht/BerichtDokument'
 import {
   PHASE_LABEL, projectAddressLine,
   type Project, type ProjectVariant, type Customer, type Parcel, type ExistingBuilding,
@@ -118,6 +119,15 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
       uebersicht, mengen])
 
+  // ── Sprungnavigation ───────────────────────────────────────────────────────
+  // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.
+  const kapitelSprung = useMemo(() => (daten ? berichtSeitenplan(daten) : []), [daten])
+  const [zielSeite, setZielSeite] = useState(1)
+
+  // Ändert sich die Kapitelauswahl, verschieben sich die Seitenzahlen — die
+  // gemerkte Zielseite passt dann nicht mehr.
+  useEffect(() => { setZielSeite(1) }, [druckKapitel, umfang])
+
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)
   const [fehler, setFehler] = useState<string | null>(null)
@@ -177,6 +187,28 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
         </div>
       </header>
 
+      {kapitelSprung.length > 0 && (
+        <nav className="-mt-1 flex flex-wrap items-center gap-1">
+          {kapitelSprung.map((k) => (
+            <button
+              key={k.key}
+              type="button"
+              onClick={() => setZielSeite(k.seite)}
+              title={`Seite ${k.seite}`}
+              className={cn(
+                'rounded-lg px-2.5 py-1 text-xs font-medium transition',
+                zielSeite === k.seite
+                  ? 'bg-[#8B6956] text-white'
+                  : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50',
+              )}
+            >
+              {k.label}
+              <span className="ml-1.5 opacity-60">{k.seite}</span>
+            </button>
+          ))}
+        </nav>
+      )}
+
       <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">
         {laedt || !daten ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-500">
@@ -188,7 +220,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
               <Loader2 className="h-4 w-4 animate-spin" /> Vorschau wird aufgebaut…
             </div>
           }>
-            <BerichtVorschau daten={daten} />
+            <BerichtVorschau daten={daten} seite={zielSeite} />
           </Suspense>
         )}
       </div>

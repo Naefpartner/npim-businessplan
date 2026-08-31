@@ -692,6 +692,23 @@ function seitenPlan(kapitel: BerichtKapitel[], daten: BerichtDaten): Seitenplan 
   return plan
 }
 
+/**
+ * Kapitel mit ihrer ersten Seite — Grundlage der Sprungnavigation über der
+ * Vorschau. Titelblatt und Inhaltsverzeichnis stehen fest auf 1 und 2.
+ */
+export function berichtSeitenplan(
+  daten: BerichtDaten,
+): { key: string; label: string; seite: number }[] {
+  const fach = kapitelFuer(daten.kapitel).filter((k) => !k.fix)
+  return [
+    { key: 'titelblatt', label: 'Titelblatt', seite: 1 },
+    { key: 'inhalt', label: 'Inhalt', seite: 2 },
+    ...seitenPlan(fach, daten).map((e) => ({
+      key: e.kapitel.key, label: e.kapitel.label, seite: e.seite,
+    })),
+  ]
+}
+
 /** Gesamtzahl der Seiten des Berichts. */
 function seitenTotalVon(plan: Seitenplan, daten: BerichtDaten): number {
   const letzte = plan[plan.length - 1]
