@@ -365,15 +365,19 @@ const s = StyleSheet.create({
    * den Text darunter, an dem sich die Legende ausrichtet.
    */
   ringFlaeche: { marginBottom: mm(2.5), alignItems: 'center' },
+  /**
+   * Auf der Grundlinie ausgerichtet, nicht mittig: der Anteil steht kleiner
+   * als der Wert und sässe sonst zu hoch.
+   */
   legendeZeile: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     paddingBottom: mm(0.8),
     paddingLeft: mm(EINZUG),
   },
   legendeMarke: { width: mm(2.2), height: mm(2.2), marginRight: mm(1.8), borderRadius: mm(1.1) },
   legendeLabel: { flex: 1, paddingRight: mm(2) },
-  legendeWert: { textAlign: 'right' },
+  legendeWert: { textAlign: 'right', paddingRight: mm(3) },
   /** Der Anteil steht kleiner als der Wert — er ergänzt ihn, statt mit ihm zu
    *  konkurrieren. */
   legendeAnteil: {
