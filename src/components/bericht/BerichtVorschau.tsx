@@ -13,9 +13,11 @@ import { BerichtDokument, type BerichtDaten } from '@/components/bericht/Bericht
  * bekommt das iframe einen `key` aus URL, Seite und Vergrösserung — es baut
  * sich neu auf, ohne dass das PDF neu gerendert werden müsste.
  *
- * Die Vergrösserung läuft über denselben Anker (`#zoom=`). So wächst nur das
- * Dokument; Sidebar und Kopfzeile bleiben, wo sie sind — anders als beim Zoom
- * des Browsers, der die ganze Anwendung skaliert.
+ * Vergrössert wird über die Grösse des iframes, nicht über den Anker `#zoom=`:
+ * den ignoriert der eingebettete Betrachter. Mit `view=FitH` füllt die Seite
+ * immer die Breite des iframes — ein breiteres iframe zeigt sie also grösser,
+ * und zwar neu gerendert statt hochskaliert. Der Rahmen darum scrollt. Sidebar
+ * und Kopfzeile bleiben dabei, wo sie sind, anders als beim Zoom des Browsers.
  */
 export default function BerichtVorschau({
   daten, seite, zoom,
@@ -63,12 +65,15 @@ export default function BerichtVorschau({
       </div>
     )
   }
+  const groesse = zoom === 'breite' ? '100%' : `${zoom}%`
   return (
-    <iframe
-      key={`${url}#${seite}#${zoom}`}
-      title="Berichtsvorschau"
-      src={`${url}#page=${seite}&${zoom === 'breite' ? 'view=FitH' : `zoom=${zoom}`}`}
-      style={{ width: '100%', height: '100%', border: 'none' }}
-    />
+    <div className="h-full w-full overflow-auto">
+      <iframe
+        key={`${url}#${seite}`}
+        title="Berichtsvorschau"
+        src={`${url}#page=${seite}&view=FitH`}
+        style={{ width: groesse, height: groesse, border: 'none', display: 'block' }}
+      />
+    </div>
   )
 }
