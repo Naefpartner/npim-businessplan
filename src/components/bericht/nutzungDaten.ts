@@ -9,7 +9,7 @@ function m2(v: number | null | undefined): string {
   return v != null ? formatNumber(Math.round(v)) : '—'
 }
 
-/** Ziffer mit drei Stellen — AZ, BMZ und FFZ werden so fein festgelegt. */
+/** Ziffer mit drei Stellen — AZ und FFZ werden so fein festgelegt. */
 function ziffer(v: number | null | undefined): string {
   return v != null ? v.toFixed(3) : '—'
 }
@@ -17,6 +17,11 @@ function ziffer(v: number | null | undefined): string {
 /** Die Überbauungsziffer kommt mit zwei Stellen aus. */
 function ziffer2(v: number | null | undefined): string {
   return v != null ? v.toFixed(2) : '—'
+}
+
+/** Die Baumassenziffer kommt mit einer Stelle aus. */
+function ziffer1(v: number | null | undefined): string {
+  return v != null ? v.toFixed(1) : '—'
 }
 
 function pct(v: number | null | undefined): string {
@@ -65,7 +70,7 @@ export function useNutzungDaten(
       return {
         zellen: [
           z,
-          ziffer(r?.az), ziffer(r?.bmz), ziffer2(r?.uez), ziffer(r?.ffz),
+          ziffer(r?.az), ziffer1(r?.bmz), ziffer2(r?.uez), ziffer(r?.ffz),
           r?.vollgeschosse != null ? String(r.vollgeschosse) : '—',
           geschossZahl(r?.dg),
           geschossZahl(r?.anrech_ug),
@@ -123,7 +128,7 @@ export function useNutzungDaten(
         kopf: ['Schritt', 'm² / m³'],
         zeilen: [
           ...a.bmRows.map((r) => ({
-            zellen: [`Parzelle ${r.parcel_number} · BMZ ${ziffer(r.bmz)} × ${m2(r.agsf)} m²`,
+            zellen: [`Parzelle ${r.parcel_number} · BMZ ${ziffer1(r.bmz)} × ${m2(r.agsf)} m²`,
               m2(r.baumasse)],
           })),
           { zellen: ['Baumasse m³', m2(a.totalBaumasse)] },
