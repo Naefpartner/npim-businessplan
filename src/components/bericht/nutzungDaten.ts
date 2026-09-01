@@ -9,19 +9,26 @@ function m2(v: number | null | undefined): string {
   return v != null ? formatNumber(Math.round(v)) : '—'
 }
 
-/** Ziffer mit drei Stellen — AZ, BMZ, ÜZ und FFZ sind feine Werte. */
+/** Ziffer mit drei Stellen — AZ, BMZ und FFZ werden so fein festgelegt. */
 function ziffer(v: number | null | undefined): string {
   return v != null ? v.toFixed(3) : '—'
+}
+
+/** Die Überbauungsziffer kommt mit zwei Stellen aus. */
+function ziffer2(v: number | null | undefined): string {
+  return v != null ? v.toFixed(2) : '—'
 }
 
 function pct(v: number | null | undefined): string {
   return v != null ? `${formatNumber(v)} %` : '—'
 }
 
-/** Geschosszahl und Anrechnung als eine Angabe, eng gesetzt: die Spalte ist
- *  schmal, und mit Leerzeichen bräche sie um. */
-function geschossAnteil(zahl: number | null | undefined, anteil: number | null | undefined): string {
-  return zahl != null ? `${formatNumber(zahl)}/${anteil != null ? formatNumber(anteil) : '—'}%` : '—'
+/**
+ * Geschosszahl für DG und UG. Der Anrechnungsfaktor steht nicht hier, sondern
+ * im AZ-Weg, wo er auch angewendet wird — dort ist er nachvollziehbar.
+ */
+function geschossZahl(zahl: number | null | undefined): string {
+  return zahl != null ? formatNumber(zahl) : '—'
 }
 
 /**
@@ -58,10 +65,10 @@ export function useNutzungDaten(
       return {
         zellen: [
           z,
-          ziffer(r?.az), ziffer(r?.bmz), ziffer(r?.uez), ziffer(r?.ffz),
+          ziffer(r?.az), ziffer(r?.bmz), ziffer2(r?.uez), ziffer(r?.ffz),
           r?.vollgeschosse != null ? String(r.vollgeschosse) : '—',
-          geschossAnteil(r?.dg, r?.dg_pct),
-          geschossAnteil(r?.anrech_ug, r?.anrech_ug_pct),
+          geschossZahl(r?.dg),
+          geschossZahl(r?.anrech_ug),
         ],
       }
     })
@@ -137,7 +144,7 @@ export function useNutzungDaten(
         kopf: ['Schritt', 'm²'],
         zeilen: [
           ...a.uzZoneRows.map((r) => ({
-            zellen: [`${r.zone_type} · ÜZ ${ziffer(r.ziffer)} × ${m2(r.agsf)} m² × ${r.vg ?? '—'} VG`,
+            zellen: [`${r.zone_type} · ÜZ ${ziffer2(r.ziffer)} × ${m2(r.agsf)} m² × ${r.vg ?? '—'} VG`,
               m2(r.totalGf)],
           })),
           { zellen: ['Geschossfläche total', m2(a.totalGfUZ)] },

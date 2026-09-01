@@ -1722,8 +1722,10 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
                 kopf={n.zonen.kopf}
                 // Anteile in Millimetern gedacht: die Ziffernspalten tragen
                 // nur fünf Zeichen, Zone und die Geschossangaben mehr.
-                breiten={[13, 9.5, 10, 9.5, 10, 6.5, 11, 10.5]}
-                spaltenAbstand={1.6}
+                // DG und UG tragen nur noch die Geschosszahl, die Ziffern
+                // brauchen den Platz — dadurch reicht wieder mehr Abstand.
+                breiten={[15, 11, 11.5, 10, 11.5, 7.5, 7, 6]}
+                spaltenAbstand={2.4}
                 zeilen={n.zonen.zeilen}
               />
             </View>
