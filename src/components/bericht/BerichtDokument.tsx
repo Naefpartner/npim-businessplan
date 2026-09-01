@@ -1749,16 +1749,20 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
             </View>
           ))}
 
-          <Feldtabelle
-            titel="Massgebende Vermietungsfläche"
-            kopf="Kleinster der Wege"
-            labelBreite={60}
-            einheitBreite={11.5}
-            felder={[
-              { label: n.massgebendWeg ?? 'kein Weg vollständig', einheit: 'm²',
-                wert: n.massgebend != null ? formatNumber(Math.round(n.massgebend)) : '—' },
-            ]}
-          />
+          {/* Nur bei mehreren Wegen: dann ist der kleinste massgebend. Steht
+              nur einer da, ist seine Schlusszeile bereits das Ergebnis. */}
+          {n.wege.length > 1 && (
+            <Feldtabelle
+              titel="Massgebende Vermietungsfläche"
+              kopf="Kleinster der Wege"
+              labelBreite={60}
+              einheitBreite={11.5}
+              felder={[
+                { label: n.massgebendWeg ?? 'kein Weg vollständig', einheit: 'm²',
+                  wert: n.massgebend != null ? formatNumber(Math.round(n.massgebend)) : '—' },
+              ]}
+            />
+          )}
         </>
       )}
     </InhaltsSeite>

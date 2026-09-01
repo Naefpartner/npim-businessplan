@@ -111,7 +111,7 @@ export function useNutzungDaten(
       azZeilen.push(
         { zellen: ['Total aBGF', m2(a.resultAZwithUG)] },
         { zellen: ['VMF (VKF) / aBGF', pct(project.vmf_az_anrechenbar_pct)] },
-        { total: true, zellen: ['Total VMF (VKF)', m2(a.vmfMaxAZ)] },
+        { zellen: ['Total VMF (VKF)', m2(a.vmfMaxAZ)] },
       )
       wege.push({
         // Der Wert wechselt die Einheit — Fläche, Geschosszahl, Anteil.
@@ -183,6 +183,14 @@ export function useNutzungDaten(
     }
 
     if (wege.length === 0) return undefined
+
+    // Die letzte Zeile jedes Weges ist sein Ergebnis und wird ausgezeichnet.
+    // Bei nur einem Weg trägt sie zugleich das Ergebnis der Seite — der Block
+    // „Massgebende Vermietungsfläche" entfällt dann.
+    for (const w of wege) {
+      const letzte = w.zeilen[w.zeilen.length - 1]
+      if (letzte) letzte.total = true
+    }
 
     return {
       grundlagen: {
