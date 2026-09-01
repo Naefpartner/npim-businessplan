@@ -5,6 +5,7 @@ import { fetchProject } from '@/hooks/useProjects'
 import { useParcels, useZoneRegulations } from '@/hooks/useStammdaten'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Project, ZoneRegulation } from '@/types'
+import { berechneAusnutzung } from '@/lib/ausnutzung'
 import { cn } from '@/lib/utils'
 
 // =============================================================================
@@ -260,164 +261,17 @@ export function AusnutzungTab({ projectId }: { projectId: string }) {
   }
 
   // ── Eindeutige Zonen aus Parzellen ───────────────────────────────────
-  const uniqueZones = useMemo(() => {
-    const set = new Set<string>()
-    parcels.forEach((p) => { if (p.zone) set.add(p.zone) })
-    return Array.from(set).sort()
-  }, [parcels])
-
-  const regByZone = useMemo(
-    () => new Map(regs.map((r) => [r.zone_type, r])),
-    [regs],
-  )
-
-  // ── Kenngrößen ───────────────────────────────────────────────────────
-  const gsf  = parcels.reduce((s, p) => s + (p.flaeche_m2 ?? 0), 0) || null
-  const agsf = parcels.reduce((s, p) => s + (p.agsf_m2 ?? 0), 0) || null
-  const uebertrag = project?.vmf_ausnuetzungsuebertragung_m2 ?? null
-  const totalAgsf = agsf != null || uebertrag != null
-    ? (agsf ?? 0) + (uebertrag ?? 0)
-    : null
-
-  const hasAZ = regs.some((r) => r.az != null)
-  const hasBM = regs.some((r) => r.bmz != null)
-  const hasUZ = regs.some((r) => r.uez != null)
-  const hasFF = regs.some((r) => r.ffz != null)
-
-  // ── AZ: Σ (AZ × aGSF) pro Parzelle ──────────────────────────────────
-  const azRows = parcels
-    .filter((p) => p.zone)
-    .map((p) => {
-      const reg = regByZone.get(p.zone!)
-      return {
-        parcel_number: p.parzelle_nummer,
-        zone_type:     p.zone!,
-        az:            reg?.az ?? null,
-        agsf:          p.agsf_m2 ?? null,
-        contribution:  reg?.az != null && p.agsf_m2 != null ? reg.az * p.agsf_m2 : null,
-      }
-    })
-  const resultAZ: number | null = azRows.every((r) => r.contribution == null)
-    ? null
-    : azRows.reduce((s, r) => s + (r.contribution ?? 0), 0)
-
-  // aBGF pro Vollgeschoss + UG/DG
-  const azPerFloorRows = Array.from(
-    azRows.reduce((map, r) => {
-      const cur = map.get(r.zone_type) ?? { zone_type: r.zone_type, abgf: 0, has: false }
-      cur.abgf += r.contribution ?? 0
-      cur.has = cur.has || r.contribution != null
-      map.set(r.zone_type, cur)
-      return map
-    }, new Map<string, { zone_type: string; abgf: number; has: boolean }>()),
-  ).map(([, v]) => {
-    const reg = regByZone.get(v.zone_type)
-    const vg = reg?.vollgeschosse ?? null
-    const abgfPerFloor = v.has && vg != null && vg > 0 ? v.abgf / vg : null
-    const ugFlr  = reg?.anrech_ug ?? null
-    const ugPct  = reg?.anrech_ug_pct ?? null
-    const abgfUG = abgfPerFloor != null && ugFlr != null && ugPct != null
-      ? abgfPerFloor * ugFlr * (ugPct / 100) : null
-    const dgFlr  = reg?.dg ?? null
-    const dgPct  = reg?.dg_pct ?? null
-    const abgfDG = abgfPerFloor != null && dgFlr != null && dgPct != null
-      ? abgfPerFloor * dgFlr * (dgPct / 100) : null
-    return { zone_type: v.zone_type, abgf: v.has ? v.abgf : null, vg, abgfPerFloor, ugFlr, ugPct, abgfUG, dgFlr, dgPct, abgfDG }
-  })
-
-  const totalAbgfUg = azPerFloorRows.some((r) => r.abgfUG != null)
-    ? azPerFloorRows.reduce((s, r) => s + (r.abgfUG ?? 0), 0) : null
-  const totalAbgfDg = azPerFloorRows.some((r) => r.abgfDG != null)
-    ? azPerFloorRows.reduce((s, r) => s + (r.abgfDG ?? 0), 0) : null
-  const resultAZwithUG = resultAZ != null || totalAbgfUg != null || totalAbgfDg != null
-    ? (resultAZ ?? 0) + (totalAbgfUg ?? 0) + (totalAbgfDg ?? 0)
-    : null
-  const vmfMaxAZ = resultAZwithUG != null && project?.vmf_az_anrechenbar_pct != null
-    ? resultAZwithUG * (project.vmf_az_anrechenbar_pct / 100)
-    : null
-
-  // ── BM: Σ (BMZ × aGSF) ÷ Ø Geschosshöhe ──────────────────────────────
-  const bmRows = parcels
-    .filter((p) => p.zone)
-    .map((p) => {
-      const reg = regByZone.get(p.zone!)
-      return {
-        parcel_number: p.parzelle_nummer,
-        zone_type:     p.zone!,
-        bmz:           reg?.bmz ?? null,
-        agsf:          p.agsf_m2 ?? null,
-        baumasse:      reg?.bmz != null && p.agsf_m2 != null ? reg.bmz * p.agsf_m2 : null,
-      }
-    })
-  const totalBaumasse = bmRows.every((r) => r.baumasse == null)
-    ? null
-    : bmRows.reduce((s, r) => s + (r.baumasse ?? 0), 0)
-  const korrigierteBaumasse = totalBaumasse != null && project?.vmf_bm_gelaendekorrektur_pct != null
-    ? totalBaumasse * (project.vmf_bm_gelaendekorrektur_pct / 100)
-    : totalBaumasse
-  const geschossflaecheBM = korrigierteBaumasse != null && project?.vmf_bm_geschosshoehe_m != null && project.vmf_bm_geschosshoehe_m > 0
-    ? korrigierteBaumasse / project.vmf_bm_geschosshoehe_m
-    : null
-  const vmfMaxBM = geschossflaecheBM != null && project?.vmf_bm_vmf_gf_pct != null
-    ? geschossflaecheBM * (project.vmf_bm_vmf_gf_pct / 100)
-    : null
-
-  // ── ÜZ: aGSF × ÜZ × VG (+DG) × % VMF/GF ──────────────────────────────
-  const uzZoneRows = (() => {
-    const agsfByZone = new Map<string, number>()
-    parcels.filter((p) => p.zone && p.agsf_m2 != null).forEach((p) => {
-      agsfByZone.set(p.zone!, (agsfByZone.get(p.zone!) ?? 0) + p.agsf_m2!)
-    })
-    return uniqueZones.map((zone) => {
-      const reg = regByZone.get(zone)
-      const uez = reg?.uez ?? null
-      const ag  = agsfByZone.get(zone) ?? null
-      const maxGfVg = uez != null && ag != null ? uez * ag : null
-      const vg = reg?.vollgeschosse ?? null
-      const gfVg = maxGfVg != null && vg != null ? maxGfVg * vg : null
-      const dg = reg?.dg ?? null
-      const dgPct = reg?.dg_pct ?? null
-      const gfDg = maxGfVg != null && dg != null && dgPct != null
-        ? maxGfVg * dg * (dgPct / 100) : null
-      const totalGf = gfVg != null || gfDg != null ? (gfVg ?? 0) + (gfDg ?? 0) : null
-      return { zone_type: zone, uez, agsf: ag, maxGfVg, vg, gfVg, dg, dgPct, gfDg, totalGf }
-    })
-  })()
-  const totalGfUZ = uzZoneRows.every((r) => r.totalGf == null)
-    ? null : uzZoneRows.reduce((s, r) => s + (r.totalGf ?? 0), 0)
-  const vmfMaxUZ = totalGfUZ != null && project?.vmf_uz_vmf_gf_pct != null
-    ? totalGfUZ * (project.vmf_uz_vmf_gf_pct / 100)
-    : null
-
-  // ── FF: (1 − FFZ) × aGSF × VG (+DG) × % VMF/GF ───────────────────────
-  const ffZoneRows = (() => {
-    const agsfByZone = new Map<string, number>()
-    parcels.filter((p) => p.zone && p.agsf_m2 != null).forEach((p) => {
-      agsfByZone.set(p.zone!, (agsfByZone.get(p.zone!) ?? 0) + p.agsf_m2!)
-    })
-    return uniqueZones.map((zone) => {
-      const reg = regByZone.get(zone)
-      const ffz = reg?.ffz ?? null
-      const ag  = agsfByZone.get(zone) ?? null
-      const maxGfVg = ffz != null && ag != null ? (1 - ffz) * ag : null
-      const vg = reg?.vollgeschosse ?? null
-      const gfVg = maxGfVg != null && vg != null ? maxGfVg * vg : null
-      const dg = reg?.dg ?? null
-      const dgPct = reg?.dg_pct ?? null
-      const gfDg = maxGfVg != null && dg != null && dgPct != null
-        ? maxGfVg * dg * (dgPct / 100) : null
-      const totalGf = gfVg != null || gfDg != null ? (gfVg ?? 0) + (gfDg ?? 0) : null
-      return { zone_type: zone, ffz, agsf: ag, maxGfVg, vg, gfVg, dg, dgPct, gfDg, totalGf }
-    })
-  })()
-  const totalGfFF = ffZoneRows.every((r) => r.totalGf == null)
-    ? null : ffZoneRows.reduce((s, r) => s + (r.totalGf ?? 0), 0)
-  const vmfMaxFF = totalGfFF != null && project?.vmf_ff_vmf_gf_pct != null
-    ? totalGfFF * (project.vmf_ff_vmf_gf_pct / 100)
-    : null
-
-  const results = [vmfMaxAZ, vmfMaxBM, vmfMaxUZ, vmfMaxFF].filter((r): r is number => r != null)
-  const vmfMaxCalc = results.length > 0 ? Math.min(...results) : null
+  // Die ganze Rechnung steht als reine Funktion in lib/ausnutzung — der
+  // Bericht zeigt damit garantiert dieselben Zahlen wie dieser Reiter.
+  const {
+    uniqueZones, regByZone, gsf, agsf, uebertrag, totalAgsf,
+    hasAZ, hasBM, hasUZ, hasFF,
+    azRows, azPerFloorRows, resultAZwithUG, vmfMaxAZ,
+    bmRows, totalBaumasse, korrigierteBaumasse, geschossflaecheBM, vmfMaxBM,
+    uzZoneRows, totalGfUZ, vmfMaxUZ,
+    ffZoneRows, totalGfFF, vmfMaxFF,
+    vmfMaxCalc,
+  } = useMemo(() => berechneAusnutzung(parcels, regs, project), [parcels, regs, project])
   const minVal = vmfMaxCalc
 
   if (parcelsLoading || regsLoading || !project) {
@@ -731,7 +585,7 @@ export function AusnutzungTab({ projectId }: { projectId: string }) {
                 {uzZoneRows.map((r, i) => (
                   <div key={i} style={{ gridTemplateColumns: '1fr 2rem 4rem 3rem 4rem 4rem' }} className="grid gap-x-2 border-t border-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
                     <span>{r.zone_type}</span>
-                    <span className="text-right tabular-nums">{r.uez != null ? fmtDec(r.uez) : <span className="text-slate-300">–</span>}</span>
+                    <span className="text-right tabular-nums">{r.ziffer != null ? fmtDec(r.ziffer) : <span className="text-slate-300">–</span>}</span>
                     <span className="text-right tabular-nums">{r.agsf != null ? fmt(r.agsf) : <span className="text-slate-300">–</span>}</span>
                     <span className="text-right tabular-nums">{r.vg ?? <span className="text-slate-300">–</span>}</span>
                     <span className="text-right tabular-nums">{r.maxGfVg != null ? fmt(r.maxGfVg) : <span className="text-slate-300">–</span>}</span>
@@ -797,7 +651,7 @@ export function AusnutzungTab({ projectId }: { projectId: string }) {
                 {ffZoneRows.map((r, i) => (
                   <div key={i} style={{ gridTemplateColumns: '1fr 2rem 4rem 3rem 4rem 4rem' }} className="grid gap-x-2 border-t border-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
                     <span>{r.zone_type}</span>
-                    <span className="text-right tabular-nums">{r.ffz != null ? fmtDec(r.ffz) : <span className="text-slate-300">–</span>}</span>
+                    <span className="text-right tabular-nums">{r.ziffer != null ? fmtDec(r.ziffer) : <span className="text-slate-300">–</span>}</span>
                     <span className="text-right tabular-nums">{r.agsf != null ? fmt(r.agsf) : <span className="text-slate-300">–</span>}</span>
                     <span className="text-right tabular-nums">{r.vg ?? <span className="text-slate-300">–</span>}</span>
                     <span className="text-right tabular-nums">{r.maxGfVg != null ? fmt(r.maxGfVg) : <span className="text-slate-300">–</span>}</span>

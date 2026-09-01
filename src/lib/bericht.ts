@@ -57,7 +57,9 @@ export const BERICHT_KAPITEL: BerichtKapitel[] = [
   { key: 'titelblatt',        label: 'Titelblatt',                beschrieb: 'Projektbild, Auftraggeberin, Datum', fix: true },
   { key: 'inhalt',            label: 'Inhaltsverzeichnis',        beschrieb: 'Automatisch aus den gewählten Kapiteln', fix: true },
   { key: 'projektuebersicht', label: 'Projektübersicht',          beschrieb: 'Eckdaten, Adresse, Phase, Kunde' },
-  { key: 'stammdaten',        label: 'Stammdaten',                beschrieb: 'Parzellen, Bestand, Baurechte' },
+  // Schlüssel bleibt 'stammdaten': gespeicherte Vorlagen (Migration 063)
+  // führen ihn, das Kapitel hat nur einen neuen Inhalt bekommen.
+  { key: 'stammdaten',        label: 'Nutzungsberechnung',        beschrieb: 'Ausnutzung nach AZ, BM, ÜZ und FFZ' },
   { key: 'mengengeruest',     label: 'Mengen und Erträge',        beschrieb: 'Gebäude, Mietflächen, Mietzinse' },
   { key: 'mengenanalyse',     label: 'Mengen- und Mietzinsanalyse', beschrieb: 'Mietspiegel, Kennzahlen, Preisanalyse' },
   { key: 'anlagekosten',      label: 'Anlagekosten',              beschrieb: 'Kostenberechnung der gewählten Methode', format: 'a3' },

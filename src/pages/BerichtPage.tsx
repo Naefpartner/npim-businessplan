@@ -7,6 +7,7 @@ import { useBericht } from '@/contexts/BerichtContext'
 import { VariantDataProvider } from '@/contexts/VariantDataContext'
 import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
 import { useMengenDaten } from '@/components/bericht/mengenDaten'
+import { useNutzungDaten } from '@/components/bericht/nutzungDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
 import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
 import { fetchVariant } from '@/hooks/useVariants'
@@ -17,6 +18,7 @@ import { berichtSeitenplan, type BerichtDaten } from '@/components/bericht/Beric
 import {
   PHASE_LABEL, projectAddressLine,
   type Project, type ProjectVariant, type Customer, type Parcel, type ExistingBuilding,
+  type ZoneRegulation,
 } from '@/types'
 
 /**
@@ -63,6 +65,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const [kunde, setKunde] = useState<Customer | null>(null)
   const [variant, setVariant] = useState<ProjectVariant | null>(null)
   const [parzellen, setParzellen] = useState<Parcel[]>([])
+  const [zonen, setZonen] = useState<ZoneRegulation[]>([])
   const [bestand, setBestand] = useState<ExistingBuilding[]>([])
   const [laedt, setLaedt] = useState(true)
 
@@ -70,12 +73,14 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
     let abgebrochen = false
     async function laden() {
       if (!projektId || !variantId) return
-      const [p, v, pz, eb] = await Promise.all([
+      const [p, v, pz, eb, zr] = await Promise.all([
         // Kunde vollständig, weil das Titelblatt Adresse und Ort braucht.
         supabase.from('projects').select('*, customer:customers(*)').eq('id', projektId).maybeSingle(),
         fetchVariant(variantId),
         supabase.from('parcels').select('*').eq('project_id', projektId),
         supabase.from('existing_buildings').select('*').eq('project_id', projektId),
+        // Zonenvorschriften für die Nutzungsberechnung.
+        supabase.from('zone_regulations').select('*').eq('project_id', projektId),
       ])
       if (abgebrochen) return
       const projekt = (p.data as (Project & { customer?: Customer | null }) | null) ?? null
@@ -84,6 +89,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       setVariant(v)
       setParzellen((pz.data as Parcel[] | null) ?? [])
       setBestand((eb.data as ExistingBuilding[] | null) ?? [])
+      setZonen((zr.data as ZoneRegulation[] | null) ?? [])
       setLaedt(false)
     }
     void laden()
@@ -94,6 +100,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const adresse = project ? projectAddressLine(project) : null
 
   const mengen = useMengenDaten(variantId, umfang)
+  const nutzung = useNutzungDaten(project, parzellen, zonen)
 
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null, kunde, anrede)
@@ -115,9 +122,10 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       etappenUmfang: umfang,
       uebersicht,
       mengen,
+      nutzung,
     }
   }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
-      uebersicht, mengen])
+      uebersicht, mengen, nutzung])
 
   // ── Sprungnavigation ───────────────────────────────────────────────────────
   // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.

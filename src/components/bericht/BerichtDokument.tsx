@@ -37,6 +37,21 @@ export interface BerichtDaten {
   uebersicht?: UebersichtDaten
   /** Inhalt des Kapitels „Mengen und Erträge"; fehlt ohne erfasste Gebäude. */
   mengen?: MengenDaten
+  /** Inhalt des Kapitels „Nutzungsberechnung"; fehlt ohne Zonen. */
+  nutzung?: NutzungDaten
+}
+
+/**
+ * Kapitel „Nutzungsberechnung": die vier Wege zur höchstzulässigen
+ * Vermietungsfläche nebeneinander, dazu Grundlagen und Zonenvorschriften.
+ */
+export interface NutzungDaten {
+  grundlagen: { kopf: string[]; zeilen: TabellenZeile[] }
+  zonen: { kopf: string[]; zeilen: TabellenZeile[] }
+  wege: { titel: string; kopf: string[]; zeilen: TabellenZeile[]; ergebnis: number | null }[]
+  /** Kleinster der Wege — er begrenzt das Projekt. */
+  massgebend: number | null
+  massgebendWeg: string | null
 }
 
 /** Ein Block mit Farbe der Eigentumsart — Grundlage der Mengenblätter. */
@@ -427,6 +442,9 @@ const s = StyleSheet.create({
    */
   spalteEins: { flexGrow: 0.85, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
   spalteZwei: { flexGrow: 1.3, flexShrink: 1, flexBasis: '0%' },
+  /** Zwei gleich breite Spalten — für Blöcke ohne unterschiedlichen Bedarf. */
+  spalteHalbLinks: { flexGrow: 1, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
+  spalteHalbRechts: { flexGrow: 1, flexShrink: 1, flexBasis: '0%' },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
 
   // ── Ringdiagramme und Mixbalken ───────────────────────────────────────────
@@ -1668,6 +1686,77 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   return <>{seiten}</>
 }
 
+/**
+ * Kapitel „Nutzungsberechnung" auf einer Seite: Grundlagen und Zonen oben,
+ * darunter die vier Wege in zwei Spalten, zuletzt der massgebende Wert.
+ */
+function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
+  const n = daten.nutzung
+  return (
+    <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+      <Text style={s.h1}>Nutzungsberechnung</Text>
+      {!n ? (
+        <Text style={s.hinweis}>
+          Für dieses Projekt sind keine Bauzonen mit Ausnutzungsziffern erfasst.
+        </Text>
+      ) : (
+        <>
+          <View style={s.zweiSpalten}>
+            <View style={s.spalteEins}>
+              <Datentabelle
+                titel="Grundstücke"
+                kopf={n.grundlagen.kopf}
+                breiten={[1.5, 1.2, 1.1, 1.1]}
+                linksBis={1}
+                zeilen={n.grundlagen.zeilen}
+              />
+            </View>
+            <View style={s.spalteZwei}>
+              <Datentabelle
+                titel="Zonenvorschriften"
+                kopf={n.zonen.kopf}
+                // Anteile in Millimetern gedacht: die Ziffernspalten tragen
+                // nur fünf Zeichen, Zone und die Geschossangaben mehr.
+                breiten={[15, 11.5, 11.5, 11.5, 11.5, 8, 14, 13]}
+                zeilen={n.zonen.zeilen}
+              />
+            </View>
+          </View>
+
+          {/* Die Wege paarweise nebeneinander — vier passen so auf die Seite. */}
+          {Array.from({ length: Math.ceil(n.wege.length / 2) }, (_, r) => (
+            <View key={r} style={s.zweiSpalten}>
+              {[n.wege[r * 2], n.wege[r * 2 + 1]].map((w, i) => (
+                <View key={i} style={i === 0 ? s.spalteHalbLinks : s.spalteHalbRechts}>
+                  {w && (
+                    <Datentabelle
+                      titel={w.titel}
+                      kopf={w.kopf}
+                      breiten={[3, 1.2]}
+                      zeilen={w.zeilen}
+                    />
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+
+          <Feldtabelle
+            titel="Massgebende Vermietungsfläche"
+            kopf="Kleinster der Wege"
+            labelBreite={60}
+            einheitBreite={11.5}
+            felder={[
+              { label: n.massgebendWeg ?? 'kein Weg vollständig', einheit: 'm²',
+                wert: n.massgebend != null ? formatNumber(Math.round(n.massgebend)) : '—' },
+            ]}
+          />
+        </>
+      )}
+    </InhaltsSeite>
+  )
+}
+
 /** Was jede Kapitelseite braucht: die Daten und ihren Platz im Seitenplan. */
 interface Kapitelseite {
   daten: BerichtDaten
@@ -1695,6 +1784,7 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
   switch (kapitel.key) {
     case 'projektuebersicht': return <Projektuebersicht {...rest} />
     case 'mengengeruest':     return <MengenKapitel {...rest} />
+    case 'stammdaten':        return <NutzungKapitel {...rest} />
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
