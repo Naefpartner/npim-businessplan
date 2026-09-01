@@ -140,7 +140,7 @@ export function useMengenDaten(
             kopf: [
               'Geschoss', 'Nutzung', 'Stk', 'GF m²', 'GV m³',
               verkauf ? 'VKF m²' : 'VMF m²',
-              'CHF/m²', verkauf ? 'CHF/Stk' : 'CHF/Mt',
+              'CHF/m²', verkauf ? 'CHF/Stk' : 'CHF/Mt,Stk',
               verkauf ? 'CHF' : 'CHF/Jahr',
             ],
             haeuser: haeuser.map((b) => hausBlock(
