@@ -248,7 +248,7 @@ export function AusnutzungTab({ projectId }: { projectId: string }) {
   }, [projectId])
 
   // ── Project-Felder (VMF-Inputs) per Auto-Save ────────────────────────
-  async function saveProjectField(key: keyof Project, value: number | null) {
+  async function saveProjectField(key: keyof Project, value: number | string | null) {
     setSavingField(key as string)
     const { data, error } = await supabase
       .from('projects')
@@ -702,6 +702,33 @@ export function AusnutzungTab({ projectId }: { projectId: string }) {
             </span>
             <span className="w-8 text-right text-sm text-slate-400">m²</span>
           </div>
+        </div>
+      </div>
+
+      {/* Bemerkungen — was die Zahlen nicht hergeben: Sonderbauvorschriften,
+          Gestaltungsplan, Absprachen. Erscheint so auch im Bericht. */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 bg-slate-50 px-5 py-2.5">
+          <h3 className="text-sm font-semibold text-slate-700">Bemerkungen</h3>
+        </div>
+        <div className="px-5 py-3">
+          <textarea
+            key={project.id}
+            defaultValue={project.ausnutzung_bemerkungen ?? ''}
+            disabled={!canWrite}
+            rows={3}
+            placeholder="Sonderbauvorschriften, Gestaltungsplan, Absprachen mit der Gemeinde …"
+            onBlur={(e) => {
+              const wert = e.target.value.trim() || null
+              if (wert !== (project.ausnutzung_bemerkungen ?? null)) {
+                void saveProjectField('ausnutzung_bemerkungen', wert)
+              }
+            }}
+            className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8B6956] focus:ring-2 focus:ring-[#8B6956]/20 disabled:opacity-60"
+          />
+          {savingField === 'ausnutzung_bemerkungen' && (
+            <p className="mt-1 text-xs text-slate-400">Wird gespeichert…</p>
+          )}
         </div>
       </div>
 

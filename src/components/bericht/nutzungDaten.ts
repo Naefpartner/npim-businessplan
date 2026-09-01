@@ -196,6 +196,7 @@ export function useNutzungDaten(
 
     return {
       zonenplanUrl,
+      bemerkungen: project.ausnutzung_bemerkungen?.trim() || null,
       grundlagen: {
         kopf: ['Parzelle', 'Zone', 'GSF m²', 'aGSF m²'],
         zeilen: grundlagen,

@@ -48,6 +48,8 @@ export interface BerichtDaten {
 export interface NutzungDaten {
   /** Zonenplan aus dem GIS; fehlt, wenn keiner hinterlegt ist. */
   zonenplanUrl: string | null
+  /** Bemerkungen zur Berechnung; fehlen, wenn keine erfasst sind. */
+  bemerkungen: string | null
   grundlagen: { kopf: string[]; zeilen: TabellenZeile[] }
   zonen: { kopf: string[]; zeilen: TabellenZeile[] }
   wege: { titel: string; kopf: string[]; zeilen: TabellenZeile[]; ergebnis: number | null }[]
@@ -411,6 +413,8 @@ const s = StyleSheet.create({
   // Totalzeilen vorbehalten, damit sie sich abheben.
   feldWert: { flex: 1 },
   hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
+  /** Freitext unter einer Tabelle — eingerückt wie deren erste Spalte. */
+  bemerkung: { paddingLeft: mm(EINZUG), paddingTop: mm(ZEILE.oben) },
 
   // ── Situationsplan ────────────────────────────────────────────────────────
   /**
@@ -1805,6 +1809,13 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
     </View>
   )
 
+  const bemerkungenBlock = n.bemerkungen && (
+    <View style={s.feldBlock}>
+      <Text style={s.h2}>Bemerkungen</Text>
+      <Text style={s.bemerkung}>{n.bemerkungen}</Text>
+    </View>
+  )
+
   const wegeBloecke = (
     <>
       {/* Die Wege paarweise nebeneinander — vier passen so auf die Seite. */}
@@ -1848,11 +1859,13 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
         <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
         {kopfBereich}
         {!zweiSeitig && !einWeg && wegeBloecke}
+        {!zweiSeitig && bemerkungenBlock}
       </InhaltsSeite>
 
       {zweiSeitig && (
         <InhaltsSeite daten={daten} seite={seite + 1} seitenTotal={seitenTotal}>
           {wegeBloecke}
+          {bemerkungenBlock}
         </InhaltsSeite>
       )}
     </>

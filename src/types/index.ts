@@ -39,6 +39,8 @@ export interface Project {
   vmf_bm_vmf_gf_pct: number | null
   vmf_uz_vmf_gf_pct: number | null
   vmf_ff_vmf_gf_pct: number | null
+  /** Bemerkungen zur Ausnutzungsberechnung (Migration 066). */
+  ausnutzung_bemerkungen: string | null
   // Foto-Galerie / Thumbnail
   thumbnail_photo_id: string | null
   // GIS-Karte (Kantons-Webview)
