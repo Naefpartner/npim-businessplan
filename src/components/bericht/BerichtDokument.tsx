@@ -372,8 +372,8 @@ const s = StyleSheet.create({
     backgroundColor: BERICHT_FARBE.primaer,
     paddingLeft: mm(EINZUG),
     paddingRight: mm(EINZUG),
-    paddingTop: mm(0.9),
-    paddingBottom: mm(0.7),
+    paddingTop: mm(0.55),
+    paddingBottom: mm(0.4),
     marginTop: mm(6.3),
     marginBottom: mm(1.4),
   },
@@ -1345,9 +1345,9 @@ const MH = {
   /** Kapiteltitel; den Abstand darunter bringt der erste Block mit. */
   h1: 6.7,
   /** Balken der Eigentumsart mit vollem Vorabstand. */
-  eigTitel: 14.5,
+  eigTitel: 13.9,
   /** Balken eines Hauses mit knappem Vorabstand. */
-  hausTitel: 10.7,
+  hausTitel: 10.1,
   kopfzeile: 5.0,
   /**
    * Alle Datenzeilen, auch die kleiner gesetzten Wohnungen: der Zeilenabstand
