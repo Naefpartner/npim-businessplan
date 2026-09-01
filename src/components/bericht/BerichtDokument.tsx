@@ -442,13 +442,12 @@ const s = StyleSheet.create({
   /** Situationsplan über die ganze Satzbreite; das Bild schneidet aus der Mitte. */
   planBreit: { height: mm(75), position: 'relative' },
   /**
-   * Zonenplan in der Spalte neben den Tabellen. Der Abstand nach unten
-   * entspricht dem, den ein Tabellenblock mitbringt.
+   * Zonenplan in der Spalte neben den Tabellen. Den Abstand nach unten bringt
+   * die Beschriftung darunter mit.
    */
   planSpalte: {
     height: mm(PLAN_HOEHE),
     position: 'relative',
-    marginBottom: mm(2),
   },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
   dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
@@ -757,7 +756,8 @@ function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
   // Die Spalte des Plans kann höher ausfallen als die Tabellen daneben.
   const oben = MH.h1 + Math.max(
     links,
-    n.zonenplanUrl ? MH.eigTitel + PLAN_HOEHE + MH.blockEnde : 0,
+    // Balken, Bild und die Beschriftung darunter.
+    n.zonenplanUrl ? MH.eigTitel + PLAN_HOEHE + MH.legende : 0,
   )
   if (einWeg) return { oben, wege: 0 }
 
@@ -1406,6 +1406,8 @@ const MH = {
   /** Balken eines Hauses mit knappem Vorabstand. */
   hausTitel: 10.1,
   kopfzeile: 5.0,
+  /** Beschriftung unter einem Bild samt Abständen. */
+  legende: 6.3,
   /**
    * Alle Datenzeilen, auch die kleiner gesetzten Wohnungen: der Zeilenabstand
    * folgt dem Grundschriftgrad der Seite, nicht dem der Zelle — nachgemessen
@@ -1804,6 +1806,7 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
             <View style={s.planSpalte}>
               <Image src={n.zonenplanUrl} style={s.plan} />
             </View>
+            <Text style={s.legende}>Zonenplanausschnitt</Text>
           </>
         )}
       </View>
