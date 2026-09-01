@@ -9,12 +9,12 @@ function m2(v: number | null | undefined): string {
   return v != null ? formatNumber(Math.round(v)) : '—'
 }
 
-/** Ziffer mit drei Stellen — AZ und FFZ werden so fein festgelegt. */
+/** Ziffer mit drei Stellen — nur die Ausnützungsziffer wird so fein festgelegt. */
 function ziffer(v: number | null | undefined): string {
   return v != null ? v.toFixed(3) : '—'
 }
 
-/** Die Überbauungsziffer kommt mit zwei Stellen aus. */
+/** Überbauungs- und Freiflächenziffer kommen mit zwei Stellen aus. */
 function ziffer2(v: number | null | undefined): string {
   return v != null ? v.toFixed(2) : '—'
 }
@@ -70,7 +70,7 @@ export function useNutzungDaten(
       return {
         zellen: [
           z,
-          ziffer(r?.az), ziffer1(r?.bmz), ziffer2(r?.uez), ziffer(r?.ffz),
+          ziffer(r?.az), ziffer1(r?.bmz), ziffer2(r?.uez), ziffer2(r?.ffz),
           r?.vollgeschosse != null ? String(r.vollgeschosse) : '—',
           geschossZahl(r?.dg),
           geschossZahl(r?.anrech_ug),
@@ -125,7 +125,8 @@ export function useNutzungDaten(
     if (a.hasBM) {
       wege.push({
         titel: 'Baumassenziffer BM',
-        kopf: ['Schritt', 'm² / m³'],
+        // Der Wert wechselt die Einheit — Volumen, Höhe, Fläche.
+        kopf: ['Schritt', 'Wert'],
         zeilen: [
           ...a.bmRows.map((r) => ({
             zellen: [`Parzelle ${r.parcel_number} · BMZ ${ziffer1(r.bmz)} × ${m2(r.agsf)} m²`,
@@ -135,8 +136,12 @@ export function useNutzungDaten(
           ...(project.vmf_bm_gelaendekorrektur_pct != null
             ? [{ zellen: [`Geländekorrektur ${pct(project.vmf_bm_gelaendekorrektur_pct)}`,
                 m2(a.korrigierteBaumasse)] }] : []),
-          { zellen: [`Geschossfläche bei ${formatNumber(project.vmf_bm_geschosshoehe_m ?? 0)} m Höhe`,
-            m2(a.geschossflaecheBM)] },
+          // Die Geschosshöhe steht als eigener Schritt: sie ist der Teiler,
+          // aus dem die Geschossfläche entsteht.
+          { zellen: ['Ø Geschosshöhe m',
+            project.vmf_bm_geschosshoehe_m != null
+              ? project.vmf_bm_geschosshoehe_m.toFixed(2) : '—'] },
+          { zellen: ['Geschossfläche', m2(a.geschossflaecheBM)] },
           { zellen: [`davon vermietbar ${pct(project.vmf_bm_vmf_gf_pct)}`, m2(a.vmfMaxBM)] },
         ],
         ergebnis: a.vmfMaxBM,
@@ -166,7 +171,7 @@ export function useNutzungDaten(
         zeilen: [
           ...a.ffZoneRows.map((r) => ({
             zellen: [
-              `${r.zone_type} · (1 − ${ziffer(r.ziffer)}) × ${m2(r.agsf)} m² × ${r.vg ?? '—'} VG`,
+              `${r.zone_type} · (1 − ${ziffer2(r.ziffer)}) × ${m2(r.agsf)} m² × ${r.vg ?? '—'} VG`,
               m2(r.totalGf),
             ],
           })),
