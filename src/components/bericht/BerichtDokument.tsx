@@ -213,6 +213,12 @@ const ZEILE = { oben: 0.9, unten: 0.6 } as const
 // Nur links: rechts sollen die Zahlen bündig am Spaltenrand abschliessen.
 const EINZUG = 2.3
 
+/**
+ * Mindesthöhe des Zonenplans in Millimetern. Ohne sie schrumpfte er auf die
+ * Höhe der beiden Tabellen daneben und blieb bei kurzen Tabellen ein Streifen.
+ */
+const PLAN_MIN = 70
+
 const s = StyleSheet.create({
   /**
    * Der Zeilenabstand gehört auf die Seite. Auf View oder Text wirkt er in
@@ -434,7 +440,12 @@ const s = StyleSheet.create({
    * Abstand nach unten entspricht dem, den ein Tabellenblock mitbringt, sonst
    * ragte das Bild über die letzte Tabellenlinie hinaus.
    */
-  planSpalte: { flexGrow: 1, position: 'relative', marginBottom: mm(2) },
+  planSpalte: {
+    flexGrow: 1,
+    position: 'relative',
+    minHeight: mm(PLAN_MIN),
+    marginBottom: mm(2),
+  },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
   dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /**
@@ -735,9 +746,11 @@ function blockHoehe(zeilen: number): number {
  * Wege auf die zweite Seite.
  */
 function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
-  const oben = MH.h1
-    + blockHoehe(n.zonen.zeilen.length)
-    + blockHoehe(n.grundlagen.zeilen.length)
+  // Die Spalte des Plans kann höher ausfallen als die beiden Tabellen.
+  const oben = MH.h1 + Math.max(
+    blockHoehe(n.zonen.zeilen.length) + blockHoehe(n.grundlagen.zeilen.length),
+    n.zonenplanUrl ? MH.eigTitel + PLAN_MIN + MH.blockEnde : 0,
+  )
   let wege = 0
   for (let i = 0; i < n.wege.length; i += 2) {
     wege += Math.max(
