@@ -152,6 +152,14 @@ export function ProjectGisSection({
 
   const combinedError = error ?? shotsError
 
+  /**
+   * Der Link, den die Knöpfe öffnen: der im Feld stehende, sonst der
+   * gespeicherte. So lässt sich ein eben gewählter Kanton sofort aufrufen,
+   * ohne ihn erst zu sichern.
+   */
+  const offenUrl = (draftUrl.trim() || savedUrl || '').trim()
+  const kannOeffnen = /^https?:\/\//i.test(offenUrl)
+
   return (
     <section ref={sectionRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="flex items-center justify-between bg-[#B98C74] pr-5">
@@ -179,14 +187,16 @@ export function ProjectGisSection({
             </span>
           )}
         </button>
-        {savedUrl && (
+        {kannOeffnen && (
           <a
-            href={savedUrl}
+            href={offenUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md bg-[#F2D3C2] px-3 py-1.5 text-xs font-medium text-slate-900 shadow-sm transition hover:bg-[#E7AF90]"
             onClick={(e) => e.stopPropagation()}
-            title="Gespeicherten GIS-Stand in neuem Tab öffnen"
+            title={isDirty
+              ? 'Gewählten GIS-Link in neuem Tab öffnen (noch nicht gespeichert)'
+              : 'Gespeicherten GIS-Stand in neuem Tab öffnen'}
           >
             <ExternalLink className="h-3.5 w-3.5" />
             GIS öffnen
@@ -246,13 +256,15 @@ export function ProjectGisSection({
                 {saving ? 'Speichert…' : 'URL speichern'}
               </Button>
             )}
-            {savedUrl && (
+            {kannOeffnen && (
               <a
-                href={savedUrl}
+                href={offenUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                title="Gespeicherten GIS-Stand in neuem Tab öffnen"
+                title={isDirty
+                  ? 'Gewählten GIS-Link in neuem Tab öffnen (noch nicht gespeichert)'
+                  : 'Gespeicherten GIS-Stand in neuem Tab öffnen'}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 GIS öffnen
