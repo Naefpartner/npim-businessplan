@@ -110,7 +110,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const nutzung = useNutzungDaten(project, parzellen, zonen, zonenplan?.publicUrl ?? null)
 
   const uebersicht = useUebersichtDaten(
-    project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null, kunde, anrede)
+    project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
 
   const daten = useMemo<BerichtDaten | null>(() => {
     if (!project || !variant) return null

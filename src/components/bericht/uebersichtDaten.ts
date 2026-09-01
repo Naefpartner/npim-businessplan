@@ -8,12 +8,11 @@ import { useKostenmiete } from '@/hooks/useKostenmiete'
 import { useRendite } from '@/hooks/useRendite'
 import { berechneRendite } from '@/lib/rendite'
 import {
-  PHASE_LABEL, EIGENTUMSART_LABEL, isNutzungWohnen, effektiveWohnungCounts,
+  EIGENTUMSART_LABEL, isNutzungWohnen, effektiveWohnungCounts,
   eigentumsartForBuilding, type Eigentumsart,
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
-  type Project, type ProjectVariant, type Parcel, type ExistingBuilding, type Customer,
+  type Project, type ProjectVariant, type Parcel, type ExistingBuilding,
 } from '@/types'
-import type { AuftragAnrede } from '@/lib/bericht'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_3, EIGENTUMSART_FAMILY } from '@/lib/kategorieFarben'
 import { CI } from '@/lib/ci'
 import type {
@@ -59,9 +58,6 @@ export function useUebersichtDaten(
   parzellen: Parcel[],
   bestand: ExistingBuilding[],
   situationsplanUrl: string | null,
-  kunde: Customer | null,
-  /** Beschriftung der ersten Zeile — dieselbe Wahl wie auf dem Titelblatt. */
-  anrede: AuftragAnrede,
 ): UebersichtDaten | undefined {
   const ak = useAnlagekostenShared()
   // Parameter der Kostenmiete — nur für den Genossenschaftsblock nötig.
@@ -90,18 +86,7 @@ export function useUebersichtDaten(
     const flaechenLabel = hatVerkauf && hatMiete
       ? 'Miet-/Verkaufsfläche' : hatVerkauf ? 'Verkaufsfläche' : 'Mietfläche'
 
-    const strasse = [project.strasse, project.hausnummer].filter(Boolean).join(' ').trim()
-    const ortschaft = [project.plz, project.ort].filter(Boolean).join(' ').trim()
 
-    const auftrag: Feld[] = ohneLeere([
-      { label: anrede,          wert: w(kunde?.name) },
-      { label: 'Projektnummer', wert: w(project.project_number) },
-      { label: 'Strasse',       wert: w(strasse) },
-      { label: 'Ortschaft',     wert: w(ortschaft) },
-      { label: 'Variante',      wert: w(variant.name) },
-      { label: 'Projektphase',  wert: PHASE_LABEL[variant.phase] },
-      { label: 'Etappen',       wert: ak.etappen.length > 1 ? String(ak.etappen.length) : '—' },
-    ])
 
     // Einheit und Zahl getrennt: die Einheiten stehen so untereinander und die
     // Zahlen rechtsbündig am Spaltenrand.
@@ -473,7 +458,6 @@ export function useUebersichtDaten(
 
     return {
       situationsplanUrl,
-      auftrag,
       grundstuecke: { kopf: ['Parzelle', 'Zone', 'GSF m²'], zeilen: gsZeilen },
       bestand: {
         kopf: ['Gebäude', 'Assek.', 'Baujahr', 'Nutzung', 'GV m³'],
@@ -484,6 +468,6 @@ export function useUebersichtDaten(
       bloecke,
       mix,
     }
-  }, [project, variant, parzellen, bestand, situationsplanUrl, kunde, anrede, ak,
+  }, [project, variant, parzellen, bestand, situationsplanUrl, ak,
       kostenmieteParams, renditeParams])
 }

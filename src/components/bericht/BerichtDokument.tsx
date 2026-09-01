@@ -139,7 +139,6 @@ export interface BetragZeile {
 export interface UebersichtDaten {
   /** GIS-Ausschnitt als Situationsplan; fehlt, wenn keiner hinterlegt ist. */
   situationsplanUrl: string | null
-  auftrag: Feld[]
   /** Grundstücke: Nummer, Gemeinde, Zone, Fläche. */
   grundstuecke: { kopf: string[]; zeilen: TabellenZeile[] }
   /** Bestandsgebäude: Bezeichnung, Baujahr, Nutzung, GF, Volumen, Zustand. */
@@ -204,7 +203,7 @@ const T = TITELBLATT
  * Datentabellen dieselben, damit ihre Linien in nebeneinanderstehenden
  * Spalten auf gleicher Höhe liegen.
  */
-const ZEILE = { oben: 1.2, unten: 0.9 } as const
+const ZEILE = { oben: 0.9, unten: 0.6 } as const
 
 /**
  * Seitlicher Einzug des Textes in Millimetern, gemessen am Kupferbalken der
@@ -427,6 +426,8 @@ const s = StyleSheet.create({
    * ohne sie zu sprengen — das Bild schneidet aus der Mitte.
    */
   zonenplanRahmen: { height: mm(55), position: 'relative' },
+  /** Situationsplan über die ganze Satzbreite; das Bild schneidet aus der Mitte. */
+  planBreit: { height: mm(75), position: 'relative' },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
   dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /**
@@ -1016,32 +1017,16 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
     <>
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
         <Text style={s.h1}>Projektübersicht</Text>
-        {/* Situationsplan und Auftrag nebeneinander — der Plan links, die
-            Angaben rechts, damit die Seite oben nicht zweimal bricht. */}
-        <View style={s.zweiSpalten}>
-          <View style={s.spalteEins}>
-            <Text style={s.h2}>Situationsplan</Text>
-            {u.situationsplanUrl ? (
-              <View style={s.planRahmen}>
-                <Image src={u.situationsplanUrl} style={s.plan} />
-              </View>
-            ) : (
-              <Text style={s.legende}>Kein GIS-Ausschnitt hinterlegt.</Text>
-            )}
-          </View>
-          <View style={s.spalteZwei}>
-            <Feldtabelle titel="Auftrag" felder={u.auftrag} labelBreite={30} abstandUnten={false} />
-          </View>
-        </View>
-
-        {/* Bildlegende in einer eigenen Zeile darunter — sonst zählte sie
-            zur Spaltenhöhe und das Bild endete oberhalb der Tabellenlinie. */}
+        {/* Der Situationsplan über die ganze Breite. Feste Höhe, weil neben
+            ihm nichts mehr steht, das sie vorgäbe — und weil die Seite in der
+            Umbruchrechnung nicht überlaufen darf. */}
         {u.situationsplanUrl && (
-          <View style={s.zweiSpalten}>
-            <View style={s.spalteEins}>
-              <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
+          <View style={s.feldBlock}>
+            <Text style={s.h2}>Situationsplan</Text>
+            <View style={s.planBreit}>
+              <Image src={u.situationsplanUrl} style={s.plan} />
             </View>
-            <View style={s.spalteZwei} />
+            <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
           </View>
         )}
 
@@ -1363,7 +1348,7 @@ const MH = {
    * folgt dem Grundschriftgrad der Seite, nicht dem der Zelle — nachgemessen
    * sind beide gleich hoch.
    */
-  zeile: 6.52,
+  zeile: 5.9,
   blockEnde: 2.0,
 }
 
