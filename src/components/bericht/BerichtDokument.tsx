@@ -223,6 +223,9 @@ const EINZUG = 2.3
  */
 const PLAN_HOEHE = 70
 
+/** Höhe des Situationsplans über die ganze Seitenbreite. */
+const PLAN_BREIT = 75
+
 const s = StyleSheet.create({
   /**
    * Der Zeilenabstand gehört auf die Seite. Auf View oder Text wirkt er in
@@ -447,7 +450,7 @@ const s = StyleSheet.create({
   },
   zweiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /** Situationsplan über die ganze Satzbreite; das Bild schneidet aus der Mitte. */
-  planBreit: { height: mm(75), position: 'relative' },
+  planBreit: { height: mm(PLAN_BREIT), position: 'relative' },
   /**
    * Zonenplan in der Spalte neben den Tabellen. Den Abstand nach unten bringt
    * die Beschriftung darunter mit.
@@ -817,49 +820,76 @@ function mixHoehe(m: Nutzungsmix, dreispaltig: boolean): number {
     : Math.max(flaechen + ertraege, wohnungen))
 }
 
-/** Eine Folgeseite der Projektübersicht — die erste trägt die Stammdaten. */
-interface UebersichtSeite {
-  bloecke: EigentumsartBlock[]
-  mix: Nutzungsmix[]
-  /** Mehrere Nutzungsarten: Ringe und Wohnungsmix nebeneinander. */
-  dreispaltig: boolean
+/** Ein Baustein der Projektübersicht; die Reihenfolge steht fest. */
+type UebersichtElement =
+  | { art: 'situationsplan'; url: string }
+  /** Grundstücke und Bestandsgebäude nebeneinander. */
+  | { art: 'grundlagen' }
+  /** Mengen und Anlagekosten nebeneinander. */
+  | { art: 'kosten' }
+  | { art: 'block'; block: EigentumsartBlock }
+  | { art: 'mix'; mix: Nutzungsmix; dreispaltig: boolean }
+
+function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
+  // Mehrere Nutzungsarten: je eine flachere, dreispaltige Mixdarstellung,
+  // damit sich Miet- und Verkaufsflächen nicht in einem Ring vermischen.
+  const dreispaltig = u.mix.length > 1
+  const grundlagen = Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length) > 0
+  return [
+    ...(u.situationsplanUrl
+      ? [{ art: 'situationsplan', url: u.situationsplanUrl } as const] : []),
+    ...(grundlagen ? [{ art: 'grundlagen' } as const] : []),
+    { art: 'kosten' },
+    ...u.bloecke.map((block) => ({ art: 'block', block }) as const),
+    ...u.mix.map((mix) => ({ art: 'mix', mix, dreispaltig }) as const),
+  ]
+}
+
+function uebersichtElementHoehe(e: UebersichtElement, u: UebersichtDaten): number {
+  switch (e.art) {
+    case 'situationsplan':
+      return MH.eigTitel + PLAN_BREIT + MH.legende
+    case 'grundlagen':
+      // Beide Tabellen teilen sich die Zeilen; die längere gibt die Höhe vor.
+      return MH.eigTitel + MH.kopfzeile + MH.blockEnde
+        + Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length) * MH.zeile
+    case 'kosten':
+      return MH.eigTitel + MH.kopfzeile + MH.blockEnde
+        + Math.max(u.mengen.length, u.kosten.length) * MH.zeile
+    case 'block':
+      return eigBlockHoehe(e.block)
+    case 'mix':
+      return mixHoehe(e.mix, e.dreispaltig)
+  }
 }
 
 /**
- * Umbruch der Folgeseiten. Wirtschaftlichkeit, Erträge und Mix füllen je nach
- * Zahl der Eigentumsarten und Nutzungen unterschiedlich viel — ohne
- * Vorausrechnung bricht react-pdf selbst um und hängt eine Seite an, die
- * weder Seitenplan noch Sprungnavigation kennen.
+ * Umbruch des Kapitels. Situationsplan, Tabellen, Wirtschaftlichkeit und Mix
+ * füllen je nach Grundstücken, Eigentumsarten und Nutzungen unterschiedlich
+ * viel. Ohne Vorausrechnung bricht react-pdf selbst um und hängt eine Seite
+ * an, die weder Seitenplan noch Sprungnavigation kennen — von dort an zeigt
+ * jeder Kapitelknopf eine Seite zu früh.
  */
-function uebersichtFolgeseiten(u: UebersichtDaten): UebersichtSeite[] {
-  const dreispaltig = u.mix.length > 1
-  const seiten: UebersichtSeite[] = []
-  let bloecke: EigentumsartBlock[] = []
-  let mix: Nutzungsmix[] = []
-  let hoehe = 0
-  function abschliessen() {
-    seiten.push({ bloecke, mix, dreispaltig })
-    bloecke = []
-    mix = []
+function uebersichtSeiten(u: UebersichtDaten): UebersichtElement[][] {
+  const seiten: UebersichtElement[][] = []
+  let seite: UebersichtElement[] = []
+  // Der Kapiteltitel steht nur auf der ersten Seite.
+  let hoehe = MH.h1
+  function umbruch() {
+    seiten.push(seite)
+    seite = []
     hoehe = 0
   }
-  for (const b of u.bloecke) {
-    const h = eigBlockHoehe(b)
-    if (hoehe > 0 && hoehe + h > SEITENHOEHE) abschliessen()
-    bloecke.push(b)
+  for (const e of uebersichtElemente(u)) {
+    const h = uebersichtElementHoehe(e, u)
+    // Der Mix je Nutzungsart beginnt in jedem Fall auf einer eigenen Seite.
+    const eigeneSeite = e.art === 'mix' && e.dreispaltig
+      && seite.some((x) => x.art !== 'mix')
+    if (seite.length > 0 && (eigeneSeite || hoehe + h > SEITENHOEHE)) umbruch()
+    seite.push(e)
     hoehe += h
   }
-  // Bei mehreren Nutzungsarten beginnt der Mix auf einer eigenen Seite: je
-  // Nutzungsart ein Block, damit sich Miet- und Verkaufsflächen nicht in einem
-  // Ring vermischen.
-  if (dreispaltig && hoehe > 0) abschliessen()
-  for (const m of u.mix) {
-    const h = mixHoehe(m, dreispaltig)
-    if (hoehe > 0 && hoehe + h > SEITENHOEHE) abschliessen()
-    mix.push(m)
-    hoehe += h
-  }
-  abschliessen()
+  umbruch()
   return seiten
 }
 
@@ -867,7 +897,7 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
   if (key === 'projektuebersicht') {
     const u = daten.uebersicht
     // Ohne Kennzahlen steht nur die Ladezeile — eine Seite.
-    return u ? 1 + uebersichtFolgeseiten(u).length : 1
+    return u ? uebersichtSeiten(u).length : 1
   }
   if (key === 'stammdaten') {
     const n = daten.nutzung
@@ -1150,45 +1180,27 @@ function Feldtabelle({
   )
 }
 
-/**
- * Projektübersicht — bewusst auf zwei Seiten aufgeteilt statt dem automatischen
- * Umbruch überlassen: der Inhaltsfluss reserviert am Seitenfuss keinen Platz
- * für die Fusszeile, ein Umbruch mitten im Kapitel liefe deshalb in sie
- * hinein. Absolut positionieren lässt sie sich nicht — mit `lineHeight` auf
- * der Seite verwirft react-pdf `fixed`-Elemente ausserhalb des Flusses.
- *
- * Erste Seite: Situation, Grundstücke, Mengen und Kosten. Zweite Seite:
- * Erträge und Wirtschaftlichkeit.
- */
-function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
-  const u = daten.uebersicht
-  if (!u) {
-    return (
-      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>
-        <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
-      </InhaltsSeite>
-    )
-  }
-  return (
-    <>
-      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>
-        {/* Der Situationsplan über die ganze Breite. Feste Höhe, weil neben
-            ihm nichts mehr steht, das sie vorgäbe — und weil die Seite in der
-            Umbruchrechnung nicht überlaufen darf. */}
-        {u.situationsplanUrl && (
-          <View style={s.feldBlock}>
-            <Text style={s.h2}>Situationsplan</Text>
-            <View style={s.planBreit}>
-              <Image src={u.situationsplanUrl} style={s.plan} />
-            </View>
-            <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
+/** Ein Baustein der Projektübersicht, wie ihn der Seitenplan zugeteilt hat. */
+function UebersichtBaustein({ el, u }: { el: UebersichtElement; u: UebersichtDaten }) {
+  switch (el.art) {
+    // Der Situationsplan über die ganze Breite. Feste Höhe, weil neben ihm
+    // nichts mehr steht, das sie vorgäbe — und weil die Seite in der
+    // Umbruchrechnung nicht überlaufen darf.
+    case 'situationsplan':
+      return (
+        <View style={s.feldBlock}>
+          <Text style={s.h2}>Situationsplan</Text>
+          <View style={s.planBreit}>
+            <Image src={el.url} style={s.plan} />
           </View>
-        )}
+          <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
+        </View>
+      )
 
-        {/* Grundstücke und Bestandsgebäude nebeneinander, Zeile für Zeile
-            gemeinsam gesetzt — so liegen ihre Trennlinien auf einer Höhe. */}
+    // Grundstücke und Bestandsgebäude nebeneinander, Zeile für Zeile
+    // gemeinsam gesetzt — so liegen ihre Trennlinien auf einer Höhe.
+    case 'grundlagen':
+      return (
         <Doppeltabelle
           links={{
             titel: 'Grundstücke',
@@ -1207,8 +1219,11 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
             zeilen: u.bestand.zeilen,
           }}
         />
+      )
 
-        {/* Mengen und Anlagekosten in derselben Spaltenteilung wie darüber. */}
+    // Mengen und Anlagekosten in derselben Spaltenteilung wie darüber.
+    case 'kosten':
+      return (
         <View style={s.zweiSpalten}>
           <View style={s.spalteEins}>
             <Feldtabelle titel="Mengen" kopf="Kennzahlen" felder={u.mengen} labelBreite={39} />
@@ -1223,24 +1238,20 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
             />
           </View>
         </View>
+      )
 
-      </InhaltsSeite>
-
-      {/* Fortsetzung ohne eigene Überschrift — die Tabellentitel tragen die
-          Gliederung, und im Inhaltsverzeichnis steht nur das Kapitel. */}
-      {uebersichtFolgeseiten(u).map((f, n) => (
-      <InhaltsSeite key={n} daten={daten} seite={seite + 1 + n} seitenTotal={seitenTotal}>
-        {/* Je Eigentumsart eine Zeile: Wirtschaftlichkeit links, Erträge
-            rechts — die Erträge tragen vier Spalten und brauchen die breitere
-            Seite. */}
-        {f.bloecke.map((b, i) => (
-          <View key={i}>
-            {b.titel && (
-              <Text style={b.farbe ? [s.h2, { backgroundColor: b.farbe }] : s.h2}>
-                {b.titel}
-              </Text>
-            )}
-            <View style={s.zweiSpalten}>
+    // Je Eigentumsart eine Zeile: Wirtschaftlichkeit links, Erträge rechts —
+    // die Erträge tragen vier Spalten und brauchen die breitere Seite.
+    case 'block': {
+      const b = el.block
+      return (
+        <View>
+          {b.titel && (
+            <Text style={b.farbe ? [s.h2, { backgroundColor: b.farbe }] : s.h2}>
+              {b.titel}
+            </Text>
+          )}
+          <View style={s.zweiSpalten}>
             <View style={s.spalteEins}>
               {/* Der Spaltenkopf hat hier keine eigene Aussage, er hält aber
                   die Zeilen auf der Höhe der Ertragstabelle nebenan: ohne ihn
@@ -1269,16 +1280,46 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
                 />
               )}
             </View>
-            </View>
           </View>
-        ))}
+        </View>
+      )
+    }
 
-        {/* Der Mix schliesst an die Erträge an, solange er auf die Seite
-            passt — sonst hat ihn der Umbruch weitergeschoben. */}
-        {f.mix.map((m) => (
-          <Mixbereich key={m.titel} mix={m} dreispaltig={f.dreispaltig} />
-        ))}
+    case 'mix':
+      return <Mixbereich mix={el.mix} dreispaltig={el.dreispaltig} />
+  }
+}
+
+/**
+ * Projektübersicht — der Umbruch wird gesetzt statt dem Inhaltsfluss
+ * überlassen: der reserviert am Seitenfuss keinen Platz für die Fusszeile, ein
+ * Umbruch mitten im Kapitel liefe deshalb in sie hinein. Absolut positionieren
+ * lässt sie sich nicht — mit `lineHeight` auf der Seite verwirft react-pdf
+ * `fixed`-Elemente ausserhalb des Flusses.
+ *
+ * Wie viele Seiten es werden, entscheidet uebersichtSeiten() — dieselbe
+ * Funktion, aus der auch der Seitenplan liest.
+ */
+function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
+  const u = daten.uebersicht
+  if (!u) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>
+        <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
       </InhaltsSeite>
+    )
+  }
+  return (
+    <>
+      {uebersichtSeiten(u).map((elemente, n) => (
+        <InhaltsSeite key={n} daten={daten} seite={seite + n} seitenTotal={seitenTotal}>
+          {/* Nur die erste Seite trägt die Überschrift; auf den Folgeseiten
+              gliedern die Tabellentitel, und im Inhaltsverzeichnis steht
+              ohnehin nur das Kapitel. */}
+          {n === 0 && <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>}
+          {elemente.map((e, i) => <UebersichtBaustein key={i} el={e} u={u} />)}
+        </InhaltsSeite>
       ))}
     </>
   )
