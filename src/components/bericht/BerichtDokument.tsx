@@ -1863,6 +1863,13 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
         <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
         {kopfBereich}
+        {/* Ohne Berechnung bleibt gesagt, warum keine dasteht — Plan und
+            Bemerkungen erscheinen trotzdem. */}
+        {n.wege.length === 0 && (
+          <Text style={s.hinweis}>
+            Für dieses Projekt sind keine Ausnutzungsziffern erfasst.
+          </Text>
+        )}
         {!zweiSeitig && !einWeg && wegeBloecke}
         {!zweiSeitig && bemerkungenBlock}
       </InhaltsSeite>

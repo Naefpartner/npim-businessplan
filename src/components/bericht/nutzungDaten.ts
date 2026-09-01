@@ -52,12 +52,12 @@ export function useNutzungDaten(
   zonenplanUrl: string | null,
 ): NutzungDaten | undefined {
   return useMemo(() => {
-    if (!project || parzellen.length === 0) return undefined
+    if (!project) return undefined
     const a = berechneAusnutzung(parzellen, zonen, project)
-    if (a.uniqueZones.length === 0) return undefined
+    const bemerkungen = project.ausnutzung_bemerkungen?.trim() || null
 
     // ── Grundlagen ─────────────────────────────────────────────────────────
-    const grundlagen: TabellenZeile[] = [
+    const grundlagen: TabellenZeile[] = parzellen.length === 0 ? [] : [
       ...parzellen.map((p) => ({
         zellen: [p.parzelle_nummer, p.zone ?? '—', m2(p.flaeche_m2), m2(p.agsf_m2)],
       })),
@@ -184,7 +184,12 @@ export function useNutzungDaten(
       })
     }
 
-    if (wege.length === 0) return undefined
+    // Ohne Berechnung bleibt das Kapitel bestehen, solange es etwas zu zeigen
+    // gibt: Zonenplan, Bemerkungen oder wenigstens die Grundlagen. Erst wenn
+    // alles fehlt, entfällt es.
+    if (wege.length === 0 && !zonenplanUrl && !bemerkungen && grundlagen.length === 0) {
+      return undefined
+    }
 
     // Die letzte Zeile jedes Weges ist sein Ergebnis und wird ausgezeichnet.
     // Bei nur einem Weg trägt sie zugleich das Ergebnis der Seite — der Block
@@ -196,7 +201,7 @@ export function useNutzungDaten(
 
     return {
       zonenplanUrl,
-      bemerkungen: project.ausnutzung_bemerkungen?.trim() || null,
+      bemerkungen,
       grundlagen: {
         kopf: ['Parzelle', 'Zone', 'GSF m²', 'aGSF m²'],
         zeilen: grundlagen,
