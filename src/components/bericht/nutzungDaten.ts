@@ -117,7 +117,7 @@ export function useNutzungDaten(
       )
       wege.push({
         // Der Wert wechselt die Einheit — Fläche, Geschosszahl, Anteil.
-        titel: 'Ausnützungsziffer AZ',
+        titel: 'Ausnutzungsberechnung',
         kopf: ['Schritt', 'Wert'],
         zeilen: azZeilen,
         ergebnis: a.vmfMaxAZ,
