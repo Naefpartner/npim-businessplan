@@ -351,6 +351,12 @@ const s = StyleSheet.create({
     fontWeight: 700,
     marginBottom: mm(INHALT.nachTitel),
   },
+  /**
+   * Kapiteltitel ohne eigenen Abstand nach unten: der erste Block darunter
+   * bringt seinen Vorabstand schon mit, und beides zusammen riss eine Lücke.
+   * Das Inhaltsverzeichnis behält den Wert der Vorlage.
+   */
+  h1Kapitel: { marginBottom: 0 },
 
   // ── Kapitel und Feldtabellen ──────────────────────────────────────────────
   /**
@@ -1008,7 +1014,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
   if (!u) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={s.h1}>Projektübersicht</Text>
+        <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>
         <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
       </InhaltsSeite>
     )
@@ -1016,7 +1022,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
   return (
     <>
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={s.h1}>Projektübersicht</Text>
+        <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>
         {/* Der Situationsplan über die ganze Breite. Feste Höhe, weil neben
             ihm nichts mehr steht, das sie vorgäbe — und weil die Seite in der
             Umbruchrechnung nicht überlaufen darf. */}
@@ -1336,8 +1342,8 @@ function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: bool
  * (der reserviert am Seitenfuss keinen Platz für die Fusszeile).
  */
 const MH = {
-  /** Kapiteltitel samt Abstand darunter. */
-  h1: 10.5,
+  /** Kapiteltitel; den Abstand darunter bringt der erste Block mit. */
+  h1: 6.7,
   /** Balken der Eigentumsart mit vollem Vorabstand. */
   eigTitel: 14.5,
   /** Balken eines Hauses mit knappem Vorabstand. */
@@ -1482,7 +1488,7 @@ function MengenSeite({
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
       {erste && (
-        <Text style={s.h1}>
+        <Text style={[s.h1, s.h1Kapitel]}>
           {sicht.titelImBalken ? 'Mengen und Erträge' : `Mengen und Erträge — ${sicht.titel}`}
         </Text>
       )}
@@ -1554,7 +1560,7 @@ function MixUndErtragSeite({
 }: { daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number }) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={s.h1}>Wohnungsmix und Erträge — {sicht.titel}</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>Wohnungsmix und Erträge — {sicht.titel}</Text>
       {sicht.wohnungsmix.filter((w) => w.aufMixblatt).map((w) => (
         <View key={`w-${w.label}`} style={s.zweiSpalten}>
           <View style={s.spalteEins}>
@@ -1606,7 +1612,7 @@ function WohnungsmixSeite({
 }: { daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number }) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={s.h1}>Wohnungsmix — {sicht.titel}</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>Wohnungsmix — {sicht.titel}</Text>
       {sicht.wohnungsmix.map((w) => {
         const eintraege = w.zeilen
           .filter((r) => !r.total)
@@ -1651,7 +1657,7 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   if (!m || m.sichten.length === 0) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={s.h1}>Mengen und Erträge</Text>
+        <Text style={[s.h1, s.h1Kapitel]}>Mengen und Erträge</Text>
         <Text style={s.hinweis}>Für diese Variante sind keine Gebäude erfasst.</Text>
       </InhaltsSeite>
     )
@@ -1689,7 +1695,7 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   const n = daten.nutzung
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={s.h1}>Nutzungsberechnung</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
       {!n ? (
         <Text style={s.hinweis}>
           Für dieses Projekt sind keine Bauzonen mit Ausnutzungsziffern erfasst.
@@ -1786,7 +1792,7 @@ function KapitelPlatzhalter({
 }: Kapitelseite & { kapitel: BerichtKapitel }) {
   return (
     <InhaltsSeite format={kapitel.format} daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={s.h1}>{kapitel.label}</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>{kapitel.label}</Text>
       <Text style={s.hinweis}>
         {kapitel.beschrieb} — dieses Kapitel wird noch aufgebaut.
       </Text>
