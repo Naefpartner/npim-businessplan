@@ -524,8 +524,12 @@ const s = StyleSheet.create({
   /** Die Totalzeile hebt sich über die Schrift ab, nicht über eine kräftigere
    *  Linie — ihre Trennlinie ist dieselbe wie bei jeder anderen Zeile. */
   tabTotal: { fontWeight: 700 },
-  /** Untergeordnete Zeile — leiser gesetzt, damit sie zur Zeile darüber gehört. */
-  tabEinzug: { color: '#4A4A4A' },
+  /**
+   * Untergeordnete Zeile — kleiner und leiser gesetzt, damit sie sich der Zeile
+   * darüber unterordnet. Die kleinere Schrift macht die Zeile auch niedriger;
+   * die Umbruchrechnung führt dafür eine eigene Höhe.
+   */
+  tabEinzug: { color: '#4A4A4A', fontSize: SCHRIFT.klein },
   zelleRechts: { textAlign: 'right' },
 
   // Verzeichniszeile: Nummer, Text, Seitenzahl — jede mit Linie darunter.
@@ -1317,6 +1321,11 @@ const MH = {
   /** Balken eines Hauses mit knappem Vorabstand. */
   hausTitel: 10.7,
   kopfzeile: 5.0,
+  /**
+   * Alle Datenzeilen, auch die kleiner gesetzten Wohnungen: der Zeilenabstand
+   * folgt dem Grundschriftgrad der Seite, nicht dem der Zelle — nachgemessen
+   * sind beide gleich hoch.
+   */
   zeile: 6.52,
   blockEnde: 2.0,
 }
