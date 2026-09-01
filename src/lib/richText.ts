@@ -91,21 +91,30 @@ export function alsAbsaetze(html: string | null | undefined): Absatz[] {
     const tag = el.tagName.toLowerCase()
 
     if (tag === 'br') { absatzSchliessen(); return }
-    if (tag === 'p' || tag === 'div') {
-      absatzSchliessen()
-      el.childNodes.forEach((k) => gehe(k, stil))
-      absatzSchliessen()
-      return
-    }
+    // Skript und Stil tragen keinen Text, den jemand lesen will — ihr Inhalt
+    // erschiene sonst als Absatz im Bericht.
+    if (tag === 'script' || tag === 'style') return
 
+    // Die Auszeichnung jedes Elements aufnehmen, auch die von Absätzen: manche
+    // Browser setzen die Farbe auf das <div> oder <p> der ganzen Zeile.
+    // Sie steht je nach Browser im Stil oder als Attribut eines <font>.
     const naechster: TextLauf = {
       ...stil,
       fett: stil.fett || tag === 'b' || tag === 'strong' || el.style.fontWeight === 'bold',
       kursiv: stil.kursiv || tag === 'i' || tag === 'em' || el.style.fontStyle === 'italic',
       unterstrichen: stil.unterstrichen || tag === 'u'
         || el.style.textDecoration.includes('underline'),
-      farbe: normFarbe(el.style.color) ?? stil.farbe,
+      farbe: normFarbe(el.style.color)
+        ?? (tag === 'font' ? normFarbe(el.getAttribute('color')) : undefined)
+        ?? stil.farbe,
       text: '',
+    }
+
+    if (tag === 'p' || tag === 'div') {
+      absatzSchliessen()
+      el.childNodes.forEach((k) => gehe(k, naechster))
+      absatzSchliessen()
+      return
     }
     el.childNodes.forEach((k) => gehe(k, naechster))
   }

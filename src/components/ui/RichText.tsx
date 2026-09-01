@@ -37,6 +37,9 @@ export function RichText({
 
   function befehl(name: string, arg?: string) {
     feld.current?.focus()
+    // Ohne das erzeugen manche Browser <font color=…> statt eines Stils. Beides
+    // wird beim Lesen erkannt, aber so bleibt das gespeicherte HTML einheitlich.
+    document.execCommand('styleWithCSS', false, 'true')
     document.execCommand(name, false, arg)
     speichern()
   }
