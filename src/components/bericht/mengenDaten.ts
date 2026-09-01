@@ -135,9 +135,13 @@ export function useMengenDaten(
             farbeHaus: mehrere ? USE_TYPE_COLOR_5[eig] : undefined,
             // Der Kopf hängt an der Eigentumsart: Verkaufsobjekte führen
             // Verkaufsflächen und Preise statt Mietflächen und Jahresmieten.
+            // Zwei Ansatzspalten: je Quadratmeter und je Einheit. Die Einheit
+            // ist beim Verkauf ein Preis je Stück, sonst eine Monatsmiete.
             kopf: [
               'Geschoss', 'Nutzung', 'Stk', 'GF m²', 'GV m³',
-              verkauf ? 'VKF m²' : 'VMF m²', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr',
+              verkauf ? 'VKF m²' : 'VMF m²',
+              'CHF/m²', verkauf ? 'CHF/Stk' : 'CHF/Mt',
+              verkauf ? 'CHF' : 'CHF/Jahr',
             ],
             haeuser: haeuser.map((b) => hausBlock(
               b, verkauf, eig === 'genossenschaft' ? kostenmieteJeTyp : null)),
@@ -213,7 +217,7 @@ function hausBlock(
         z(m.gf_m2),
         z(m.volumen_m3),
         z(m.flaeche_m2),
-        ansatzVon(m.flaeche_m2, m.anzahl, ertrag, verkauf),
+        ...ansaetze(m.flaeche_m2, m.anzahl, ertrag, verkauf),
         z(ertrag),
       ],
     })
@@ -237,9 +241,16 @@ function hausBlock(
             formatNumber(anzahl),
             '—',
             '—',
-            z(stkTotal > 0 ? (m.flaeche_m2 || 0) * (anzahl / stkTotal) : 0),
-            jeMonat > 0 ? `${z(jeMonat)} CHF/Mt` : '—',
-            z(jeMonat * anzahl * 12),
+            ...(() => {
+              const flaeche = stkTotal > 0 ? (m.flaeche_m2 || 0) * (anzahl / stkTotal) : 0
+              const ertragWhg = jeMonat * anzahl * 12
+              return [
+                z(flaeche),
+                flaeche > 0 && ertragWhg > 0 ? z(ertragWhg / flaeche) : '—',
+                jeMonat > 0 ? z(jeMonat) : '—',
+                z(ertragWhg),
+              ]
+            })(),
           ],
         })
       }
@@ -266,11 +277,7 @@ function hausBlock(
           z(e.gf_m2),
           z(e.volumen_m3),
           z(e.flaeche_m2),
-          // Bei Wohnungen liest sich der Monatszins je Einheit besser als ein
-          // Quadratmeteransatz.
-          jeTyp && e.anzahl > 0
-            ? `${z(eErtrag / e.anzahl / 12)} CHF/Mt`
-            : ansatzVon(e.flaeche_m2, e.anzahl, eErtrag, verkauf),
+          ...ansaetze(e.flaeche_m2, e.anzahl, eErtrag, verkauf),
           z(eErtrag),
         ],
       })
@@ -285,20 +292,19 @@ function hausBlock(
 }
 
 /**
- * Ansatz einer Zeile — je nach Bezugsgrösse CHF/m², CHF pro Monat und Stück
- * oder, beim Verkauf, CHF je Stück. Zurückgerechnet aus Ertrag und Menge,
- * damit er zur ausgewiesenen Summe passt.
+ * Die beiden Ansätze einer Zeile, zurückgerechnet aus Ertrag und Menge, damit
+ * sie zur ausgewiesenen Summe passen: je Quadratmeter und je Einheit — beim
+ * Verkauf ein Preis je Stück, sonst eine Monatsmiete.
  */
-function ansatzVon(
+function ansaetze(
   flaeche: number, anzahl: number | null, ertrag: number, verkauf: boolean,
-): string {
-  if (ertrag <= 0) return '—'
-  if (flaeche > 0) return `${z(ertrag / flaeche)} CHF/m²`
+): [string, string] {
+  if (ertrag <= 0) return ['—', '—']
   const stk = anzahl ?? 0
-  if (stk <= 0) return '—'
-  return verkauf
-    ? `${z(ertrag / stk)} CHF/Stk`
-    : `${z(ertrag / (stk * 12))} CHF/Mt`
+  return [
+    flaeche > 0 ? z(ertrag / flaeche) : '—',
+    stk > 0 ? z(verkauf ? ertrag / stk : ertrag / (stk * 12)) : '—',
+  ]
 }
 
 /** Summe über Gebäude — Anzahl, GF, GV, VMF und Ertrag der Mietflächen. */
@@ -316,7 +322,10 @@ function summenZeile(
       ertrag += ertragMitKostenmiete(m, verkauf, jeTyp)
     }
   }
-  return { total: true, zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf), '', z(ertrag)] }
+  return {
+    total: true,
+    zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf), '', '', z(ertrag)],
+  }
 }
 
 /**
