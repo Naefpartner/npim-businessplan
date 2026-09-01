@@ -782,8 +782,93 @@ function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
   return { oben, wege: wege + blockHoehe(1) }
 }
 
+/**
+ * Höhe eines Blockpaares der Projektübersicht: der Obertitel und die höhere
+ * der beiden Spalten — Wirtschaftlichkeit und Erträge stehen nebeneinander.
+ */
+function eigBlockHoehe(b: EigentumsartBlock): number {
+  // Unter einem Obertitel halten die beiden Titel nur den knappen Vorabstand.
+  const titel = b.titel ? MH.hausTitel : MH.eigTitel
+  const spalte = (zeilen: number) => titel + MH.kopfzeile + zeilen * MH.zeile + MH.blockEnde
+  return (b.titel ? MH.eigTitel : 0) + Math.max(
+    b.wirtschaft ? spalte(b.wirtschaft.felder.length) : 0,
+    b.ertraege ? spalte(b.ertraege.zeilen.length) : 0,
+  )
+}
+
+/**
+ * Höhe eines Mixblocks. Nebeneinander stehen die Ringe und der Wohnungsmix,
+ * bei mehreren Nutzungsarten alle drei — dann zählt der höchste, sonst die
+ * beiden untereinanderstehenden Ringe.
+ */
+function mixHoehe(m: Nutzungsmix, dreispaltig: boolean): number {
+  const groesse = dreispaltig ? 24 : 30
+  const ring = (anzahl: number, anschluss: boolean) => (anzahl === 0 ? 0
+    : (anschluss ? MH.hausTitel : MH.eigTitel) + MH.ringRand + groesse
+      + anzahl * MH.legendeZeile + MH.blockEnde)
+  // Segmente ohne Wert erscheinen weder im Ring noch in der Legende.
+  const flaechen = ring(m.nutzungen.filter((n) => n.flaeche > 0).length, true)
+  const ertraege = ring(m.nutzungen.filter((n) => n.ertrag > 0).length, dreispaltig)
+  const wohnungen = m.wohnungsmix.length === 0 ? 0
+    // Die Totalzeile kommt hinzu.
+    : MH.hausTitel + (m.wohnungsmix.length + 1) * MH.mixZeile + MH.blockEnde
+  return MH.eigTitel + (dreispaltig
+    ? Math.max(flaechen, ertraege, wohnungen)
+    : Math.max(flaechen + ertraege, wohnungen))
+}
+
+/** Eine Folgeseite der Projektübersicht — die erste trägt die Stammdaten. */
+interface UebersichtSeite {
+  bloecke: EigentumsartBlock[]
+  mix: Nutzungsmix[]
+  /** Mehrere Nutzungsarten: Ringe und Wohnungsmix nebeneinander. */
+  dreispaltig: boolean
+}
+
+/**
+ * Umbruch der Folgeseiten. Wirtschaftlichkeit, Erträge und Mix füllen je nach
+ * Zahl der Eigentumsarten und Nutzungen unterschiedlich viel — ohne
+ * Vorausrechnung bricht react-pdf selbst um und hängt eine Seite an, die
+ * weder Seitenplan noch Sprungnavigation kennen.
+ */
+function uebersichtFolgeseiten(u: UebersichtDaten): UebersichtSeite[] {
+  const dreispaltig = u.mix.length > 1
+  const seiten: UebersichtSeite[] = []
+  let bloecke: EigentumsartBlock[] = []
+  let mix: Nutzungsmix[] = []
+  let hoehe = 0
+  function abschliessen() {
+    seiten.push({ bloecke, mix, dreispaltig })
+    bloecke = []
+    mix = []
+    hoehe = 0
+  }
+  for (const b of u.bloecke) {
+    const h = eigBlockHoehe(b)
+    if (hoehe > 0 && hoehe + h > SEITENHOEHE) abschliessen()
+    bloecke.push(b)
+    hoehe += h
+  }
+  // Bei mehreren Nutzungsarten beginnt der Mix auf einer eigenen Seite: je
+  // Nutzungsart ein Block, damit sich Miet- und Verkaufsflächen nicht in einem
+  // Ring vermischen.
+  if (dreispaltig && hoehe > 0) abschliessen()
+  for (const m of u.mix) {
+    const h = mixHoehe(m, dreispaltig)
+    if (hoehe > 0 && hoehe + h > SEITENHOEHE) abschliessen()
+    mix.push(m)
+    hoehe += h
+  }
+  abschliessen()
+  return seiten
+}
+
 function kapitelSeiten(key: string, daten: BerichtDaten): number {
-  if (key === 'projektuebersicht') return (daten.uebersicht?.mix.length ?? 0) > 1 ? 3 : 2
+  if (key === 'projektuebersicht') {
+    const u = daten.uebersicht
+    // Ohne Kennzahlen steht nur die Ladezeile — eine Seite.
+    return u ? 1 + uebersichtFolgeseiten(u).length : 1
+  }
   if (key === 'stammdaten') {
     const n = daten.nutzung
     if (!n) return 1
@@ -1143,11 +1228,12 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
 
       {/* Fortsetzung ohne eigene Überschrift — die Tabellentitel tragen die
           Gliederung, und im Inhaltsverzeichnis steht nur das Kapitel. */}
-      <InhaltsSeite daten={daten} seite={seite + 1} seitenTotal={seitenTotal}>
+      {uebersichtFolgeseiten(u).map((f, n) => (
+      <InhaltsSeite key={n} daten={daten} seite={seite + 1 + n} seitenTotal={seitenTotal}>
         {/* Je Eigentumsart eine Zeile: Wirtschaftlichkeit links, Erträge
             rechts — die Erträge tragen vier Spalten und brauchen die breitere
             Seite. */}
-        {u.bloecke.map((b, i) => (
+        {f.bloecke.map((b, i) => (
           <View key={i}>
             {b.titel && (
               <Text style={b.farbe ? [s.h2, { backgroundColor: b.farbe }] : s.h2}>
@@ -1187,18 +1273,13 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
           </View>
         ))}
 
-        {/* Bei einer Nutzungsart passt der Mix noch unter die Erträge. */}
-        {u.mix.length === 1 && <Mixbereich mix={u.mix[0]} />}
+        {/* Der Mix schliesst an die Erträge an, solange er auf die Seite
+            passt — sonst hat ihn der Umbruch weitergeschoben. */}
+        {f.mix.map((m) => (
+          <Mixbereich key={m.titel} mix={m} dreispaltig={f.dreispaltig} />
+        ))}
       </InhaltsSeite>
-
-      {/* Mehrere Nutzungsarten: der Mix bekommt eine eigene Seite und steht
-          dort je Nutzungsart getrennt, damit sich Miet- und Verkaufsflächen
-          nicht in einem Ring vermischen. */}
-      {u.mix.length > 1 && (
-        <InhaltsSeite daten={daten} seite={seite + 2} seitenTotal={seitenTotal}>
-          {u.mix.map((m) => <Mixbereich key={m.titel} mix={m} dreispaltig />)}
-        </InhaltsSeite>
-      )}
+      ))}
     </>
   )
 }
@@ -1424,6 +1505,12 @@ const MH = {
    */
   zeile: 5.9,
   blockEnde: 2.0,
+  /** Abstände über und unter einem Ringdiagramm zusammen. */
+  ringRand: 5.0,
+  /** Legendenzeile eines Rings. */
+  legendeZeile: 5.1,
+  /** Zeile des Wohnungsmixes — der Balken ist niedriger als die Schrift. */
+  mixZeile: 5.5,
 }
 
 /**

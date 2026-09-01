@@ -125,14 +125,25 @@ export function useNutzungDaten(
     }
 
     if (a.hasBM) {
+      // Je Zone eine Zeile, wie bei der Ausnutzungsberechnung: die BMZ gilt
+      // ohnehin für die ganze Zone, und die Parzellenliste steht bereits unter
+      // den Grundstücken.
+      const bmZone = new Map<string, { agsf: number; bmz: number | null; baumasse: number }>()
+      for (const r of a.bmRows) {
+        if (r.agsf == null) continue
+        const e = bmZone.get(r.zone_type) ?? { agsf: 0, bmz: r.bmz, baumasse: 0 }
+        e.agsf += r.agsf
+        e.baumasse += r.baumasse ?? 0
+        bmZone.set(r.zone_type, e)
+      }
       wege.push({
         titel: 'Baumassenberechnung',
         // Der Wert wechselt die Einheit — Volumen, Höhe, Fläche.
         kopf: ['Schritt', 'Wert'],
         zeilen: [
-          ...a.bmRows.map((r) => ({
-            zellen: [`Parzelle ${r.parcel_number} · BMZ ${ziffer1(r.bmz)} × ${m2(r.agsf)} m²`,
-              m2(r.baumasse)],
+          ...[...bmZone].map(([zone, r]) => ({
+            zellen: [`${zone} · aGSF ${m2(r.agsf)} m² × BMZ ${ziffer1(r.bmz)}`,
+              r.bmz != null ? m2(r.baumasse) : '—'],
           })),
           { zellen: ['Baumasse m³', m2(a.totalBaumasse)] },
           ...(project.vmf_bm_gelaendekorrektur_pct != null
