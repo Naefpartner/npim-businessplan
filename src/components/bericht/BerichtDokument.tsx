@@ -414,6 +414,13 @@ const s = StyleSheet.create({
   // Totalzeilen vorbehalten, damit sie sich abheben.
   feldWert: { flex: 1 },
   hinweis: { marginTop: mm(4), fontSize: SCHRIFT.klein, color: '#6B6B6B' },
+  /** Hinweis innerhalb einer Spalte — auf der Flucht der Tabellen daneben. */
+  hinweisSpalte: {
+    paddingLeft: mm(EINZUG),
+    paddingBottom: mm(2),
+    fontSize: SCHRIFT.klein,
+    color: '#6B6B6B',
+  },
   /** Freitext unter einer Tabelle — eingerückt wie deren erste Spalte. */
   bemerkung: { paddingLeft: mm(EINZUG), paddingTop: mm(ZEILE.oben) },
 
@@ -753,6 +760,8 @@ function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
   const links = blockHoehe(n.zonen.zeilen.length)
     + blockHoehe(n.grundlagen.zeilen.length)
     + (einWeg ? blockHoehe(n.wege[0].zeilen.length) : 0)
+    // Der Hinweis, wenn keine Nutzungsmasse erfasst sind.
+    + (n.wege.length === 0 ? MH.zeile + MH.blockEnde : 0)
   // Die Spalte des Plans kann höher ausfallen als die Tabellen daneben.
   const oben = MH.h1 + Math.max(
     links,
@@ -1783,6 +1792,11 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
           spaltenAbstand={2.4}
           zeilen={n.zonen.zeilen}
         />
+        {/* Der Hinweis steht bei den Vorschriften, denn dort fehlt etwas —
+            Plan und Bemerkungen erscheinen trotzdem. */}
+        {n.wege.length === 0 && (
+          <Text style={s.hinweisSpalte}>Keine Nutzungsmasse erfasst.</Text>
+        )}
         <Datentabelle
           titel="Grundstücke"
           kopf={n.grundlagen.kopf}
@@ -1863,13 +1877,6 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
         <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
         {kopfBereich}
-        {/* Ohne Berechnung bleibt gesagt, warum keine dasteht — Plan und
-            Bemerkungen erscheinen trotzdem. */}
-        {n.wege.length === 0 && (
-          <Text style={s.hinweis}>
-            Für dieses Projekt sind keine Ausnutzungsziffern erfasst.
-          </Text>
-        )}
         {!zweiSeitig && !einWeg && wegeBloecke}
         {!zweiSeitig && bemerkungenBlock}
       </InhaltsSeite>
