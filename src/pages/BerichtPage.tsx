@@ -262,7 +262,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
               <Loader2 className="h-4 w-4 animate-spin" /> Vorschau wird aufgebaut…
             </div>
           }>
-            <BerichtVorschau daten={daten} seite={zielSeite} zoom={zoom} />
+            <BerichtVorschau daten={daten} seite={zielSeite} zoom={zoom} onZoom={setZoom} />
           </Suspense>
         )}
       </div>
