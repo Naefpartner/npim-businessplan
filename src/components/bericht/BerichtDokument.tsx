@@ -214,10 +214,11 @@ const ZEILE = { oben: 0.9, unten: 0.6 } as const
 const EINZUG = 2.3
 
 /**
- * Mindesthöhe des Zonenplans in Millimetern. Ohne sie schrumpfte er auf die
- * Höhe der beiden Tabellen daneben und blieb bei kurzen Tabellen ein Streifen.
+ * Feste Höhe des Zonenplans in Millimetern. Bewusst nicht mitwachsend: neben
+ * langen Tabellen geriete er sonst überhoch, und das Bild schnitte immer mehr
+ * von den Seiten weg.
  */
-const PLAN_MIN = 70
+const PLAN_HOEHE = 70
 
 const s = StyleSheet.create({
   /**
@@ -436,14 +437,12 @@ const s = StyleSheet.create({
   /** Situationsplan über die ganze Satzbreite; das Bild schneidet aus der Mitte. */
   planBreit: { height: mm(75), position: 'relative' },
   /**
-   * Zonenplan in der Spalte neben den Tabellen: er wächst auf deren Höhe. Der
-   * Abstand nach unten entspricht dem, den ein Tabellenblock mitbringt, sonst
-   * ragte das Bild über die letzte Tabellenlinie hinaus.
+   * Zonenplan in der Spalte neben den Tabellen. Der Abstand nach unten
+   * entspricht dem, den ein Tabellenblock mitbringt.
    */
   planSpalte: {
-    flexGrow: 1,
+    height: mm(PLAN_HOEHE),
     position: 'relative',
-    minHeight: mm(PLAN_MIN),
     marginBottom: mm(2),
   },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
@@ -746,11 +745,17 @@ function blockHoehe(zeilen: number): number {
  * Wege auf die zweite Seite.
  */
 function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
-  // Die Spalte des Plans kann höher ausfallen als die beiden Tabellen.
+  const einWeg = n.wege.length === 1
+  const links = blockHoehe(n.zonen.zeilen.length)
+    + blockHoehe(n.grundlagen.zeilen.length)
+    + (einWeg ? blockHoehe(n.wege[0].zeilen.length) : 0)
+  // Die Spalte des Plans kann höher ausfallen als die Tabellen daneben.
   const oben = MH.h1 + Math.max(
-    blockHoehe(n.zonen.zeilen.length) + blockHoehe(n.grundlagen.zeilen.length),
-    n.zonenplanUrl ? MH.eigTitel + PLAN_MIN + MH.blockEnde : 0,
+    links,
+    n.zonenplanUrl ? MH.eigTitel + PLAN_HOEHE + MH.blockEnde : 0,
   )
+  if (einWeg) return { oben, wege: 0 }
+
   let wege = 0
   for (let i = 0; i < n.wege.length; i += 2) {
     wege += Math.max(
@@ -758,8 +763,9 @@ function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
       n.wege[i + 1] ? blockHoehe(n.wege[i + 1].zeilen.length) : 0,
     )
   }
-  if (n.wege.length > 1) wege += blockHoehe(1) // Block „Massgebende Fläche"
-  return { oben, wege }
+  // Dazu der Block „Massgebende Vermietungsfläche" — er steht nur, wenn es
+  // mehrere Wege gibt.
+  return { oben, wege: wege + blockHoehe(1) }
 }
 
 function kapitelSeiten(key: string, daten: BerichtDaten): number {
@@ -1751,6 +1757,10 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   }
 
   const zweiSeitig = kapitelSeiten('stammdaten', daten) > 1
+  // Bei einer einzigen Berechnungsart schliesst sie unter den Grundstücken an,
+  // statt eine eigene Zeile unter dem Plan zu eröffnen — so bleibt die Seite
+  // in zwei Spalten und der Plan wächst über alle drei Blöcke.
+  const einWeg = n.wege.length === 1
 
   const kopfBereich = (
     // Links Zonenvorschriften über Grundstücken, rechts der Zonenplan. Er
@@ -1773,6 +1783,14 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
           linksBis={1}
           zeilen={n.grundlagen.zeilen}
         />
+        {einWeg && (
+          <Datentabelle
+            titel={n.wege[0].titel}
+            kopf={n.wege[0].kopf}
+            breiten={[3, 1.2]}
+            zeilen={n.wege[0].zeilen}
+          />
+        )}
       </View>
       <View style={s.spalteHalbRechts}>
         {n.zonenplanUrl && (
@@ -1829,7 +1847,7 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
         <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
         {kopfBereich}
-        {!zweiSeitig && wegeBloecke}
+        {!zweiSeitig && !einWeg && wegeBloecke}
       </InhaltsSeite>
 
       {zweiSeitig && (
