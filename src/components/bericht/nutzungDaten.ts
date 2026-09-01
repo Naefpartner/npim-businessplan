@@ -70,22 +70,42 @@ export function useNutzungDaten(
     const wege: NutzungDaten['wege'] = []
 
     if (a.hasAZ) {
+      // aGSF je Zone — Bezugsgrösse der zonenweisen aBGF.
+      const agsfZone = new Map<string, number>()
+      for (const r of a.azRows) {
+        if (r.agsf == null) continue
+        agsfZone.set(r.zone_type, (agsfZone.get(r.zone_type) ?? 0) + r.agsf)
+      }
+      const azZeilen: TabellenZeile[] = []
+      for (const g of a.azPerFloorRows) {
+        const az = a.regByZone.get(g.zone_type)?.az
+        azZeilen.push(
+          { zellen: [`${g.zone_type} · aGSF ${m2(agsfZone.get(g.zone_type))} m² × AZ ${ziffer(az)}`,
+            m2(g.abgf)] },
+          { zellen: ['Anzahl Vollgeschosse', g.vg != null ? formatNumber(g.vg) : '—'] },
+          { zellen: ['aBGF pro Vollgeschoss', m2(g.abgfPerFloor)] },
+        )
+        if (g.abgfUG != null) {
+          azZeilen.push({
+            zellen: [`aBGF UG · ${formatNumber(g.ugFlr ?? 0)} × ${pct(g.ugPct)}`, m2(g.abgfUG)],
+          })
+        }
+        if (g.abgfDG != null) {
+          azZeilen.push({
+            zellen: [`aBGF DG · ${formatNumber(g.dgFlr ?? 0)} × ${pct(g.dgPct)}`, m2(g.abgfDG)],
+          })
+        }
+      }
+      azZeilen.push(
+        { zellen: ['Total aBGF', m2(a.resultAZwithUG)] },
+        { zellen: ['VMF (VKF) / aBGF', pct(project.vmf_az_anrechenbar_pct)] },
+        { total: true, zellen: ['Total VMF (VKF)', m2(a.vmfMaxAZ)] },
+      )
       wege.push({
+        // Der Wert wechselt die Einheit — Fläche, Geschosszahl, Anteil.
         titel: 'Ausnützungsziffer AZ',
-        kopf: ['Schritt', 'm²'],
-        zeilen: [
-          ...a.azRows.map((r) => ({
-            zellen: [`Parzelle ${r.parcel_number} · AZ ${ziffer(r.az)} × ${m2(r.agsf)} m²`,
-              m2(r.contribution)],
-          })),
-          { zellen: ['anrechenbare Geschossfläche', m2(a.resultAZ)] },
-          ...(a.totalAbgfUg != null
-            ? [{ zellen: ['anrechenbar aus Untergeschoss', m2(a.totalAbgfUg)] }] : []),
-          ...(a.totalAbgfDg != null
-            ? [{ zellen: ['anrechenbar aus Dachgeschoss', m2(a.totalAbgfDg)] }] : []),
-          { zellen: ['Geschossfläche total', m2(a.resultAZwithUG)] },
-          { zellen: [`davon vermietbar ${pct(project.vmf_az_anrechenbar_pct)}`, m2(a.vmfMaxAZ)] },
-        ],
+        kopf: ['Schritt', 'Wert'],
+        zeilen: azZeilen,
         ergebnis: a.vmfMaxAZ,
       })
     }
