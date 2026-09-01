@@ -48,6 +48,8 @@ export function useNutzungDaten(
   project: Project | null,
   parzellen: Parcel[],
   zonen: ZoneRegulation[],
+  /** Zonenplan aus dem GIS; erscheint neben den Zonenvorschriften. */
+  zonenplanUrl: string | null,
 ): NutzungDaten | undefined {
   return useMemo(() => {
     if (!project || parzellen.length === 0) return undefined
@@ -193,6 +195,7 @@ export function useNutzungDaten(
     }
 
     return {
+      zonenplanUrl,
       grundlagen: {
         kopf: ['Parzelle', 'Zone', 'GSF m²', 'aGSF m²'],
         zeilen: grundlagen,
@@ -206,5 +209,5 @@ export function useNutzungDaten(
       massgebend: a.vmfMaxCalc,
       massgebendWeg: wege.find((w) => w.ergebnis === a.vmfMaxCalc)?.titel ?? null,
     }
-  }, [project, parzellen, zonen])
+  }, [project, parzellen, zonen, zonenplanUrl])
 }

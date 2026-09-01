@@ -64,6 +64,41 @@ export interface ProjectPhoto {
   created_by: string | null
 }
 
+/**
+ * Themen der GIS-Planausschnitte (Migration 065). 'weitere' trägt eine freie
+ * Beschriftung — dort landet, was in keine der Kategorien passt.
+ */
+export type GisKategorie =
+  | 'amtliche_vermessung'
+  | 'zonenplan'
+  | 'naturgefahren'
+  | 'grundwasser'
+  | 'waermenutzung'
+  | 'altlasten'
+  | 'denkmalpflege'
+  | 'baumschutz'
+  | 'isos'
+  | 'weitere'
+
+export const GIS_KATEGORIE_LABEL: Record<GisKategorie, string> = {
+  amtliche_vermessung: 'Amtliche Vermessung',
+  zonenplan:           'Zonenplan',
+  naturgefahren:       'Naturgefahren',
+  grundwasser:         'Grundwasser',
+  waermenutzung:       'Wärmenutzung',
+  altlasten:           'Altlasten',
+  denkmalpflege:       'Denkmalpflege',
+  baumschutz:          'Baumschutz',
+  isos:                'ISOS',
+  weitere:             'Weiteres',
+}
+
+/** Reihenfolge in der Auswahl und im Bericht. */
+export const GIS_KATEGORIEN: GisKategorie[] = [
+  'amtliche_vermessung', 'zonenplan', 'naturgefahren', 'grundwasser',
+  'waermenutzung', 'altlasten', 'denkmalpflege', 'baumschutz', 'isos', 'weitere',
+]
+
 export interface ProjectGisScreenshot {
   id: string
   project_id: string
@@ -72,8 +107,19 @@ export interface ProjectGisScreenshot {
   mime_type: string | null
   size_bytes: number | null
   sort_order: number
+  /** Thema des Ausschnitts (Migration 065). */
+  kategorie: GisKategorie
+  /** Freie Beschriftung; bei 'weitere' die eigentliche Benennung. */
+  bezeichnung: string | null
   created_at: string
   created_by: string | null
+}
+
+/** Anzeigename eines Ausschnitts — die Beschriftung schlägt die Kategorie. */
+export function gisTitel(s: Pick<ProjectGisScreenshot, 'kategorie' | 'bezeichnung'>): string {
+  const frei = s.bezeichnung?.trim()
+  if (s.kategorie === 'weitere') return frei || 'Weiteres'
+  return frei ? `${GIS_KATEGORIE_LABEL[s.kategorie]} · ${frei}` : GIS_KATEGORIE_LABEL[s.kategorie]
 }
 
 export function projectAddressLine(p: Pick<Project, 'strasse' | 'hausnummer' | 'plz' | 'ort'>): string | null {

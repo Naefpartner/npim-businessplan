@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase'
 // werden deshalb erst hier auf der Seite geladen.
 import { berichtSeitenplan, type BerichtDaten } from '@/components/bericht/BerichtDokument'
 import {
-  PHASE_LABEL, projectAddressLine,
+  PHASE_LABEL, projectAddressLine, type GisKategorie,
   type Project, type ProjectVariant, type Customer, type Parcel, type ExistingBuilding,
   type ZoneRegulation,
 } from '@/types'
@@ -57,9 +57,16 @@ export function BerichtPage() {
 function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId: string }) {
   const { druckKapitel, anrede, umfang } = useBericht()
   const { photos, thumbnailPhotoId } = useProjectPhotos(projektId)
-  // Erster GIS-Ausschnitt dient als Situationsplan der Projektübersicht.
+  // Planausschnitte nach Thema: die Projektübersicht zeigt die amtliche
+  // Vermessung, die Nutzungsberechnung den Zonenplan. Fehlt das Thema, tritt
+  // der erste Ausschnitt an seine Stelle — besser ein Plan als keiner.
   const { items: gisBilder } = useProjectGisScreenshots(projektId)
-  const situationsplan = gisBilder[0] ?? null
+  const gisNach = useCallback(
+    (k: GisKategorie) => gisBilder.find((b) => b.kategorie === k) ?? gisBilder[0] ?? null,
+    [gisBilder],
+  )
+  const situationsplan = gisNach('amtliche_vermessung')
+  const zonenplan = gisNach('zonenplan')
 
   const [project, setProject] = useState<Project | null>(null)
   const [kunde, setKunde] = useState<Customer | null>(null)
@@ -100,7 +107,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const adresse = project ? projectAddressLine(project) : null
 
   const mengen = useMengenDaten(variantId, umfang)
-  const nutzung = useNutzungDaten(project, parzellen, zonen)
+  const nutzung = useNutzungDaten(project, parzellen, zonen, zonenplan?.publicUrl ?? null)
 
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null, kunde, anrede)

@@ -46,6 +46,8 @@ export interface BerichtDaten {
  * Vermietungsfläche nebeneinander, dazu Grundlagen und Zonenvorschriften.
  */
 export interface NutzungDaten {
+  /** Zonenplan aus dem GIS; fehlt, wenn keiner hinterlegt ist. */
+  zonenplanUrl: string | null
   grundlagen: { kopf: string[]; zeilen: TabellenZeile[] }
   zonen: { kopf: string[]; zeilen: TabellenZeile[] }
   wege: { titel: string; kopf: string[]; zeilen: TabellenZeile[]; ergebnis: number | null }[]
@@ -420,6 +422,11 @@ const s = StyleSheet.create({
     objectFit: 'cover',
   },
   zweiSpalten: { flexDirection: 'row', flexShrink: 0 },
+  /**
+   * Rahmen des Zonenplans: feste Höhe, damit er den Rest der Seite füllt,
+   * ohne sie zu sprengen — das Bild schneidet aus der Mitte.
+   */
+  zonenplanRahmen: { height: mm(55), position: 'relative' },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
   dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /**
@@ -1748,6 +1755,17 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
               ))}
             </View>
           ))}
+
+          {/* Der Zonenplan gehört hierher: er zeigt, worauf sich die Ziffern
+              beziehen. Ohne hinterlegten Plan bleibt der Platz einfach frei. */}
+          {n.zonenplanUrl && (
+            <View style={s.feldBlock}>
+              <Text style={s.h2}>Zonenplan</Text>
+              <View style={s.zonenplanRahmen}>
+                <Image src={n.zonenplanUrl} style={s.plan} />
+              </View>
+            </View>
+          )}
 
           {/* Nur bei mehreren Wegen: dann ist der kleinste massgebend. Steht
               nur einer da, ist seine Schlusszeile bereits das Ergebnis. */}

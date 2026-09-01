@@ -8,7 +8,10 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { KANTON_GIS, findKantonByCode } from '@/lib/kantonGis'
 import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
-import type { Project } from '@/types'
+import {
+  GIS_KATEGORIEN, GIS_KATEGORIE_LABEL,
+  type GisKategorie, type Project,
+} from '@/types'
 import { cn } from '@/lib/utils'
 
 export function ProjectGisSection({
@@ -32,7 +35,7 @@ export function ProjectGisSection({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const sectionRef = useRef<HTMLDivElement | null>(null)
 
-  const { items: screenshots, upload, remove, error: shotsError } =
+  const { items: screenshots, upload, remove, beschriften, error: shotsError } =
     useProjectGisScreenshots(project.id)
 
   // Kanton aus erster erfasster Parzelle ableiten — nur als Vorschlag.
@@ -118,7 +121,9 @@ export function ProjectGisSection({
   async function runUpload(file: File) {
     setUploading(true)
     setError(null)
-    const ok = await upload(file)
+    // Neue Bilder landen zunächst unter „Weiteres"; das Thema wird danach am
+    // Bild selbst gesetzt.
+    const ok = await upload(file, 'weitere')
     setUploading(false)
     if (ok) setActiveIndex(screenshots.length) // neues Bild wird angefügt
   }
@@ -305,6 +310,41 @@ export function ProjectGisSection({
                     </>
                   )}
                 </div>
+
+                {/* Thema und Beschriftung des angezeigten Ausschnitts. Der
+                    Bericht greift darüber gezielt auf ein Bild zu. */}
+                {current && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <select
+                      value={current.kategorie}
+                      disabled={!canWrite}
+                      onChange={(e) => void beschriften(current.id, {
+                        kategorie: e.target.value as GisKategorie,
+                      })}
+                      className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-slate-400 focus:outline-none disabled:opacity-60"
+                    >
+                      {GIS_KATEGORIEN.map((k) => (
+                        <option key={k} value={k}>{GIS_KATEGORIE_LABEL[k]}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      defaultValue={current.bezeichnung ?? ''}
+                      key={current.id}
+                      disabled={!canWrite}
+                      placeholder={current.kategorie === 'weitere'
+                        ? 'Beschriftung (z. B. Lärmbelastung)'
+                        : 'Zusatz (optional)'}
+                      onBlur={(e) => {
+                        const wert = e.target.value.trim() || null
+                        if (wert !== (current.bezeichnung ?? null)) {
+                          void beschriften(current.id, { bezeichnung: wert })
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none disabled:opacity-60"
+                    />
+                  </div>
+                )}
 
                 {screenshots.length > 1 && (
                   <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">

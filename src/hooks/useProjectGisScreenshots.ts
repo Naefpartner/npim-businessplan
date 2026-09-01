@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { ProjectGisScreenshot } from '@/types'
+import type { GisKategorie, ProjectGisScreenshot } from '@/types'
 
 const BUCKET = 'project-gis'
 
@@ -41,7 +41,7 @@ export function useProjectGisScreenshots(projectId: string | undefined) {
 
   useEffect(() => { void load() }, [load])
 
-  async function upload(file: File): Promise<boolean> {
+  async function upload(file: File, kategorie: GisKategorie = 'weitere'): Promise<boolean> {
     if (!projectId) return false
 
     const fromName = file.name.includes('.') ? file.name.split('.').pop() : null
@@ -65,6 +65,7 @@ export function useProjectGisScreenshots(projectId: string | undefined) {
         mime_type:    file.type || null,
         size_bytes:   file.size || null,
         sort_order:   next,
+        kategorie,
       })
 
     if (dbErr) {
@@ -73,6 +74,19 @@ export function useProjectGisScreenshots(projectId: string | undefined) {
       return false
     }
 
+    await load(true)
+    return true
+  }
+
+  /** Thema und Beschriftung eines Ausschnitts ändern. */
+  async function beschriften(
+    id: string, felder: { kategorie?: GisKategorie; bezeichnung?: string | null },
+  ): Promise<boolean> {
+    const { error } = await supabase
+      .from('project_gis_screenshots')
+      .update(felder)
+      .eq('id', id)
+    if (error) { setError(error.message); return false }
     await load(true)
     return true
   }
@@ -87,5 +101,5 @@ export function useProjectGisScreenshots(projectId: string | undefined) {
     return true
   }
 
-  return { items, loading, error, reload: load, upload, remove }
+  return { items, loading, error, reload: load, upload, remove, beschriften }
 }
