@@ -6,6 +6,7 @@ import { useParcels, useZoneRegulations } from '@/hooks/useStammdaten'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Project, ZoneRegulation } from '@/types'
 import { berechneAusnutzung } from '@/lib/ausnutzung'
+import { RichText } from '@/components/ui/RichText'
 import { cn } from '@/lib/utils'
 
 // =============================================================================
@@ -712,19 +713,16 @@ export function AusnutzungTab({ projectId }: { projectId: string }) {
           <h3 className="text-sm font-semibold text-slate-700">Bemerkungen</h3>
         </div>
         <div className="px-5 py-3">
-          <textarea
-            key={project.id}
-            defaultValue={project.ausnutzung_bemerkungen ?? ''}
+          <RichText
+            wert={project.ausnutzung_bemerkungen}
             disabled={!canWrite}
-            rows={3}
             placeholder="Sonderbauvorschriften, Gestaltungsplan, Absprachen mit der Gemeinde …"
-            onBlur={(e) => {
-              const wert = e.target.value.trim() || null
+            onChange={(html) => {
+              const wert = html || null
               if (wert !== (project.ausnutzung_bemerkungen ?? null)) {
                 void saveProjectField('ausnutzung_bemerkungen', wert)
               }
             }}
-            className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8B6956] focus:ring-2 focus:ring-[#8B6956]/20 disabled:opacity-60"
           />
           {savingField === 'ausnutzung_bemerkungen' && (
             <p className="mt-1 text-xs text-slate-400">Wird gespeichert…</p>

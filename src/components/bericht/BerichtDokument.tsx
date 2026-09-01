@@ -8,6 +8,7 @@ import {
 import { mm, schriftRegistrieren, datumCh, assetPfad } from '@/lib/berichtPdf'
 import { formatNumber } from '@/lib/utils'
 import { CHART_PALETTE } from '@/lib/ci'
+import { alsAbsaetze, hatInhalt, type Absatz } from '@/lib/richText'
 
 /** Alles, was der Bericht über Projekt und Variante wissen muss. */
 export interface BerichtDaten {
@@ -1809,10 +1810,11 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
     </View>
   )
 
-  const bemerkungenBlock = n.bemerkungen && (
+  const absaetze = alsAbsaetze(n.bemerkungen)
+  const bemerkungenBlock = hatInhalt(absaetze) && (
     <View style={s.feldBlock}>
       <Text style={s.h2}>Bemerkungen</Text>
-      <Text style={s.bemerkung}>{n.bemerkungen}</Text>
+      <Freitext absaetze={absaetze} />
     </View>
   )
 
@@ -1868,6 +1870,34 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
           {bemerkungenBlock}
         </InhaltsSeite>
       )}
+    </>
+  )
+}
+
+/**
+ * Ausgezeichneter Freitext. Jeder Absatz wird ein Text, die Läufe darin
+ * geschachtelte — react-pdf erbt die Stile dabei wie im Browser.
+ */
+function Freitext({ absaetze }: { absaetze: Absatz[] }) {
+  return (
+    <>
+      {absaetze.map((a, i) => (
+        <Text key={i} style={s.bemerkung}>
+          {a.laeufe.map((l, j) => (
+            <Text
+              key={j}
+              style={[
+                ...(l.fett ? [{ fontWeight: 700 as const }] : []),
+                ...(l.kursiv ? [{ fontStyle: 'italic' as const }] : []),
+                ...(l.unterstrichen ? [{ textDecoration: 'underline' as const }] : []),
+                ...(l.farbe ? [{ color: l.farbe }] : []),
+              ]}
+            >
+              {l.text}
+            </Text>
+          ))}
+        </Text>
+      ))}
     </>
   )
 }
