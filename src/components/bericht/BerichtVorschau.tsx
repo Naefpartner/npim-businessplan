@@ -65,14 +65,19 @@ export default function BerichtVorschau({
       </div>
     )
   }
-  const groesse = zoom === 'breite' ? '100%' : `${zoom}%`
+  const breite = zoom === 'breite' ? '100%' : `${zoom}%`
   return (
-    <div className="h-full w-full overflow-auto">
+    // Waagrecht scrollen, sobald die Seite breiter ist als das Fenster; senkrecht
+    // scrollt der Betrachter selbst.
+    <div className="h-full w-full overflow-x-auto overflow-y-hidden">
       <iframe
-        key={`${url}#${seite}`}
+        // Die Vergrösserung gehört in den Schlüssel: `view=FitH` wirkt nur beim
+        // Laden. Ohne Neuaufbau behielte der Betrachter seine alte Vergrösserung
+        // und die Seite rückte im breiteren Rahmen bloss zur Seite.
+        key={`${url}#${seite}#${zoom}`}
         title="Berichtsvorschau"
         src={`${url}#page=${seite}&view=FitH`}
-        style={{ width: groesse, height: groesse, border: 'none', display: 'block' }}
+        style={{ width: breite, height: '100%', border: 'none', display: 'block' }}
       />
     </div>
   )
