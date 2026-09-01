@@ -434,6 +434,8 @@ const s = StyleSheet.create({
   zonenplanRahmen: { height: mm(55), position: 'relative' },
   /** Situationsplan über die ganze Satzbreite; das Bild schneidet aus der Mitte. */
   planBreit: { height: mm(75), position: 'relative' },
+  /** Zonenplan oben auf der Seite — höher, weil er dort die Hauptsache ist. */
+  zonenplanBreit: { height: mm(80), position: 'relative' },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
   dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /**
@@ -722,8 +724,45 @@ export function InhaltsSeite({
  * Eigentumsarten vorkommen: dann steht der Mix je Nutzungsart getrennt und
  * passt nicht mehr unter die Erträge.
  */
+/** Höhe eines Tabellenblocks: Balken mit Vorabstand, Kopfzeile, Zeilen, Abstand. */
+function blockHoehe(zeilen: number): number {
+  return MH.eigTitel + MH.kopfzeile + zeilen * MH.zeile + MH.blockEnde
+}
+
+/**
+ * Höhe der Nutzungsberechnung ohne den Zonenplan. Stehen mehrere Wege da,
+ * rückt der Plan nach oben und braucht Platz — passt dann nicht mehr alles auf
+ * eine Seite, wandern die Wege auf die zweite.
+ */
+function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
+  const oben = MH.h1 + Math.max(
+    blockHoehe(n.grundlagen.zeilen.length),
+    blockHoehe(n.zonen.zeilen.length),
+  )
+  let wege = 0
+  for (let i = 0; i < n.wege.length; i += 2) {
+    wege += Math.max(
+      blockHoehe(n.wege[i].zeilen.length),
+      n.wege[i + 1] ? blockHoehe(n.wege[i + 1].zeilen.length) : 0,
+    )
+  }
+  if (n.wege.length > 1) wege += blockHoehe(1) // Block „Massgebende Fläche"
+  return { oben, wege }
+}
+
+/** Ob der Zonenplan oben steht — dann ist er gross und die Wege rücken nach. */
+function zonenplanOben(n: NutzungDaten | undefined): boolean {
+  return Boolean(n?.zonenplanUrl) && (n?.wege.length ?? 0) > 1
+}
+
 function kapitelSeiten(key: string, daten: BerichtDaten): number {
   if (key === 'projektuebersicht') return (daten.uebersicht?.mix.length ?? 0) > 1 ? 3 : 2
+  if (key === 'stammdaten') {
+    const n = daten.nutzung
+    if (!n || !zonenplanOben(n)) return 1
+    const h = nutzungHoehen(n)
+    return h.oben + MH.eigTitel + 80 + MH.blockEnde + h.wege > SEITENHOEHE ? 2 : 1
+  }
   if (key === 'mengengeruest') {
     const sichten = daten.mengen?.sichten ?? []
     return sichten.length === 0 ? 1 : sichten.reduce((a, x) => a + sichtSeiten(x), 0)
@@ -1693,88 +1732,112 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
  */
 function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   const n = daten.nutzung
-  return (
-    <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
-      {!n ? (
+  if (!n) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
         <Text style={s.hinweis}>
           Für dieses Projekt sind keine Bauzonen mit Ausnutzungsziffern erfasst.
         </Text>
-      ) : (
-        <>
-          {/* Beide Spalten gleich breit; die Zonentabelle rückt dafür enger
-              zusammen, weil sie acht Spalten trägt. */}
-          <View style={s.zweiSpalten}>
-            <View style={s.spalteHalbLinks}>
-              <Datentabelle
-                titel="Grundstücke"
-                kopf={n.grundlagen.kopf}
-                breiten={[1.5, 1.2, 1.1, 1.1]}
-                linksBis={1}
-                zeilen={n.grundlagen.zeilen}
-              />
-            </View>
-            <View style={s.spalteHalbRechts}>
-              <Datentabelle
-                titel="Zonenvorschriften"
-                kopf={n.zonen.kopf}
-                // Anteile in Millimetern gedacht: die Ziffernspalten tragen
-                // nur fünf Zeichen, Zone und die Geschossangaben mehr.
-                // DG und UG tragen nur noch die Geschosszahl, die Ziffern
-                // brauchen den Platz — dadurch reicht wieder mehr Abstand.
-                breiten={[15, 11, 11.5, 10, 11.5, 7.5, 7, 6]}
-                spaltenAbstand={2.4}
-                zeilen={n.zonen.zeilen}
-              />
-            </View>
-          </View>
+      </InhaltsSeite>
+    )
+  }
 
-          {/* Die Wege paarweise nebeneinander — vier passen so auf die Seite. */}
-          {Array.from({ length: Math.ceil(n.wege.length / 2) }, (_, r) => (
-            <View key={r} style={s.zweiSpalten}>
-              {[n.wege[r * 2], n.wege[r * 2 + 1]].map((w, i) => (
-                <View key={i} style={i === 0 ? s.spalteHalbLinks : s.spalteHalbRechts}>
-                  {w && (
-                    <Datentabelle
-                      titel={w.titel}
-                      kopf={w.kopf}
-                      breiten={[3, 1.2]}
-                      zeilen={w.zeilen}
-                    />
-                  )}
-                </View>
-              ))}
+  const obenPlan = zonenplanOben(n)
+  const zweiSeitig = kapitelSeiten('stammdaten', daten) > 1
+
+  const plan = (gross: boolean) => (
+    <View style={s.feldBlock}>
+      <Text style={s.h2}>Zonenplan</Text>
+      <View style={gross ? s.zonenplanBreit : s.zonenplanRahmen}>
+        <Image src={n.zonenplanUrl!} style={s.plan} />
+      </View>
+    </View>
+  )
+
+  const kopfTabellen = (
+    // Beide Spalten gleich breit; die Zonentabelle rückt dafür enger zusammen,
+    // weil sie acht Spalten trägt.
+    <View style={s.zweiSpalten}>
+      <View style={s.spalteHalbLinks}>
+        <Datentabelle
+          titel="Grundstücke"
+          kopf={n.grundlagen.kopf}
+          breiten={[1.5, 1.2, 1.1, 1.1]}
+          linksBis={1}
+          zeilen={n.grundlagen.zeilen}
+        />
+      </View>
+      <View style={s.spalteHalbRechts}>
+        <Datentabelle
+          titel="Zonenvorschriften"
+          kopf={n.zonen.kopf}
+          // DG und UG tragen nur noch die Geschosszahl, die Ziffern brauchen
+          // den Platz — dadurch reicht wieder mehr Abstand.
+          breiten={[15, 11, 11.5, 10, 11.5, 7.5, 7, 6]}
+          spaltenAbstand={2.4}
+          zeilen={n.zonen.zeilen}
+        />
+      </View>
+    </View>
+  )
+
+  const wegeBloecke = (
+    <>
+      {/* Die Wege paarweise nebeneinander — vier passen so auf die Seite. */}
+      {Array.from({ length: Math.ceil(n.wege.length / 2) }, (_, r) => (
+        <View key={r} style={s.zweiSpalten}>
+          {[n.wege[r * 2], n.wege[r * 2 + 1]].map((w, i) => (
+            <View key={i} style={i === 0 ? s.spalteHalbLinks : s.spalteHalbRechts}>
+              {w && (
+                <Datentabelle
+                  titel={w.titel}
+                  kopf={w.kopf}
+                  breiten={[3, 1.2]}
+                  zeilen={w.zeilen}
+                />
+              )}
             </View>
           ))}
+        </View>
+      ))}
 
-          {/* Der Zonenplan gehört hierher: er zeigt, worauf sich die Ziffern
-              beziehen. Ohne hinterlegten Plan bleibt der Platz einfach frei. */}
-          {n.zonenplanUrl && (
-            <View style={s.feldBlock}>
-              <Text style={s.h2}>Zonenplan</Text>
-              <View style={s.zonenplanRahmen}>
-                <Image src={n.zonenplanUrl} style={s.plan} />
-              </View>
-            </View>
-          )}
-
-          {/* Nur bei mehreren Wegen: dann ist der kleinste massgebend. Steht
-              nur einer da, ist seine Schlusszeile bereits das Ergebnis. */}
-          {n.wege.length > 1 && (
-            <Feldtabelle
-              titel="Massgebende Vermietungsfläche"
-              kopf="Kleinster der Wege"
-              labelBreite={60}
-              einheitBreite={11.5}
-              felder={[
-                { label: n.massgebendWeg ?? 'kein Weg vollständig', einheit: 'm²',
-                  wert: n.massgebend != null ? formatNumber(Math.round(n.massgebend)) : '—' },
-              ]}
-            />
-          )}
-        </>
+      {/* Nur bei mehreren Wegen: dann ist der kleinste massgebend. Steht nur
+          einer da, ist seine Schlusszeile bereits das Ergebnis. */}
+      {n.wege.length > 1 && (
+        <Feldtabelle
+          titel="Massgebende Vermietungsfläche"
+          kopf="Kleinster der Wege"
+          labelBreite={60}
+          einheitBreite={11.5}
+          felder={[
+            { label: n.massgebendWeg ?? 'kein Weg vollständig', einheit: 'm²',
+              wert: n.massgebend != null ? formatNumber(Math.round(n.massgebend)) : '—' },
+          ]}
+        />
       )}
-    </InhaltsSeite>
+    </>
+  )
+
+  return (
+    <>
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
+        {/* Bei mehreren Wegen steht der Zonenplan oben und gross: er zeigt,
+            worauf sich alle Ziffern beziehen. */}
+        {obenPlan && plan(true)}
+        {kopfTabellen}
+        {!zweiSeitig && wegeBloecke}
+        {/* Bei einem einzigen Weg bleibt Platz, der Plan schliesst die Seite ab. */}
+        {!obenPlan && n.zonenplanUrl && plan(false)}
+      </InhaltsSeite>
+
+      {zweiSeitig && (
+        <InhaltsSeite daten={daten} seite={seite + 1} seitenTotal={seitenTotal}>
+          {wegeBloecke}
+        </InhaltsSeite>
+      )}
+    </>
   )
 }
 
