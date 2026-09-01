@@ -795,6 +795,8 @@ interface Tabelle {
   breiten?: number[]
   /** Bis zu dieser Spalte linksbündig, danach rechtsbündig (Zahlenspalten). */
   linksBis?: number
+  /** Abstand zwischen den Spalten in mm; enger, wo viele Spalten stehen. */
+  spaltenAbstand?: number
 }
 
 /**
@@ -811,7 +813,7 @@ function zellenStil(t: Tabelle, i: number) {
     flexShrink: 1,
     flexBasis: 0,
     ...(i > (t.linksBis ?? 0) ? { textAlign: 'right' as const } : {}),
-    ...(i < t.kopf.length - 1 ? { paddingRight: mm(3) } : {}),
+    ...(i < t.kopf.length - 1 ? { paddingRight: mm(t.spaltenAbstand ?? 3) } : {}),
   }
 }
 
@@ -840,9 +842,10 @@ function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
 /** Einzelne Datentabelle mit Kopfzeile. */
 function Datentabelle({
   titel, titelFarbe, anschluss, totalFarbe, kopf, zeilen, breiten, linksBis = 0,
+  spaltenAbstand,
 }: Tabelle) {
   if (zeilen.length === 0) return null
-  const t: Tabelle = { kopf, zeilen, breiten, linksBis, totalFarbe }
+  const t: Tabelle = { kopf, zeilen, breiten, linksBis, totalFarbe, spaltenAbstand }
   return (
     <View style={s.feldBlock}>
       {titel && <Text style={titelStil(titelFarbe, anschluss)}>{titel}</Text>}
@@ -1701,8 +1704,10 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
         </Text>
       ) : (
         <>
+          {/* Beide Spalten gleich breit; die Zonentabelle rückt dafür enger
+              zusammen, weil sie acht Spalten trägt. */}
           <View style={s.zweiSpalten}>
-            <View style={s.spalteEins}>
+            <View style={s.spalteHalbLinks}>
               <Datentabelle
                 titel="Grundstücke"
                 kopf={n.grundlagen.kopf}
@@ -1711,13 +1716,14 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
                 zeilen={n.grundlagen.zeilen}
               />
             </View>
-            <View style={s.spalteZwei}>
+            <View style={s.spalteHalbRechts}>
               <Datentabelle
                 titel="Zonenvorschriften"
                 kopf={n.zonen.kopf}
                 // Anteile in Millimetern gedacht: die Ziffernspalten tragen
                 // nur fünf Zeichen, Zone und die Geschossangaben mehr.
-                breiten={[15, 11.5, 11.5, 11.5, 11.5, 8, 14, 13]}
+                breiten={[13, 9.5, 10, 9.5, 10, 6.5, 11, 10.5]}
+                spaltenAbstand={1.6}
                 zeilen={n.zonen.zeilen}
               />
             </View>
