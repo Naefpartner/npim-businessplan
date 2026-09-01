@@ -523,7 +523,11 @@ const s = StyleSheet.create({
   tabLinie: { borderBottomWidth: 0.5, borderBottomColor: '#D8D8D8' },
   /** Die Totalzeile hebt sich über die Schrift ab, nicht über eine kräftigere
    *  Linie — ihre Trennlinie ist dieselbe wie bei jeder anderen Zeile. */
-  tabTotal: { fontWeight: 700 },
+  /**
+   * Summenzeile: fett und hell hinterlegt, wie die Ergebniszeile der Vorlage.
+   * Trägt der Block eine Farbe der Nutzungsart, überschreibt sie den Grundton.
+   */
+  tabTotal: { fontWeight: 700, backgroundColor: BERICHT_FARBE.primaerZart },
   /**
    * Untergeordnete Zeile — kleiner und leiser gesetzt, damit sie sich der Zeile
    * darüber unterordnet. Die kleinere Schrift macht die Zeile auch niedriger;
@@ -765,6 +769,8 @@ interface Tabelle {
   titelFarbe?: string
   /** Der Titel steht unter einem Obertitel und hält knapperen Vorabstand. */
   anschluss?: boolean
+  /** Hinterlegung der Summenzeilen; ohne Angabe die zarte Kupferstufe. */
+  totalFarbe?: string
   kopf: string[]
   zeilen: TabellenZeile[]
   /** Spaltenanteile; ohne Angabe erste Spalte doppelt so breit. */
@@ -805,6 +811,7 @@ function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
     <View style={[
       s.tabZeile, s.tabLinie,
       ...(zeile.total ? [s.tabTotal] : []),
+      ...(zeile.total && t.totalFarbe ? [{ backgroundColor: t.totalFarbe }] : []),
       ...(zeile.einzug ? [s.tabEinzug] : []),
     ]}>
       <Zellen t={t} werte={zeile.zellen} />
@@ -814,10 +821,10 @@ function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
 
 /** Einzelne Datentabelle mit Kopfzeile. */
 function Datentabelle({
-  titel, titelFarbe, anschluss, kopf, zeilen, breiten, linksBis = 0,
+  titel, titelFarbe, anschluss, totalFarbe, kopf, zeilen, breiten, linksBis = 0,
 }: Tabelle) {
   if (zeilen.length === 0) return null
-  const t: Tabelle = { kopf, zeilen, breiten, linksBis }
+  const t: Tabelle = { kopf, zeilen, breiten, linksBis, totalFarbe }
   return (
     <View style={s.feldBlock}>
       {titel && <Text style={titelStil(titelFarbe, anschluss)}>{titel}</Text>}
@@ -911,6 +918,8 @@ function Feldtabelle({
   titelFarbe?: string
   /** Der Titel steht unter einem Obertitel und hält knapperen Vorabstand. */
   anschluss?: boolean
+  /** Hinterlegung der Summenzeilen; ohne Angabe die zarte Kupferstufe. */
+  totalFarbe?: string
   felder: Feld[]
   /** Breite der Bezeichnungsspalte in mm; schmaler in geteilten Spalten. */
   labelBreite?: number
@@ -1500,6 +1509,7 @@ function MengenSeite({
             titel={e.fortsetzung ? `${e.name} (Fortsetzung)` : e.name}
             titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerMittel}
             anschluss
+            totalFarbe={e.block.farbeGrund}
             kopf={e.kopf}
             breiten={MENGEN_BREITEN}
             linksBis={1}
@@ -1515,9 +1525,11 @@ function MengenSeite({
 function Summenzeile({
   zeile, kopf, breiten, grund,
 }: { zeile: TabellenZeile; kopf: string[]; breiten: number[]; grund: string }) {
-  const t: Tabelle = { kopf, zeilen: [zeile], breiten, linksBis: 1 }
+  // Die Hinterlegung kommt über die Zeile selbst, nicht über den Block —
+  // sonst läge sie auch unter dem Abstand darunter.
+  const t: Tabelle = { kopf, zeilen: [zeile], breiten, linksBis: 1, totalFarbe: grund }
   return (
-    <View style={[s.feldBlock, { backgroundColor: grund }]}>
+    <View style={s.feldBlock}>
       <Datenzeile t={t} zeile={zeile} />
     </View>
   )
