@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { pdf } from '@react-pdf/renderer'
 import { Loader2 } from 'lucide-react'
-import * as pdfjs from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+// Bewusst der Legacy-Build: der reguläre setzt `Map.prototype.getOrInsertComputed`
+// voraus, das noch nicht überall vorhanden ist — Safari bricht damit ab. Der
+// Legacy-Build bringt die Ergänzung mit und ist sonst derselbe Code.
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { BerichtDokument, type BerichtDaten } from '@/components/bericht/BerichtDokument'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
