@@ -84,36 +84,41 @@ export default function BerichtVorschau({
 
     async function zeichnen() {
       if (!doc) return
-      for (let n = 1; n <= doc.numPages; n++) {
-        const seiteDoc = await doc.getPage(n)
-        if (abgebrochen) return
-        const roh = seiteDoc.getViewport({ scale: 1 })
-        // „Breite" füllt den Rahmen abzüglich des Rands, sonst gilt der
-        // Prozentwert bezogen auf die natürliche Grösse.
-        const faktor = zoom === 'breite' ? (breite - 28) / roh.width : zoom / 100
-        const sicht = seiteDoc.getViewport({ scale: faktor })
-        const leinwand = leinwaende.current[n - 1]
-        if (!leinwand) continue
-        // Auf Bildschirmen mit hoher Pixeldichte doppelt zeichnen, sonst wirkt
-        // die Schrift unscharf; die CSS-Grösse bleibt die logische.
-        const dichte = Math.min(window.devicePixelRatio || 1, 2)
-        leinwand.width = Math.floor(sicht.width * dichte)
-        leinwand.height = Math.floor(sicht.height * dichte)
-        leinwand.style.width = `${Math.floor(sicht.width)}px`
-        leinwand.style.height = `${Math.floor(sicht.height)}px`
-        const ctx = leinwand.getContext('2d')
-        if (!ctx) continue
-        const aufgabe = seiteDoc.render({
-          canvas: leinwand,
-          canvasContext: ctx,
-          viewport: sicht,
-          transform: dichte === 1 ? undefined : [dichte, 0, 0, dichte, 0, 0],
-        })
-        aufgaben.push(aufgabe)
-        try { await aufgabe.promise } catch { /* abgebrochen */ }
-        if (abgebrochen) return
+      try {
+        for (let n = 1; n <= doc.numPages; n++) {
+          const seiteDoc = await doc.getPage(n)
+          if (abgebrochen) return
+          const roh = seiteDoc.getViewport({ scale: 1 })
+          // „Breite" füllt den Rahmen abzüglich des Rands, sonst gilt der
+          // Prozentwert bezogen auf die natürliche Grösse.
+          const faktor = zoom === 'breite' ? (breite - 28) / roh.width : zoom / 100
+          const sicht = seiteDoc.getViewport({ scale: faktor })
+          const leinwand = leinwaende.current[n - 1]
+          if (!leinwand) continue
+          // Auf Bildschirmen mit hoher Pixeldichte doppelt zeichnen, sonst
+          // wirkt die Schrift unscharf; die CSS-Grösse bleibt die logische.
+          const dichte = Math.min(window.devicePixelRatio || 1, 2)
+          leinwand.width = Math.floor(sicht.width * dichte)
+          leinwand.height = Math.floor(sicht.height * dichte)
+          leinwand.style.width = `${Math.floor(sicht.width)}px`
+          leinwand.style.height = `${Math.floor(sicht.height)}px`
+          // Nur `canvas` übergeben: pdf.js lässt `canvasContext` daneben nicht
+          // zu — der Aufruf bräche ab, und zwar lautlos.
+          const aufgabe = seiteDoc.render({
+            canvas: leinwand,
+            viewport: sicht,
+            transform: dichte === 1 ? undefined : [dichte, 0, 0, dichte, 0, 0],
+          })
+          aufgaben.push(aufgabe)
+          try { await aufgabe.promise } catch { /* abgebrochen */ }
+          if (abgebrochen) return
+        }
+      } catch (e) {
+        // Sonst bliebe die Fläche leer und man sähe nicht, warum.
+        if (!abgebrochen) setFehler(e instanceof Error ? e.message : 'Seite nicht darstellbar.')
       }
     }
+
     void zeichnen()
     return () => {
       abgebrochen = true
