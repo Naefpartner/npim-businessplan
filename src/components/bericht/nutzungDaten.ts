@@ -126,7 +126,7 @@ export function useNutzungDaten(
 
     if (a.hasBM) {
       wege.push({
-        titel: 'Baumassenziffer BM',
+        titel: 'Baumassenberechnung',
         // Der Wert wechselt die Einheit — Volumen, Höhe, Fläche.
         kopf: ['Schritt', 'Wert'],
         zeilen: [
