@@ -133,16 +133,8 @@ export function useMengenDaten(
             // Die Haustitel stehen genau eine Stufe unter dem Balken der
             // Eigentumsart — nah genug, um zusammenzugehören.
             farbeHaus: mehrere ? USE_TYPE_COLOR_5[eig] : undefined,
-            // Der Kopf hängt an der Eigentumsart: Verkaufsobjekte führen
-            // Verkaufsflächen und Preise statt Mietflächen und Jahresmieten.
-            // Zwei Ansatzspalten: je Quadratmeter und je Einheit. Die Einheit
-            // ist beim Verkauf ein Preis je Stück, sonst eine Monatsmiete.
-            kopf: [
-              'Geschoss', 'Nutzung', 'Stk', 'GF m²', 'GV m³',
-              verkauf ? 'VKF m²' : 'VMF m²',
-              'CHF/m²', verkauf ? 'CHF/Stk' : 'CHF/Mt,Stk',
-              verkauf ? 'CHF' : 'CHF/Jahr',
-            ],
+            // Der Kopf hängt an der Eigentumsart.
+            kopf: mengenKopf(verkauf, 'Geschoss'),
             haeuser: haeuser.map((b) => hausBlock(
               b, verkauf, eig === 'genossenschaft' ? kostenmieteJeTyp : null)),
             // Bezeichnung in der zweiten Spalte: „Total Genossenschaft" bricht
@@ -154,6 +146,35 @@ export function useMengenDaten(
         })
         .filter((x) => x != null)
 
+      // Bei mehreren Häusern eine Übersicht voran: je Haus eine Zeile mit
+      // seinen Summen. Die Einzelheiten folgen darunter Geschoss für Geschoss —
+      // ohne die Übersicht liesse sich das ganze Projekt nur durch Blättern
+      // erfassen. Für eine Etappe erübrigt sie sich; dort steht ohnehin nur
+      // ein Ausschnitt.
+      const haeuserUebersicht = etappeId != null || gebaeude.length < 2 ? [] : EIG_ORDER
+        .map((eig) => {
+          const haeuser = gebaeude.filter((b) => eigentumsartForBuilding(b.use_type) === eig)
+          if (haeuser.length === 0) return null
+          const verkauf = eig === 'verkaufsobjekt'
+          const jeTyp = eig === 'genossenschaft' ? kostenmieteJeTyp : null
+          return {
+            // Ohne zweite Eigentumsart benennt der Balken, was in der Tabelle
+            // steht; sonst die Eigentumsart, die sie zusammenfasst.
+            label: einzeln ? 'Übersicht Häuser' : `Übersicht ${EIGENTUMSART_LABEL[eig]}`,
+            farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
+            farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
+            kopf: mengenKopf(verkauf, 'Haus'),
+            zeilen: [
+              ...haeuser.map((b) => hausZeile(b, verkauf, jeTyp)),
+              // Der Bezug steht hier in der ersten Spalte: die zweite ist in
+              // dieser Tabelle die schmalere und liefe in die Mengen hinein.
+              summenZeile(
+                einzeln ? 'Total' : `Total ${EIGENTUMSART_LABEL[eig]}`, '',
+                haeuser, verkauf, jeTyp),
+            ],
+          }
+        })
+        .filter((x) => x != null)
 
       return {
         titel,
@@ -161,6 +182,7 @@ export function useMengenDaten(
         // Kapiteltitel wiederholte sie sonst.
         titelImBalken: einzeln,
         benchmarks: benchmarkTabelle(gebaeude, mehrere),
+        haeuserUebersicht,
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
         ertraege: ertragsBloecke(gebaeude, mehrere, kostenmieteJeTyp),
@@ -308,10 +330,9 @@ function ansaetze(
 }
 
 /** Summe über Gebäude — Anzahl, GF, GV, VMF und Ertrag der Mietflächen. */
-function summenZeile(
-  label: string, bezug: string, gebaeude: VariantBuildingFull[], verkauf: boolean,
-  jeTyp: Map<string, number> | null,
-): TabellenZeile {
+function summeVon(
+  gebaeude: VariantBuildingFull[], verkauf: boolean, jeTyp: Map<string, number> | null,
+) {
   let anzahl = 0, gf = 0, gv = 0, vmf = 0, ertrag = 0
   for (const b of gebaeude) {
     for (const m of b.mietflaechen) {
@@ -322,10 +343,54 @@ function summenZeile(
       ertrag += ertragMitKostenmiete(m, verkauf, jeTyp)
     }
   }
+  return { anzahl, gf, gv, vmf, ertrag }
+}
+
+function summenZeile(
+  label: string, bezug: string, gebaeude: VariantBuildingFull[], verkauf: boolean,
+  jeTyp: Map<string, number> | null,
+): TabellenZeile {
+  const t = summeVon(gebaeude, verkauf, jeTyp)
   return {
     total: true,
-    zellen: [label, bezug, z(anzahl), z(gf), z(gv), z(vmf), '', '', z(ertrag)],
+    // Die Ansätze bleiben leer: über verschiedene Nutzungen gemittelt sagten
+    // sie nichts.
+    zellen: [label, bezug, z(t.anzahl), z(t.gf), z(t.gv), z(t.vmf), '', '', z(t.ertrag)],
   }
+}
+
+/**
+ * Ein Haus als eine Zeile — die Übersicht stellt sie den Geschossen voran.
+ * Anders als in der Summenzeile stehen die Ansätze hier: sie beziehen sich auf
+ * ein Haus und lassen sich zwischen den Häusern vergleichen.
+ */
+function hausZeile(
+  b: VariantBuildingFull, verkauf: boolean, jeTyp: Map<string, number> | null,
+): TabellenZeile {
+  const t = summeVon([b], verkauf, jeTyp)
+  return {
+    zellen: [
+      b.name, b.nutzung_haupt ?? '—',
+      z(t.anzahl), z(t.gf), z(t.gv), z(t.vmf),
+      ...ansaetze(t.vmf, t.anzahl, t.ertrag, verkauf),
+      z(t.ertrag),
+    ],
+  }
+}
+
+/**
+ * Kopfzeile der Mengentabelle. Verkaufsobjekte führen Verkaufsflächen und
+ * Preise statt Mietflächen und Jahresmieten; zwei Ansatzspalten, je
+ * Quadratmeter und je Einheit — beim Verkauf ein Preis je Stück, sonst eine
+ * Monatsmiete.
+ */
+function mengenKopf(verkauf: boolean, erste: string): string[] {
+  return [
+    erste, 'Nutzung', 'Stk', 'GF m²', 'GV m³',
+    verkauf ? 'VKF m²' : 'VMF m²',
+    'CHF/m²', verkauf ? 'CHF/Stk' : 'CHF/Mt,Stk',
+    verkauf ? 'CHF' : 'CHF/Jahr',
+  ]
 }
 
 /**

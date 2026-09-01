@@ -88,6 +88,11 @@ export interface MengenSicht {
   titelImBalken: boolean
   /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
+  /**
+   * Je Eigentumsart die Häuser in je einer Zeile — steht den Geschossen voran.
+   * Leer bei nur einem Haus und in den Etappensichten.
+   */
+  haeuserUebersicht: (EigBlock & { kopf: string[]; zeilen: TabellenZeile[] })[]
   /** Mengen und Erträge auf Haus- und Geschossebene, je Eigentumsart. */
   eigentumsarten: (EigBlock & {
     kopf: string[]
@@ -1563,6 +1568,7 @@ const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 4
 
 type MengenElement =
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
+  | { art: 'uebersicht'; block: EigBlock; kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'eigTitel'; block: EigBlock; kopf: string[] }
   | { art: 'haus'; block: EigBlock; kopf: string[]; name: string
       fortsetzung: boolean; zeilen: TabellenZeile[] }
@@ -1570,7 +1576,8 @@ type MengenElement =
 
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
-    case 'benchmarks': return MH.eigTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
+    case 'benchmarks':
+    case 'uebersicht': return MH.eigTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
     case 'eigTitel': return MH.eigTitel
     case 'haus':     return MH.hausTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
     case 'eigTotal': return MH.zeile + MH.blockEnde
@@ -1614,6 +1621,11 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
     }
   }
 
+  // Die Übersicht der Häuser steht vor den Geschossen — sie führt ins Kapitel
+  // ein, statt es zusammenzufassen.
+  for (const u of sicht.haeuserUebersicht) {
+    lege({ art: 'uebersicht', block: u, kopf: u.kopf, zeilen: u.zeilen })
+  }
   for (const eig of sicht.eigentumsarten) {
     lege({ art: 'eigTitel', block: eig, kopf: eig.kopf })
     for (const haus of eig.haeuser) {
@@ -1670,6 +1682,14 @@ function sichtSeiten(sicht: MengenSicht): number {
 /** Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts. */
 const MENGEN_BREITEN = [1.25, 2.0, 0.8, 0.95, 1.05, 0.95, 1.05, 1.05, 1.3]
 
+/**
+ * Dieselben Spalten für die Häuserübersicht, nur die ersten beiden getauscht:
+ * dort steht der Hausname, der mehr Platz braucht als eine Geschossangabe. Die
+ * Summe bleibt gleich, damit die Zahlenspalten mit den Tabellen darunter
+ * fluchten.
+ */
+const UEBERSICHT_BREITEN = [2.0, 1.25, ...MENGEN_BREITEN.slice(2)]
+
 /** Eine Mengenseite: Kennzahlen, Häuser und Zwischensummen in der Reihenfolge. */
 function MengenSeite({
   daten, sicht, elemente, seite, seitenTotal, erste,
@@ -1696,6 +1716,20 @@ function MengenSeite({
               titel="Benchmarks"
               kopf={e.kopf}
               breiten={[2.4, ...e.kopf.slice(1).map(() => 1.2)]}
+              zeilen={e.zeilen}
+            />
+          )
+        }
+        if (e.art === 'uebersicht') {
+          return (
+            <Datentabelle
+              key={i}
+              titel={e.block.label}
+              titelFarbe={e.block.farbe}
+              totalFarbe={e.block.farbeGrund}
+              kopf={e.kopf}
+              breiten={UEBERSICHT_BREITEN}
+              linksBis={2}
               zeilen={e.zeilen}
             />
           )
