@@ -427,15 +427,14 @@ const s = StyleSheet.create({
     objectFit: 'cover',
   },
   zweiSpalten: { flexDirection: 'row', flexShrink: 0 },
-  /**
-   * Rahmen des Zonenplans: feste Höhe, damit er den Rest der Seite füllt,
-   * ohne sie zu sprengen — das Bild schneidet aus der Mitte.
-   */
-  zonenplanRahmen: { height: mm(55), position: 'relative' },
   /** Situationsplan über die ganze Satzbreite; das Bild schneidet aus der Mitte. */
   planBreit: { height: mm(75), position: 'relative' },
-  /** Zonenplan oben auf der Seite — höher, weil er dort die Hauptsache ist. */
-  zonenplanBreit: { height: mm(80), position: 'relative' },
+  /**
+   * Zonenplan in der Spalte neben den Tabellen: er wächst auf deren Höhe. Der
+   * Abstand nach unten entspricht dem, den ein Tabellenblock mitbringt, sonst
+   * ragte das Bild über die letzte Tabellenlinie hinaus.
+   */
+  planSpalte: { flexGrow: 1, position: 'relative', marginBottom: mm(2) },
   /** Dreiteilung für den Mix je Nutzungsart — gleiche Anteile, gleicher Abstand. */
   dreiSpalten: { flexDirection: 'row', flexShrink: 0 },
   /**
@@ -730,15 +729,15 @@ function blockHoehe(zeilen: number): number {
 }
 
 /**
- * Höhe der Nutzungsberechnung ohne den Zonenplan. Stehen mehrere Wege da,
- * rückt der Plan nach oben und braucht Platz — passt dann nicht mehr alles auf
- * eine Seite, wandern die Wege auf die zweite.
+ * Höhe der Nutzungsberechnung. Oben stehen Zonenvorschriften und Grundstücke
+ * übereinander, daneben der Zonenplan — der füllt die Höhe der beiden und
+ * fällt deshalb nicht ins Gewicht. Passt darunter nicht alles, wandern die
+ * Wege auf die zweite Seite.
  */
 function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
-  const oben = MH.h1 + Math.max(
-    blockHoehe(n.grundlagen.zeilen.length),
-    blockHoehe(n.zonen.zeilen.length),
-  )
+  const oben = MH.h1
+    + blockHoehe(n.zonen.zeilen.length)
+    + blockHoehe(n.grundlagen.zeilen.length)
   let wege = 0
   for (let i = 0; i < n.wege.length; i += 2) {
     wege += Math.max(
@@ -750,18 +749,13 @@ function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
   return { oben, wege }
 }
 
-/** Ob der Zonenplan oben steht — dann ist er gross und die Wege rücken nach. */
-function zonenplanOben(n: NutzungDaten | undefined): boolean {
-  return Boolean(n?.zonenplanUrl) && (n?.wege.length ?? 0) > 1
-}
-
 function kapitelSeiten(key: string, daten: BerichtDaten): number {
   if (key === 'projektuebersicht') return (daten.uebersicht?.mix.length ?? 0) > 1 ? 3 : 2
   if (key === 'stammdaten') {
     const n = daten.nutzung
-    if (!n || !zonenplanOben(n)) return 1
+    if (!n) return 1
     const h = nutzungHoehen(n)
-    return h.oben + MH.eigTitel + 80 + MH.blockEnde + h.wege > SEITENHOEHE ? 2 : 1
+    return h.oben + h.wege > SEITENHOEHE ? 2 : 1
   }
   if (key === 'mengengeruest') {
     const sichten = daten.mengen?.sichten ?? []
@@ -1743,32 +1737,13 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
     )
   }
 
-  const obenPlan = zonenplanOben(n)
   const zweiSeitig = kapitelSeiten('stammdaten', daten) > 1
 
-  const plan = (gross: boolean) => (
-    <View style={s.feldBlock}>
-      <Text style={s.h2}>Zonenplan</Text>
-      <View style={gross ? s.zonenplanBreit : s.zonenplanRahmen}>
-        <Image src={n.zonenplanUrl!} style={s.plan} />
-      </View>
-    </View>
-  )
-
-  const kopfTabellen = (
-    // Beide Spalten gleich breit; die Zonentabelle rückt dafür enger zusammen,
-    // weil sie acht Spalten trägt.
+  const kopfBereich = (
+    // Links Zonenvorschriften über Grundstücken, rechts der Zonenplan. Er
+    // wächst auf die Höhe der beiden Tabellen, statt eine eigene mitzubringen.
     <View style={s.zweiSpalten}>
       <View style={s.spalteHalbLinks}>
-        <Datentabelle
-          titel="Grundstücke"
-          kopf={n.grundlagen.kopf}
-          breiten={[1.5, 1.2, 1.1, 1.1]}
-          linksBis={1}
-          zeilen={n.grundlagen.zeilen}
-        />
-      </View>
-      <View style={s.spalteHalbRechts}>
         <Datentabelle
           titel="Zonenvorschriften"
           kopf={n.zonen.kopf}
@@ -1778,6 +1753,23 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
           spaltenAbstand={2.4}
           zeilen={n.zonen.zeilen}
         />
+        <Datentabelle
+          titel="Grundstücke"
+          kopf={n.grundlagen.kopf}
+          breiten={[1.5, 1.2, 1.1, 1.1]}
+          linksBis={1}
+          zeilen={n.grundlagen.zeilen}
+        />
+      </View>
+      <View style={s.spalteHalbRechts}>
+        {n.zonenplanUrl && (
+          <>
+            <Text style={s.h2}>Zonenplan</Text>
+            <View style={s.planSpalte}>
+              <Image src={n.zonenplanUrl} style={s.plan} />
+            </View>
+          </>
+        )}
       </View>
     </View>
   )
@@ -1823,13 +1815,8 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
     <>
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
         <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
-        {/* Bei mehreren Wegen steht der Zonenplan oben und gross: er zeigt,
-            worauf sich alle Ziffern beziehen. */}
-        {obenPlan && plan(true)}
-        {kopfTabellen}
+        {kopfBereich}
         {!zweiSeitig && wegeBloecke}
-        {/* Bei einem einzigen Weg bleibt Platz, der Plan schliesst die Seite ab. */}
-        {!obenPlan && n.zonenplanUrl && plan(false)}
       </InhaltsSeite>
 
       {zweiSeitig && (
