@@ -10,12 +10,21 @@ import { BerichtDokument, type BerichtDaten } from '@/components/bericht/Bericht
  * Statt PDFViewer wird das Dokument selbst zu einem Blob gerendert und in einem
  * eigenen iframe angezeigt: nur so lässt sich über den Anker `#page=n` gezielt
  * zu einem Kapitel springen. Der Betrachter liest den Anker beim Laden, deshalb
- * bekommt das iframe einen `key` aus URL und Seite — es baut sich neu auf, ohne
- * dass das PDF neu gerendert werden müsste.
+ * bekommt das iframe einen `key` aus URL, Seite und Vergrösserung — es baut
+ * sich neu auf, ohne dass das PDF neu gerendert werden müsste.
+ *
+ * Die Vergrösserung läuft über denselben Anker (`#zoom=`). So wächst nur das
+ * Dokument; Sidebar und Kopfzeile bleiben, wo sie sind — anders als beim Zoom
+ * des Browsers, der die ganze Anwendung skaliert.
  */
 export default function BerichtVorschau({
-  daten, seite,
-}: { daten: BerichtDaten; seite: number }) {
+  daten, seite, zoom,
+}: {
+  daten: BerichtDaten
+  seite: number
+  /** Vergrösserung in Prozent; 'breite' passt die Seite in die Fensterbreite. */
+  zoom: number | 'breite'
+}) {
   const [url, setUrl] = useState<string | null>(null)
   const [fehler, setFehler] = useState<string | null>(null)
 
@@ -56,9 +65,9 @@ export default function BerichtVorschau({
   }
   return (
     <iframe
-      key={`${url}#${seite}`}
+      key={`${url}#${seite}#${zoom}`}
       title="Berichtsvorschau"
-      src={`${url}#page=${seite}&view=FitH`}
+      src={`${url}#page=${seite}&${zoom === 'breite' ? 'view=FitH' : `zoom=${zoom}`}`}
       style={{ width: '100%', height: '100%', border: 'none' }}
     />
   )

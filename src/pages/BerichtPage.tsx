@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, Loader2 } from 'lucide-react'
+import { ArrowLeft, Download, Loader2, Minus, Plus, MoveHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useBericht } from '@/contexts/BerichtContext'
@@ -124,6 +124,17 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const kapitelSprung = useMemo(() => (daten ? berichtSeitenplan(daten) : []), [daten])
   const [zielSeite, setZielSeite] = useState(1)
 
+  // Vergrösserung nur der Vorschau. Der Browser-Zoom skaliert die ganze
+  // Anwendung mit; hier soll das Dokument allein wachsen.
+  const [zoom, setZoom] = useState<number | 'breite'>('breite')
+  const zoomStufen = [50, 75, 100, 125, 150, 200, 300]
+  const zoomSchritt = (richtung: 1 | -1) => setZoom((z) => {
+    const jetzt = z === 'breite' ? 100 : z
+    const i = zoomStufen.indexOf(jetzt)
+    const naechste = zoomStufen[(i < 0 ? zoomStufen.indexOf(100) : i) + richtung]
+    return naechste ?? jetzt
+  })
+
   // Ändert sich die Kapitelauswahl, verschieben sich die Seitenzahlen — die
   // gemerkte Zielseite passt dann nicht mehr.
   useEffect(() => { setZielSeite(1) }, [druckKapitel, umfang])
@@ -206,6 +217,37 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
               <span className="ml-1.5 opacity-60">{k.seite}</span>
             </button>
           ))}
+
+          <span className="ml-auto inline-flex items-center gap-0.5 rounded-lg bg-white p-0.5 ring-1 ring-slate-200">
+            <button
+              type="button"
+              onClick={() => setZoom('breite')}
+              title="Auf Fensterbreite"
+              className={cn('rounded-md p-1 transition',
+                zoom === 'breite' ? 'bg-[#8B6956] text-white' : 'text-slate-500 hover:bg-slate-100')}
+            >
+              <MoveHorizontal className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => zoomSchritt(-1)}
+              title="Verkleinern"
+              className="rounded-md p-1 text-slate-500 transition hover:bg-slate-100"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <span className="w-10 text-center text-[11px] tabular-nums text-slate-500">
+              {zoom === 'breite' ? 'Breite' : `${zoom} %`}
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomSchritt(1)}
+              title="Vergrössern"
+              className="rounded-md p-1 text-slate-500 transition hover:bg-slate-100"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </span>
         </nav>
       )}
 
@@ -220,7 +262,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
               <Loader2 className="h-4 w-4 animate-spin" /> Vorschau wird aufgebaut…
             </div>
           }>
-            <BerichtVorschau daten={daten} seite={zielSeite} />
+            <BerichtVorschau daten={daten} seite={zielSeite} zoom={zoom} />
           </Suspense>
         )}
       </div>
