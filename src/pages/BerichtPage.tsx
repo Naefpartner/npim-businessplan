@@ -10,6 +10,7 @@ import { VariantDataProvider } from '@/contexts/VariantDataContext'
 import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
 import { useMengenDaten } from '@/components/bericht/mengenDaten'
 import { useNutzungDaten } from '@/components/bericht/nutzungDaten'
+import { useAnlagekostenDaten } from '@/components/bericht/anlagekostenDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
 import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
 import { fetchVariant } from '@/hooks/useVariants'
@@ -112,6 +113,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
 
   const mengen = useMengenDaten(variantId, umfang)
   const nutzung = useNutzungDaten(project, parzellen, zonen, zonenplan?.publicUrl ?? null)
+  const anlagekosten = useAnlagekostenDaten()
 
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
@@ -142,10 +144,11 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       uebersicht,
       mengen,
       nutzung,
+      anlagekosten,
       umbrueche,
     }
   }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
-      uebersicht, mengen, nutzung, umbrueche])
+      uebersicht, mengen, nutzung, anlagekosten, umbrueche])
 
   // ── Sprungnavigation ───────────────────────────────────────────────────────
   // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.

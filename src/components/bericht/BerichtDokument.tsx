@@ -1,7 +1,7 @@
 import { Document, Page, View, Text, Image, StyleSheet, Svg, Path, Circle } from '@react-pdf/renderer'
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
-  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite,
+  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite, satzBreite,
   kapitelFuer,
   type BerichtKapitel, type SeitenFormat, type AuftragAnrede, type EtappenUmfang,
 } from '@/lib/bericht'
@@ -40,6 +40,8 @@ export interface BerichtDaten {
   mengen?: MengenDaten
   /** Inhalt des Kapitels „Nutzungsberechnung"; fehlt ohne Zonen. */
   nutzung?: NutzungDaten
+  /** Inhalt des Kapitels „Anlagekosten"; fehlt ohne erfasste Kosten. */
+  anlagekosten?: AnlagekostenDaten
   /**
    * Bausteine, vor denen von Hand eine neue Seite beginnt. Die Rechnung füllt
    * die Seiten so weit wie möglich; wo das fachlich Zusammengehörendes trennt,
@@ -125,6 +127,29 @@ export interface MengenSicht {
   })[]
   /** Ertragsübersicht je Eigentumsart. */
   ertraege: (EigBlock & { kopf: string[]; aufMixblatt: boolean; zeilen: TabellenZeile[] })[]
+}
+
+/**
+ * Kapitel „Anlagekosten". Was es zeigt, hängt an der Erfassungsmethode der
+ * Variante — die Zusammenstellung je Hauptgruppe haben alle gemeinsam, die
+ * Herleitung Position für Position nur die Detailerfassung. Sie braucht die
+ * Breite von A3; die beiden anderen kommen mit A4 aus.
+ */
+export interface AnlagekostenDaten {
+  methode: 'benchmark' | 'keevalue' | 'detail'
+  format: SeitenFormat
+  /** Zusammenstellung je Hauptgruppe. */
+  summen: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }
+  /** Satz unter der Tabelle — woher die Kosten stammen. */
+  hinweis: string | null
+  /** Nur bei der Detailerfassung: je Hauptgruppe ihre Positionen. */
+  gruppen: {
+    code: string
+    label: string
+    kopf: string[]
+    zeilen: TabellenZeile[]
+    total: TabellenZeile
+  }[]
 }
 
 /** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
@@ -522,6 +547,8 @@ const s = StyleSheet.create({
   spalteHalbLinks: { flexGrow: 1, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
   spalteHalbRechts: { flexGrow: 1, flexShrink: 1, flexBasis: '0%' },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
+  /** Satz unter der Kostentabelle — woher die Zahlen stammen. */
+  anlageHinweis: { color: '#4A4A4A', paddingLeft: mm(EINZUG), marginBottom: mm(2), flexShrink: 0 },
 
   // ── Ringdiagramme und Mixbalken ───────────────────────────────────────────
   ringBlock: { flexShrink: 0, marginBottom: mm(2) },
@@ -809,7 +836,7 @@ function blockHoehe(zeilen: number): number {
 }
 
 /** Breite des Satzspiegels in Millimetern. */
-const SATZBREITE = SEITE.a4.breite - RAND.links - RAND.rechts
+const SATZBREITE = satzBreite('a4')
 
 /**
  * Breite der beiden ungleichen Spalten (spalteEins/spalteZwei), abzüglich des
@@ -1186,6 +1213,10 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     const h = nutzungHoehen(n)
     return h.oben + h.wege > SEITENHOEHE ? 2 : 1
   }
+  if (key === 'anlagekosten') {
+    const a = daten.anlagekosten
+    return a ? anlagekostenSeiten(a, umbruchSet(daten)).length : 1
+  }
   if (key === 'mengengeruest') {
     const sichten = daten.mengen?.sichten ?? []
     if (sichten.length === 0) return 1
@@ -1274,6 +1305,9 @@ export function berichtUmbruchPunkte(daten: BerichtDaten): UmbruchEintrag[] {
   for (const e of plan) {
     if (e.kapitel.key === 'projektuebersicht' && daten.uebersicht) {
       sammle(e.kapitel.label, e.seite, uebersichtSeiten(daten.uebersicht, gesetzt))
+    }
+    if (e.kapitel.key === 'anlagekosten' && daten.anlagekosten) {
+      sammle(e.kapitel.label, e.seite, anlagekostenSeiten(daten.anlagekosten, gesetzt))
     }
     if (e.kapitel.key === 'mengengeruest' && daten.mengen) {
       let nr = e.seite
@@ -1961,7 +1995,16 @@ const HOEHEN_TOLERANZ = 1
  * Vorlage abgeleitet, sondern aus dem Abstand zur Fusszeile: der ist die
  * Bedingung, die zählt.
  */
-const SEITENHOEHE = FUSS_OBEN - FUSS_ABSTAND - HOEHEN_TOLERANZ - RAND.oben
+const SEITENHOEHE = seitenHoehe('a4')
+
+/**
+ * Dasselbe für ein beliebiges Format. Die Fusszeile sitzt immer gleich weit
+ * über dem Blattfuss, also verschiebt sich ihre Oberkante mit der Blatthöhe.
+ */
+function seitenHoehe(format: SeitenFormat): number {
+  const fussOben = FUSS_OBEN + (SEITE[format].hoehe - SEITE.a4.hoehe)
+  return fussOben - FUSS_ABSTAND - HOEHEN_TOLERANZ - RAND.oben
+}
 
 type MengenElement = Umbruchpunkt & (
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
@@ -2218,6 +2261,148 @@ function MengenSeite({
         )
       })}
     </InhaltsSeite>
+  )
+}
+
+// ─── Kapitel „Anlagekosten" ──────────────────────────────────────────────────
+
+/** Zusammenstellung je Hauptgruppe — dieselben Spalten in beiden Formaten. */
+const ANLAGE_SUMMEN = [0.5, 3.0, 1.3, 1.1, 1.3, 0.7]
+
+/** Die Herleitung Position für Position; nur auf A3. */
+const ANLAGE_DETAIL = [0.55, 3.4, 0.7, 1.0, 1.2, 1.3, 1.0, 1.3]
+
+type AnlageElement = Umbruchpunkt & (
+  | { art: 'summen' }
+  | { art: 'hinweis'; text: string }
+  | { art: 'gruppe'; titel: string; kopf: string[]
+      fortsetzung: boolean; zeilen: TabellenZeile[] }
+)
+
+function anlageHoehe(e: AnlageElement, a: AnlagekostenDaten): number {
+  const breite = satzBreite(a.format)
+  switch (e.art) {
+    case 'summen':
+      return MH.eigTitel + kopfHoehe(a.summen.kopf, ANLAGE_SUMMEN, 3, breite) + MH.blockEnde
+        + zeilenHoehe(a.summen.zeilen, ANLAGE_SUMMEN, 3, breite)
+    case 'hinweis':
+      return textZeilen(e.text, breite - EINZUG, 1) * MH.zeile + MH.blockEnde
+    case 'gruppe':
+      return MH.hausTitel + kopfHoehe(e.kopf, ANLAGE_DETAIL, 3, breite) + MH.blockEnde
+        + zeilenHoehe(e.zeilen, ANLAGE_DETAIL, 3, breite)
+  }
+}
+
+/**
+ * Seiten des Kapitels. Die Zusammenstellung steht voran, danach je Hauptgruppe
+ * ihre Positionen. Eine Hauptgruppe bleibt zusammen, solange sie auf eine
+ * Seite passt; nur was für sich schon zu lang ist, wird geteilt — die
+ * Fortsetzung trägt denselben Titel mit Zusatz.
+ */
+function anlagekostenSeiten(
+  a: AnlagekostenDaten, gesetzt: ReadonlySet<string>,
+): AnlageElement[][] {
+  const hoeheJeSeite = seitenHoehe(a.format)
+  const seiten: AnlageElement[][] = []
+  let laufend: AnlageElement[] = []
+  let hoehe = MH.h1
+
+  function neueSeite() {
+    if (laufend.length > 0) seiten.push(laufend)
+    laufend = []
+    hoehe = 0
+  }
+  function lege(e: AnlageElement) {
+    const h = anlageHoehe(e, a)
+    if (laufend.length > 0 && (gesetzt.has(e.key) || hoehe + h > hoeheJeSeite)) neueSeite()
+    laufend.push(e)
+    hoehe += h
+  }
+
+  lege({ art: 'summen', key: 'anlagekosten:summen', label: a.summen.titel })
+  if (a.hinweis) lege({ art: 'hinweis', text: a.hinweis, key: '', label: 'Hinweis' })
+
+  const rahmenHoehe = (kopf: string[]) => MH.hausTitel
+    + kopfHoehe(kopf, ANLAGE_DETAIL, 3, satzBreite(a.format)) + MH.blockEnde
+  for (const g of a.gruppen) {
+    const alle = [...g.zeilen, g.total]
+    const rahmen = rahmenHoehe(g.kopf)
+    const ganz = rahmen + zeilenHoehe(alle, ANLAGE_DETAIL, 3, satzBreite(a.format))
+    const key = `anlagekosten:gruppe:${g.code}`
+    if (ganz <= hoeheJeSeite) {
+      lege({ art: 'gruppe', titel: g.label, kopf: g.kopf, fortsetzung: false,
+        zeilen: alle, key, label: g.label })
+      continue
+    }
+    let rest = alle
+    let erste = true
+    while (rest.length > 0) {
+      const platz = hoeheJeSeite - hoehe - rahmen
+      let passt = 0
+      while (passt < rest.length
+        && zeilenHoehe(rest.slice(0, passt + 1), ANLAGE_DETAIL, 3, satzBreite(a.format)) <= platz) {
+        passt++
+      }
+      if (passt < 3 && laufend.length > 0) { neueSeite(); continue }
+      const nimm = Math.min(rest.length, Math.max(passt, 3))
+      lege({ art: 'gruppe', titel: g.label, kopf: g.kopf, fortsetzung: !erste,
+        zeilen: rest.slice(0, nimm), key: erste ? key : '', label: g.label })
+      rest = rest.slice(nimm)
+      erste = false
+    }
+  }
+  if (laufend.length > 0) seiten.push(laufend)
+  return seiten
+}
+
+function AnlagekostenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
+  const a = daten.anlagekosten
+  if (!a) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <Text style={[s.h1, s.h1Kapitel]}>Anlagekosten</Text>
+        <Text style={s.hinweis}>Für diese Variante sind keine Kosten erfasst.</Text>
+      </InhaltsSeite>
+    )
+  }
+  return (
+    <>
+      {anlagekostenSeiten(a, umbruchSet(daten)).map((elemente, n) => (
+        <InhaltsSeite key={n} format={a.format} daten={daten}
+          seite={seite + n} seitenTotal={seitenTotal}>
+          {n === 0 && <Text style={[s.h1, s.h1Kapitel]}>Anlagekosten</Text>}
+          {elemente.map((e, i) => {
+            if (e.art === 'summen') {
+              return (
+                <Datentabelle
+                  key={i}
+                  titel={a.summen.titel}
+                  kopf={a.summen.kopf}
+                  breiten={ANLAGE_SUMMEN}
+                  linksBis={1}
+                  zeilen={a.summen.zeilen}
+                />
+              )
+            }
+            if (e.art === 'hinweis') {
+              return <Text key={i} style={s.anlageHinweis}>{e.text}</Text>
+            }
+            return (
+              <Datentabelle
+                key={i}
+                titel={e.fortsetzung ? `${e.titel} (Fortsetzung)` : e.titel}
+                titelFarbe={BERICHT_FARBE.primaerMittel}
+                anschluss
+                kopf={e.kopf}
+                breiten={ANLAGE_DETAIL}
+                linksBis={2}
+                zeilen={e.zeilen}
+              />
+            )
+          })}
+        </InhaltsSeite>
+      ))}
+    </>
   )
 }
 
@@ -2561,6 +2746,7 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
     case 'projektuebersicht': return <Projektuebersicht {...rest} />
     case 'mengengeruest':     return <MengenKapitel {...rest} />
     case 'stammdaten':        return <NutzungKapitel {...rest} />
+    case 'anlagekosten':      return <AnlagekostenKapitel {...rest} />
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
