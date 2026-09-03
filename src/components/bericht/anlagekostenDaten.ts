@@ -4,6 +4,7 @@ import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { formatNumber } from '@/lib/utils'
 import type { BkpPosition } from '@/lib/bkpKatalog'
+import type { BaseRef } from '@/types'
 import type { PositionResult } from '@/lib/bkpBerechnung'
 import type { AnlagekostenDaten, TabellenZeile } from '@/components/bericht/BerichtDokument'
 
@@ -12,10 +13,57 @@ function chf(v: number): string {
   return v !== 0 ? formatNumber(Math.round(v)) : '—'
 }
 
-/** Menge mit Einheit, Einheit vorangestellt wie im übrigen Bericht. */
-function menge(p: PositionResult): string {
+/** Zusammenhängende Hauptgruppen als Spanne: [1,2,3,4] wird zu „BKP 1–4". */
+function gruppenLabel(gruppen: number[]): string {
+  if (gruppen.length === 0) return ''
+  const sortiert = [...gruppen].sort((a, b) => a - b)
+  const luecke = sortiert.some((g, i) => i > 0 && g !== sortiert[i - 1] + 1)
+  return luecke
+    ? `BKP ${sortiert.join(', ')}`
+    : `BKP ${sortiert[0]}${sortiert.length > 1 ? `–${sortiert[sortiert.length - 1]}` : ''}`
+}
+
+/**
+ * Worauf sich eine Bezugsmenge bezieht — „BKP 1–4", „Pos. 160", „Ertrag".
+ * Ohne das steht in der Mengenspalte eine Summe ohne Herkunft, und die
+ * Rechnung dahinter bleibt unlesbar. Positionen, deren Menge eine echte
+ * Grösse ist (Fläche, Volumen), brauchen die Angabe nicht.
+ */
+function bezug(typ: BkpPosition['typ']): string {
+  const refs = (r: BaseRef[]): string => r.map((x) => (
+    x.kind === 'hauptgruppe' ? `BKP ${x.ref}`
+      : x.kind === 'position' ? `Pos. ${x.ref}`
+        : x.ref
+  )).join(', ')
+  switch (typ.kind) {
+    case 'prozent_von_hauptgruppen': return gruppenLabel(typ.gruppen)
+    case 'finanzierung':
+      return [gruppenLabel(typ.gruppen), typ.refs?.length ? refs(typ.refs) : '']
+        .filter(Boolean).join(', ')
+    case 'prozent_von_refs':
+    case 'promille_von_refs': return refs(typ.refs)
+    case 'prozent_von_ertrag': return typ.refs.length > 0 ? refs(typ.refs) : 'Ertrag'
+    case 'von_ertrag_vereinfacht': return 'Ertrag'
+    case 'chf_pro_m3_bkp2': return 'BKP 2'
+    case 'auf_mehrwert': return 'Mehrwert'
+    default: return ''
+  }
+}
+
+/**
+ * Menge mit ihrer Einheit in einer Zelle. Getrennt gesetzt brauchte die
+ * Einheit eine eigene Spalte, und in der schmalen Spalte der zweispaltigen
+ * A3-Seite fehlte sie dann den Zahlen daneben.
+ *
+ * Ist die Menge eine Bezugssumme, tritt an die Stelle der Einheit ihre
+ * Herkunft: „2'400'000 (BKP 1–4)" sagt, was mit dem Ansatz daneben
+ * multipliziert wurde.
+ */
+function menge(p: PositionResult, herkunft: string): string {
   if (p.menge == null) return '—'
-  return `${formatNumber(Math.round(p.menge * 100) / 100)}`
+  const wert = formatNumber(Math.round(p.menge * 100) / 100)
+  if (herkunft) return `${wert} (${herkunft})`
+  return p.mengeEinheit ? `${wert} ${p.mengeEinheit}` : wert
 }
 
 /**
@@ -134,7 +182,9 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       for (const p of ak.positionsByEig.get(eig) ?? []) katalog.set(p.code, p)
     }
 
-    const gruppen = HAUPTGRUPPEN.map((h) => {
+    let tNetto = 0
+    let tMwst = 0
+    const roh = HAUPTGRUPPEN.map((h) => {
       const zeilen: TabellenZeile[] = []
       let gNetto = 0
       let gMwst = 0
@@ -158,41 +208,54 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
         if (pNetto === 0 && pMwst === 0) continue
         gNetto += pNetto
         gMwst += pMwst
-        const zeige = erste ? { ...erste, kennwertGemischt: erste.kennwertGemischt || gemischt } : null
+        const zeige = erste
+          ? { ...erste, kennwertGemischt: erste.kennwertGemischt || gemischt }
+          : null
         zeilen.push({
           zellen: [
             pos.displayCode ?? pos.code,
             pos.label,
-            zeige?.mengeEinheit ?? '',
-            zeige ? menge(zeige) : '—',
+            zeige ? menge(zeige, bezug(zeige.position.typ)) : '—',
             zeige ? ansatz(zeige) : '—',
             chf(pNetto),
             chf(pMwst),
             chf(pNetto + pMwst),
+            '',
           ],
         })
       }
       if (zeilen.length === 0) return null
-      return {
-        code: String(h.code),
-        label: `${h.code} ${h.label}`,
-        kopf: ['BKP', 'Position', 'Einheit', 'Menge', 'Ansatz',
-          'exkl. MWST', 'MWST', 'inkl. MWST'],
-        zeilen,
-        total: {
-          total: true,
-          zellen: ['', `Total ${h.label}`, '', '', '',
-            chf(gNetto), chf(gMwst), chf(gNetto + gMwst)],
-        } satisfies TabellenZeile,
-      }
+      tNetto += gNetto
+      tMwst += gMwst
+      return { code: String(h.code), label: h.label, zeilen, gNetto, gMwst }
     }).filter((g) => g != null)
+
+    const gesamt = tNetto + tMwst
+    // Die Summen der Hauptgruppe stehen in ihrem Titelbalken statt in einer
+    // eigenen Zeile darunter — das spart je Gruppe eine Zeile, und der Balken
+    // trägt ohnehin schon ihre Nummer.
+    const gruppen = roh.map((g) => ({
+      code: g.code,
+      label: g.label,
+      balken: [
+        g.code, g.label, '', '',
+        chf(g.gNetto), chf(g.gMwst), chf(g.gNetto + g.gMwst),
+        gesamt > 0 ? ((g.gNetto + g.gMwst) / gesamt * 100).toFixed(1) : '—',
+      ],
+      zeilen: g.zeilen,
+    }))
 
     return {
       methode,
       format: 'a3' as const,
-      summen,
       hinweis: null,
+      // Die Beschriftung steht einmal zuoberst; die Hauptgruppen darunter
+      // führen keine eigene mehr.
+      kopf: ['BKP', 'Position', 'Menge', 'Ansatz',
+        'exkl. MWST', 'MWST', 'inkl. MWST', '%'],
       gruppen,
+      total: ['', 'Total Anlagekosten', '', '',
+        chf(tNetto), chf(tMwst), chf(gesamt), gesamt > 0 ? '100.0' : '—'],
     }
   }, [ak, herkunft])
 }

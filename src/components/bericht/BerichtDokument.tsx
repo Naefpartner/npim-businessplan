@@ -138,18 +138,31 @@ export interface MengenSicht {
 export interface AnlagekostenDaten {
   methode: 'benchmark' | 'keevalue' | 'detail'
   format: SeitenFormat
-  /** Zusammenstellung je Hauptgruppe. */
-  summen: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }
+  /**
+   * Zusammenstellung je Hauptgruppe. Fehlt bei der Detailberechnung: dort
+   * steht die Herleitung selbst, mit ihren eigenen Summen je Hauptgruppe.
+   */
+  summen?: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }
   /** Satz unter der Tabelle — woher die Kosten stammen. */
   hinweis: string | null
-  /** Nur bei der Detailerfassung: je Hauptgruppe ihre Positionen. */
+  /**
+   * Nur bei der Detailerfassung: die Beschriftung der Spalten, einmal für das
+   * ganze Blatt. Je Hauptgruppe wiederholt stünde sie zehnmal da.
+   */
+  kopf?: string[]
+  /**
+   * Nur bei der Detailerfassung: je Hauptgruppe ihre Positionen. Die Summen
+   * der Gruppe stehen in ihrem Titelbalken (`balken`), nicht in einer eigenen
+   * Zeile — das spart je Gruppe eine Zeile.
+   */
   gruppen: {
     code: string
     label: string
-    kopf: string[]
+    balken: string[]
     zeilen: TabellenZeile[]
-    total: TabellenZeile
   }[]
+  /** Schlusszeile über alle Hauptgruppen. */
+  total?: string[]
 }
 
 /** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
@@ -549,6 +562,38 @@ const s = StyleSheet.create({
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
   /** Satz unter der Kostentabelle — woher die Zahlen stammen. */
   anlageHinweis: { color: '#4A4A4A', paddingLeft: mm(EINZUG), marginBottom: mm(2), flexShrink: 0 },
+
+  // ── Kompakter Satz der Detailberechnung ───────────────────────────────────
+  kompaktBlock: { marginBottom: mm(0.8), flexShrink: 0 },
+  /** Der Balken trägt Zellen wie eine Zeile — die Summen der Hauptgruppe. */
+  kompaktBalken: { flexDirection: 'row' },
+  kompaktTitel: {
+    fontSize: SCHRIFT.h3,
+    lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
+    fontWeight: 700,
+    paddingLeft: mm(EINZUG),
+    paddingRight: mm(EINZUG),
+    paddingTop: mm(0.4),
+    paddingBottom: mm(0.3),
+    marginTop: mm(1.2),
+    marginBottom: mm(0.7),
+  },
+  kompaktKopf: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: BERICHT_FARBE.linie,
+    paddingBottom: mm(0.7),
+    paddingLeft: mm(EINZUG),
+    fontSize: 7,
+    color: '#4A4A4A',
+  },
+  kompaktZeile: {
+    flexDirection: 'row',
+    fontSize: SCHRIFT.klein,
+    paddingTop: mm(0.5),
+    paddingBottom: mm(0.4),
+    paddingLeft: mm(EINZUG),
+  },
 
   // ── Ringdiagramme und Mixbalken ───────────────────────────────────────────
   ringBlock: { flexShrink: 0, marginBottom: mm(2) },
@@ -1307,7 +1352,10 @@ export function berichtUmbruchPunkte(daten: BerichtDaten): UmbruchEintrag[] {
       sammle(e.kapitel.label, e.seite, uebersichtSeiten(daten.uebersicht, gesetzt))
     }
     if (e.kapitel.key === 'anlagekosten' && daten.anlagekosten) {
-      sammle(e.kapitel.label, e.seite, anlagekostenSeiten(daten.anlagekosten, gesetzt))
+      // Je Seite ihre Spalten zusammenziehen: für die Sprungliste zählt die
+      // Seite, nicht in welcher Spalte ein Baustein steht.
+      sammle(e.kapitel.label, e.seite,
+        anlagekostenSeiten(daten.anlagekosten, gesetzt).map((sp) => sp.flat()))
     }
     if (e.kapitel.key === 'mengengeruest' && daten.mengen) {
       let nr = e.seite
@@ -1966,6 +2014,18 @@ const MH = {
   legendeZeile: 5.1,
   /** Zeile des Wohnungsmixes — der Balken ist niedriger als die Schrift. */
   mixZeile: 5.5,
+  /**
+   * Kompakter Satz der Detailberechnung: 8 pt statt 9, engere Innenabstände,
+   * flachere Balken. Nur dort verwendet — sie soll auf ein Blatt.
+   *
+   * Die Zeile bleibt trotz kleinerer Schrift 4.2 mm hoch: der Zeilenabstand
+   * folgt dem Grundschriftgrad der Seite, nicht dem der Zelle. Gespart wird
+   * an den Innenabständen, nicht am Durchschuss — nachgemessen am Satz.
+   */
+  zeileK: 5.31,
+  titelK: 6.93,
+  kopfzeileK: 5.11,
+  blockEndeK: 0.8,
 }
 
 /**
@@ -2266,93 +2326,205 @@ function MengenSeite({
 
 // ─── Kapitel „Anlagekosten" ──────────────────────────────────────────────────
 
-/** Zusammenstellung je Hauptgruppe — dieselben Spalten in beiden Formaten. */
+/** Zusammenstellung je Hauptgruppe — Benchmark und keeValue auf A4. */
 const ANLAGE_SUMMEN = [0.5, 3.0, 1.3, 1.1, 1.3, 0.7]
 
-/** Die Herleitung Position für Position; nur auf A3. */
-const ANLAGE_DETAIL = [0.55, 3.4, 0.7, 1.0, 1.2, 1.3, 1.0, 1.3]
+/**
+ * Die Herleitung Position für Position; nur bei der Detailerfassung. Menge und
+ * Ansatz brauchen genug Breite für ihre Einheit — in der schmalen Spalte der
+ * zweispaltigen A3-Seite bricht sonst „320 CHF/m²" um und kostet eine Zeile.
+ */
+const ANLAGE_DETAIL = [0.55, 3.2, 1.45, 1.6, 1.3, 1.0, 1.3, 0.6]
 
 type AnlageElement = Umbruchpunkt & (
   | { art: 'summen' }
   | { art: 'hinweis'; text: string }
-  | { art: 'gruppe'; titel: string; kopf: string[]
-      fortsetzung: boolean; zeilen: TabellenZeile[] }
+  /** Die Spaltenbeschriftung, einmal je Spalte. */
+  | { art: 'kopf'; zellen: string[] }
+  /** Freistehender Balken — die Schlusszeile über alle Hauptgruppen. */
+  | { art: 'balken'; zellen: string[]; stark?: boolean }
+  /** Eine Hauptgruppe: Balken mit ihren Summen, darunter ihre Positionen. */
+  | { art: 'gruppe'; balken: string[]; zeilen: TabellenZeile[] }
 )
 
-function anlageHoehe(e: AnlageElement, a: AnlagekostenDaten): number {
-  const breite = satzBreite(a.format)
+/** Höhe eines Bausteins; `breite` ist die Spalte, in der er steht. */
+function anlageHoehe(e: AnlageElement, a: AnlagekostenDaten, breite: number): number {
+  const grad = SCHRIFT.klein / SCHRIFT.grund
   switch (e.art) {
     case 'summen':
-      return MH.eigTitel + kopfHoehe(a.summen.kopf, ANLAGE_SUMMEN, 3, breite) + MH.blockEnde
-        + zeilenHoehe(a.summen.zeilen, ANLAGE_SUMMEN, 3, breite)
+      return MH.eigTitel + kopfHoehe(a.summen?.kopf ?? [], ANLAGE_SUMMEN, 3, breite)
+        + MH.blockEnde + zeilenHoehe(a.summen?.zeilen ?? [], ANLAGE_SUMMEN, 3, breite)
     case 'hinweis':
       return textZeilen(e.text, breite - EINZUG, 1) * MH.zeile + MH.blockEnde
+    case 'kopf':
+      return MH.kopfzeileK
+        + (zeilenZahl({ zellen: e.zellen }, ANLAGE_DETAIL, 2, breite, 7 / SCHRIFT.grund) - 1)
+          * MH.zeileK
+    case 'balken':
+      return MH.titelK + MH.blockEndeK
     case 'gruppe':
-      return MH.hausTitel + kopfHoehe(e.kopf, ANLAGE_DETAIL, 3, breite) + MH.blockEnde
-        + zeilenHoehe(e.zeilen, ANLAGE_DETAIL, 3, breite)
+      // Kompakter Satz: kleinere Schrift, engere Zeilen — die Umbruchrechnung
+      // muss beides kennen, sonst schätzt sie die Spalte falsch ein.
+      return MH.titelK + MH.blockEndeK + e.zeilen.reduce(
+        (h, z) => h + zeilenZahl(z, ANLAGE_DETAIL, 2, breite, grad) * MH.zeileK, 0)
   }
 }
 
+/** Bausteine des Kapitels in Druckreihenfolge. */
+function anlageElemente(a: AnlagekostenDaten): AnlageElement[] {
+  return [
+    // Die Zusammenstellung trägt nur, wo es keine Herleitung gibt; bei der
+    // Detailberechnung stünde sie über ihren eigenen Summen.
+    ...(a.summen
+      ? [{ art: 'summen', key: 'anlagekosten:summen', label: a.summen.titel } as AnlageElement]
+      : []),
+    ...(a.hinweis
+      ? [{ art: 'hinweis', text: a.hinweis, key: '', label: 'Hinweis' } as AnlageElement]
+      : []),
+    ...(a.kopf ? [kopfElement(a.kopf)] : []),
+    ...a.gruppen.map((g): AnlageElement => ({
+      art: 'gruppe', balken: g.balken, zeilen: g.zeilen,
+      key: `anlagekosten:gruppe:${g.code}`, label: `${g.code} ${g.label}`,
+    })),
+    ...(a.total
+      ? [{ art: 'balken', zellen: a.total, stark: true, key: '',
+        label: 'Total' } as AnlageElement]
+      : []),
+  ]
+}
+
+/** Die Beschriftung der Spalten; sie wiederholt sich auf jeder Folgeseite. */
+function kopfElement(zellen: string[]): AnlageElement {
+  return { art: 'kopf', zellen, key: '', label: 'Beschriftung' }
+}
+
+/** Eine Seite des Kapitels: eine oder zwei Spalten mit ihren Bausteinen. */
+type AnlageSeite = AnlageElement[][]
+
 /**
- * Seiten des Kapitels. Die Zusammenstellung steht voran, danach je Hauptgruppe
- * ihre Positionen. Eine Hauptgruppe bleibt zusammen, solange sie auf eine
- * Seite passt; nur was für sich schon zu lang ist, wird geteilt — die
- * Fortsetzung trägt denselben Titel mit Zusatz.
+ * Seiten des Kapitels. Einspaltig über die ganze A3-Breite: acht Zahlenspalten
+ * vertragen keine schmalere Spalte, die Bezeichnungen bräuchen sonst zwei
+ * Zeilen und das Blatt gewänne nichts. Passt es nicht mehr, folgt eine zweite
+ * Seite mit wiederholter Beschriftung. Eine Hauptgruppe bleibt zusammen,
+ * solange sie auf eine Seite passt.
  */
 function anlagekostenSeiten(
   a: AnlagekostenDaten, gesetzt: ReadonlySet<string>,
-): AnlageElement[][] {
-  const hoeheJeSeite = seitenHoehe(a.format)
-  const seiten: AnlageElement[][] = []
+): AnlageSeite[] {
+  const elemente = anlageElemente(a)
+  const hoeheJeSpalte = seitenHoehe(a.format)
+  const breite = satzBreite(a.format)
+
+  const seiten: AnlageSeite[] = []
   let laufend: AnlageElement[] = []
+  // Der Kapiteltitel steht über der ersten Seite.
   let hoehe = MH.h1
 
-  function neueSeite() {
-    if (laufend.length > 0) seiten.push(laufend)
+  function neueSpalte() {
+    if (laufend.length > 0) seiten.push([laufend])
     laufend = []
     hoehe = 0
+    // Ohne Beschriftung stünden die Zahlen der Folgeseite ohne Bezug da.
+    if (a.kopf) {
+      const k = kopfElement(a.kopf)
+      laufend.push(k)
+      hoehe += anlageHoehe(k, a, breite)
+    }
   }
   function lege(e: AnlageElement) {
-    const h = anlageHoehe(e, a)
-    if (laufend.length > 0 && (gesetzt.has(e.key) || hoehe + h > hoeheJeSeite)) neueSeite()
+    const h = anlageHoehe(e, a, breite)
+    if (laufend.length > 0 && (gesetzt.has(e.key) || hoehe + h > hoeheJeSpalte)) neueSpalte()
     laufend.push(e)
     hoehe += h
   }
 
-  lege({ art: 'summen', key: 'anlagekosten:summen', label: a.summen.titel })
-  if (a.hinweis) lege({ art: 'hinweis', text: a.hinweis, key: '', label: 'Hinweis' })
-
-  const rahmenHoehe = (kopf: string[]) => MH.hausTitel
-    + kopfHoehe(kopf, ANLAGE_DETAIL, 3, satzBreite(a.format)) + MH.blockEnde
-  for (const g of a.gruppen) {
-    const alle = [...g.zeilen, g.total]
-    const rahmen = rahmenHoehe(g.kopf)
-    const ganz = rahmen + zeilenHoehe(alle, ANLAGE_DETAIL, 3, satzBreite(a.format))
-    const key = `anlagekosten:gruppe:${g.code}`
-    if (ganz <= hoeheJeSeite) {
-      lege({ art: 'gruppe', titel: g.label, kopf: g.kopf, fortsetzung: false,
-        zeilen: alle, key, label: g.label })
-      continue
-    }
-    let rest = alle
+  for (const e of elemente) {
+    if (e.art !== 'gruppe') { lege(e); continue }
+    if (anlageHoehe(e, a, breite) <= hoeheJeSpalte) { lege(e); continue }
+    // Zu hoch für eine ganze Spalte: zeilenweise aufteilen.
+    const rahmen = MH.titelK + MH.blockEndeK
+    let rest = e.zeilen
     let erste = true
     while (rest.length > 0) {
-      const platz = hoeheJeSeite - hoehe - rahmen
+      const platz = hoeheJeSpalte - hoehe - rahmen
       let passt = 0
       while (passt < rest.length
-        && zeilenHoehe(rest.slice(0, passt + 1), ANLAGE_DETAIL, 3, satzBreite(a.format)) <= platz) {
+        && anlageHoehe({ ...e, zeilen: rest.slice(0, passt + 1) }, a, breite) - rahmen <= platz) {
         passt++
       }
-      if (passt < 3 && laufend.length > 0) { neueSeite(); continue }
+      if (passt < 3 && laufend.length > 0) { neueSpalte(); continue }
       const nimm = Math.min(rest.length, Math.max(passt, 3))
-      lege({ art: 'gruppe', titel: g.label, kopf: g.kopf, fortsetzung: !erste,
-        zeilen: rest.slice(0, nimm), key: erste ? key : '', label: g.label })
+      lege({
+        ...e,
+        // Die Fortsetzung trägt den Namen weiter, aber keine Summen mehr —
+        // die stehen beim ersten Teil.
+        balken: erste ? e.balken
+          : [e.balken[0], `${e.balken[1]} (Fortsetzung)`, ...e.balken.slice(2).map(() => '')],
+        zeilen: rest.slice(0, nimm),
+        key: erste ? e.key : '',
+      })
       rest = rest.slice(nimm)
       erste = false
     }
   }
-  if (laufend.length > 0) seiten.push(laufend)
+  if (laufend.length > 0) seiten.push([laufend])
   return seiten
+}
+
+function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: AnlagekostenDaten }) {
+  const t: Tabelle = {
+    kopf: a.kopf ?? [], zeilen: [], breiten: ANLAGE_DETAIL, linksBis: 1, spaltenAbstand: 2,
+  }
+  return (
+    <>
+      {elemente.map((e, i) => {
+        if (e.art === 'summen' && a.summen) {
+          return (
+            <Datentabelle
+              key={i}
+              titel={a.summen.titel}
+              kopf={a.summen.kopf}
+              breiten={ANLAGE_SUMMEN}
+              linksBis={1}
+              zeilen={a.summen.zeilen}
+            />
+          )
+        }
+        if (e.art === 'hinweis') {
+          return <Text key={i} style={s.anlageHinweis}>{e.text}</Text>
+        }
+        if (e.art === 'kopf') {
+          return (
+            <View key={i} style={s.kompaktKopf}><Zellen t={t} werte={e.zellen} /></View>
+          )
+        }
+        if (e.art === 'balken') {
+          return (
+            <View key={i} style={[s.kompaktTitel, s.kompaktBalken,
+              { backgroundColor: e.stark ? BERICHT_FARBE.primaer : BERICHT_FARBE.primaerMittel }]}>
+              <Zellen t={t} werte={e.zellen} />
+            </View>
+          )
+        }
+        if (e.art === 'gruppe') {
+          return (
+            <View key={i} style={s.kompaktBlock}>
+              <View style={[s.kompaktTitel, s.kompaktBalken,
+                { backgroundColor: BERICHT_FARBE.primaerMittel }]}>
+                <Zellen t={t} werte={e.balken} />
+              </View>
+              {e.zeilen.map((z, r) => (
+                <View key={r} style={[s.kompaktZeile, s.tabLinie]}>
+                  <Zellen t={t} werte={z.zellen} />
+                </View>
+              ))}
+            </View>
+          )
+        }
+        return null
+      })}
+    </>
+  )
 }
 
 function AnlagekostenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
@@ -2367,39 +2539,11 @@ function AnlagekostenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   }
   return (
     <>
-      {anlagekostenSeiten(a, umbruchSet(daten)).map((elemente, n) => (
+      {anlagekostenSeiten(a, umbruchSet(daten)).map((spalten, n) => (
         <InhaltsSeite key={n} format={a.format} daten={daten}
           seite={seite + n} seitenTotal={seitenTotal}>
           {n === 0 && <Text style={[s.h1, s.h1Kapitel]}>Anlagekosten</Text>}
-          {elemente.map((e, i) => {
-            if (e.art === 'summen') {
-              return (
-                <Datentabelle
-                  key={i}
-                  titel={a.summen.titel}
-                  kopf={a.summen.kopf}
-                  breiten={ANLAGE_SUMMEN}
-                  linksBis={1}
-                  zeilen={a.summen.zeilen}
-                />
-              )
-            }
-            if (e.art === 'hinweis') {
-              return <Text key={i} style={s.anlageHinweis}>{e.text}</Text>
-            }
-            return (
-              <Datentabelle
-                key={i}
-                titel={e.fortsetzung ? `${e.titel} (Fortsetzung)` : e.titel}
-                titelFarbe={BERICHT_FARBE.primaerMittel}
-                anschluss
-                kopf={e.kopf}
-                breiten={ANLAGE_DETAIL}
-                linksBis={2}
-                zeilen={e.zeilen}
-              />
-            )
-          })}
+          <AnlageBausteine elemente={spalten[0]} a={a} />
         </InhaltsSeite>
       ))}
     </>
