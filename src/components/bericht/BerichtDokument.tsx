@@ -800,6 +800,53 @@ function blockHoehe(zeilen: number): number {
   return MH.eigTitel + MH.kopfzeile + zeilen * MH.zeile + MH.blockEnde
 }
 
+/** Breite des Satzspiegels in Millimetern. */
+const SATZBREITE = SEITE.a4.breite - RAND.links - RAND.rechts
+
+/**
+ * Breite der beiden ungleichen Spalten (spalteEins/spalteZwei), abzüglich des
+ * Stegs dazwischen — die Umbruchrechnung braucht sie, um zu wissen, ab wann
+ * eine Zelle umbricht.
+ */
+const SPALTE_EINS = (SATZBREITE - 6) * 0.85 / 2.15
+const SPALTE_ZWEI = (SATZBREITE - 6) * 1.3 / 2.15
+
+/**
+ * Geschätzte Breite eines Zellinhalts in Millimetern. @react-pdf misst Text
+ * erst beim Satz — bis dahin muss feststehen, ob eine Zelle umbricht. Die
+ * Werte sind an gerenderten Seiten nachgemessen: „Seestrasse" belegt bei 9 pt
+ * 45 pt, also gut ein halbes Geviert je Zeichen; Ziffern laufen etwas breiter,
+ * Punkt und Strich deutlich schmaler.
+ */
+function textBreite(text: string): number {
+  const em = [...text].reduce((a, c) => a
+    + (/\d/.test(c) ? 0.59 : /[ .,;:'·|!iIljt]/.test(c) ? 0.31 : 0.53), 0)
+  return em * SCHRIFT.grund * (25.4 / 72)
+}
+
+/**
+ * Höhe von Tabellenzeilen — mit den Zeilen, die eine zu lange Zelle nach sich
+ * zieht. Ohne das fehlen dem Modell je Umbruch rund vier Millimeter, und eine
+ * randvolle Seite kippt: react-pdf bricht dann selbst um und hängt eine Seite
+ * an, die der Seitenplan nicht kennt.
+ */
+function zeilenHoehe(
+  zeilen: TabellenZeile[], breiten: number[], spaltenAbstand = 3, breite = SATZBREITE,
+): number {
+  const summe = breiten.reduce((a, b) => a + b, 0)
+  const nutzbar = breite - EINZUG
+  return zeilen.reduce((hoehe, z) => {
+    let zeilenZahl = 1
+    z.zellen.forEach((c, i) => {
+      if (!c) return
+      const spalte = nutzbar * (breiten[i] ?? 1) / summe
+        - (i < z.zellen.length - 1 ? spaltenAbstand : 0)
+      if (spalte > 0) zeilenZahl = Math.max(zeilenZahl, Math.ceil(textBreite(c) / spalte))
+    })
+    return hoehe + zeilenZahl * MH.zeile
+  }, 0)
+}
+
 /**
  * Höhe der Nutzungsberechnung. Oben stehen Zonenvorschriften und Grundstücke
  * übereinander, daneben der Zonenplan — der füllt die Höhe der beiden und
@@ -840,10 +887,12 @@ function nutzungHoehen(n: NutzungDaten): { oben: number; wege: number } {
 function eigBlockHoehe(b: EigentumsartBlock): number {
   // Unter einem Obertitel halten die beiden Titel nur den knappen Vorabstand.
   const titel = b.titel ? MH.hausTitel : MH.eigTitel
-  const spalte = (zeilen: number) => titel + MH.kopfzeile + zeilen * MH.zeile + MH.blockEnde
+  const rahmen = titel + MH.kopfzeile + MH.blockEnde
   return (b.titel ? MH.eigTitel : 0) + Math.max(
-    b.wirtschaft ? spalte(b.wirtschaft.felder.length) : 0,
-    b.ertraege ? spalte(b.ertraege.zeilen.length) : 0,
+    b.wirtschaft ? rahmen + b.wirtschaft.felder.length * MH.zeile : 0,
+    b.ertraege
+      ? rahmen + zeilenHoehe(b.ertraege.zeilen, [1.8, 1.2, 1.7, 1.55], 3, SPALTE_ZWEI)
+      : 0,
   )
 }
 
@@ -950,12 +999,16 @@ function uebersichtElementHoehe(e: UebersichtElement, u: UebersichtDaten): numbe
     case 'situationsplan':
       return MH.eigTitel + e.hoehe + MH.legende + MH.blockEnde
     case 'grundlagen':
-      // Beide Tabellen teilen sich die Zeilen; die längere gibt die Höhe vor.
-      return MH.eigTitel + MH.kopfzeile + MH.blockEnde
-        + Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length) * MH.zeile
+      // Beide Tabellen teilen sich die Zeilen; die höhere gibt die Höhe vor.
+      return MH.eigTitel + MH.kopfzeile + MH.blockEnde + Math.max(
+        zeilenHoehe(u.grundstuecke.zeilen, [1.6, 1.3, 1], 3, SPALTE_EINS),
+        zeilenHoehe(u.bestand.zeilen, [3.45, 1.15, 1.3, 1.35, 1], 3, SPALTE_ZWEI),
+      )
     case 'kosten':
-      return MH.eigTitel + MH.kopfzeile + MH.blockEnde
-        + Math.max(u.mengen.length, u.kosten.length) * MH.zeile
+      return MH.eigTitel + MH.kopfzeile + MH.blockEnde + Math.max(
+        u.mengen.length * MH.zeile,
+        zeilenHoehe(kostenZeilen(u.kosten), [0.45, 2.5, 1.3, 1.3, 0.7], 3, SPALTE_ZWEI),
+      )
     case 'block':
       return eigBlockHoehe(e.block)
     case 'mix':
@@ -1763,7 +1816,8 @@ const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 4
 
 type MengenElement = Umbruchpunkt & (
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
-  | { art: 'uebersicht'; block: EigBlock; kopf: string[]; zeilen: TabellenZeile[] }
+  | { art: 'uebersicht'; block: EigBlock; titel: string
+      kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'eigTitel'; block: EigBlock; kopf: string[] }
   | { art: 'haus'; block: EigBlock; kopf: string[]; name: string
       fortsetzung: boolean; zeilen: TabellenZeile[] }
@@ -1773,10 +1827,18 @@ type MengenElement = Umbruchpunkt & (
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
     case 'benchmarks':
-    case 'uebersicht': return MH.eigTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
+      return MH.eigTitel + MH.kopfzeile + MH.blockEnde
+        + zeilenHoehe(e.zeilen, [2.4, ...e.kopf.slice(1).map(() => 1.2)])
+    // Die Übersicht steht unter dem Balken der Eigentumsart und hält deshalb
+    // nur den knappen Vorabstand, wie die Häuser darunter.
+    case 'uebersicht':
+      return MH.hausTitel + MH.kopfzeile + MH.blockEnde
+        + zeilenHoehe(e.zeilen, UEBERSICHT_BREITEN, 2.4)
     case 'eigTitel': return MH.eigTitel
-    case 'haus':     return MH.hausTitel + MH.kopfzeile + e.zeilen.length * MH.zeile + MH.blockEnde
-    case 'eigTotal': return MH.zeile + MH.blockEnde
+    case 'haus':
+      return MH.hausTitel + MH.kopfzeile + MH.blockEnde
+        + zeilenHoehe(e.zeilen, MENGEN_BREITEN, 2.4)
+    case 'eigTotal': return zeilenHoehe([e.zeile], MENGEN_BREITEN, 2.4) + MH.blockEnde
   }
 }
 
@@ -1820,14 +1882,6 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
     }
   }
 
-  // Die Übersicht der Häuser steht vor den Geschossen — sie führt ins Kapitel
-  // ein, statt es zusammenzufassen.
-  for (const u of sicht.haeuserUebersicht) {
-    lege({
-      art: 'uebersicht', block: u, kopf: u.kopf, zeilen: u.zeilen,
-      key: `${sk}:uebersicht:${u.key}`, label: u.label,
-    })
-  }
   for (const eig of sicht.eigentumsarten) {
     // Der Titel der Eigentumsart trägt den Umbruch für alles, was ihm folgt —
     // ein Umbruch vor dem ersten Haus liesse ihn allein am Seitenfuss stehen.
@@ -1835,10 +1889,21 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
       art: 'eigTitel', block: eig, kopf: eig.kopf,
       key: `${sk}:eig:${eig.key}`, label: eig.label,
     })
+    // Die Übersicht der Häuser steht zwischen dem Balken der Eigentumsart und
+    // ihren Häusern: erst wovon die Rede ist, dann alle auf einen Blick, dann
+    // jedes für sich.
+    const uebersicht = sicht.haeuserUebersicht.find((x) => x.key === eig.key)
+    if (uebersicht) {
+      lege({
+        art: 'uebersicht', block: eig, kopf: uebersicht.kopf, zeilen: uebersicht.zeilen,
+        titel: uebersicht.label,
+        key: `${sk}:uebersicht:${eig.key}`, label: `Übersicht ${eig.label}`,
+      })
+    }
     for (const haus of eig.haeuser) {
       const alle = [...haus.zeilen, haus.total]
       const rahmen = MH.hausTitel + MH.kopfzeile + MH.blockEnde
-      const ganz = rahmen + alle.length * MH.zeile
+      const ganz = rahmen + zeilenHoehe(alle, MENGEN_BREITEN, 2.4)
 
       // Passt das Haus überhaupt auf eine ganze Seite, bleibt es zusammen und
       // rückt notfalls als Ganzes weiter. Nur was für sich schon zu lang ist,
@@ -1856,7 +1921,12 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
       let rest = alle
       let erste = true
       while (rest.length > 0) {
-        const passt = Math.floor((SEITENHOEHE - hoehe - rahmen) / MH.zeile)
+        // So viele Zeilen, wie in den Rest der Seite passen — umbrochene
+        // Zellen zählen dabei doppelt.
+        const platz = SEITENHOEHE - hoehe - rahmen
+        let passt = 0
+        while (passt < rest.length
+          && zeilenHoehe(rest.slice(0, passt + 1), MENGEN_BREITEN, 2.4) <= platz) passt++
         if (passt < 3 && laufend.length > 0) { umbruchVorHaus(); continue }
         const nimm = Math.min(rest.length, Math.max(passt, 3))
         lege({
@@ -1942,8 +2012,11 @@ function MengenSeite({
           return (
             <Datentabelle
               key={i}
-              titel={e.block.label}
-              titelFarbe={e.block.farbe}
+              titel={e.titel}
+              // Dieselbe Stufe wie die Haustitel darunter — die Übersicht ist
+              // dieselbe Ebene, nur zusammengefasst.
+              titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerMittel}
+              anschluss
               totalFarbe={e.block.farbeGrund}
               kopf={e.kopf}
               breiten={UEBERSICHT_BREITEN}

@@ -159,10 +159,10 @@ export function useMengenDaten(
           const verkauf = eig === 'verkaufsobjekt'
           const jeTyp = eig === 'genossenschaft' ? kostenmieteJeTyp : null
           return {
-            // Ohne zweite Eigentumsart benennt der Balken, was in der Tabelle
-            // steht; sonst die Eigentumsart, die sie zusammenfasst.
+            // Der Balken der Eigentumsart steht darüber; hier genügt, was in
+            // der Tabelle steht.
             key: eig,
-            label: einzeln ? 'Übersicht Häuser' : `Übersicht ${EIGENTUMSART_LABEL[eig]}`,
+            label: 'Übersicht Häuser',
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
             kopf: mengenKopf(verkauf, 'Haus'),
