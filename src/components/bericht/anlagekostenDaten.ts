@@ -71,13 +71,21 @@ function menge(p: PositionResult, herkunft: string): string {
  * Prozentpositionen ist das der Satz, bei Stückkosten der Einheitspreis.
  * Uneinheitlich über die Eigentumsarten hinweg bleibt die Zelle leer — ein
  * gemittelter Ansatz wäre eine Zahl, die nirgends erfasst ist.
+ *
+ * Prozentsätze stehen in der Datenbank als Bruchteil: die Berechnung rechnet
+ * `Basis × kennwert`, 0.04 sind also vier Prozent. Promille dagegen stehen als
+ * Zahl da — dort teilt die Berechnung selbst durch tausend. Ungerechnet
+ * ausgegeben ergäbe der eine Satz ein Hundertstel seines Werts.
  */
 function ansatz(p: PositionResult): string {
   if (p.kennwertGemischt || p.kennwert == null) return '—'
-  const wert = p.preisEinheit === '%'
-    ? p.kennwert.toFixed(1)
-    : formatNumber(Math.round(p.kennwert * 100) / 100)
-  return `${wert} ${p.preisEinheit}`
+  const e = p.preisEinheit
+  const wert = e === '%' || e === '%/a'
+    ? (p.kennwert * 100).toFixed(1)
+    : e === '‰'
+      ? p.kennwert.toFixed(1)
+      : formatNumber(Math.round(p.kennwert * 100) / 100)
+  return e ? `${wert} ${e}` : wert
 }
 
 /**
@@ -251,7 +259,7 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       hinweis: null,
       // Die Beschriftung steht einmal zuoberst; die Hauptgruppen darunter
       // führen keine eigene mehr.
-      kopf: ['BKP', 'Position', 'Menge', 'Ansatz',
+      kopf: ['BKP', 'Position', 'Menge', 'Einheit',
         'exkl. MWST', 'MWST', 'inkl. MWST', '%'],
       gruppen,
       total: ['', 'Total Anlagekosten', '', '',
