@@ -826,10 +826,53 @@ const SPALTE_ZWEI = (SATZBREITE - 6) * 1.3 / 2.15
  * 45 pt, also gut ein halbes Geviert je Zeichen; Ziffern laufen etwas breiter,
  * Punkt und Strich deutlich schmaler.
  */
+function zeichenBreite(c: string): number {
+  if (/\d/.test(c)) return 0.59
+  if ('iIl|!.,;:\'’·'.includes(c)) return 0.28
+  if (' tfjr'.includes(c)) return 0.36
+  if ('mw'.includes(c)) return 0.85
+  if ('MW'.includes(c)) return 0.98
+  if (c >= 'A' && c <= 'Z') return 0.63
+  if ('ÄÖÜ'.includes(c)) return 0.63
+  return 0.58
+}
+
+/**
+ * Sicherheitszuschlag auf die geschätzte Breite. Die Schätzung trifft im Mittel,
+ * einzelne Wörter weichen um einige Prozent ab — und ein übersehener Umbruch
+ * wiegt schwerer als ein zu früh angenommener: er lässt die Seite überlaufen,
+ * und react-pdf hängt eine Leerseite an.
+ */
+const BREITE_ZUSCHLAG = 1.05
+
 function textBreite(text: string): number {
-  const em = [...text].reduce((a, c) => a
-    + (/\d/.test(c) ? 0.59 : /[ .,;:'·|!iIljt]/.test(c) ? 0.31 : 0.53), 0)
-  return em * SCHRIFT.grund * (25.4 / 72)
+  const em = [...text].reduce((a, c) => a + zeichenBreite(c), 0)
+  return em * SCHRIFT.grund * (25.4 / 72) * BREITE_ZUSCHLAG
+}
+
+/**
+ * Zeilen, die ein Text in einer Spalte belegt. Umbrochen wird nur an
+ * Leerzeichen — ein einzelnes langes Wort läuft über die Spalte hinaus, statt
+ * getrennt zu werden. „CHF/Mt,Stk" steht deshalb auf einer Zeile, auch wo die
+ * Spalte schmaler ist; die Rechnung darf dort keine zweite annehmen, sonst
+ * rücken Blöcke weiter, obwohl sie noch Platz hätten.
+ */
+function textZeilen(text: string, breite: number, grad: number): number {
+  const woerter = text.split(/\s+/).filter(Boolean)
+  if (woerter.length === 0 || breite <= 0) return 1
+  const leer = textBreite(' ') * grad
+  let zeilen = 1
+  let belegt = 0
+  for (const w of woerter) {
+    const b = textBreite(w) * grad
+    if (belegt > 0 && belegt + leer + b > breite) {
+      zeilen++
+      belegt = b
+    } else {
+      belegt += (belegt > 0 ? leer : 0) + b
+    }
+  }
+  return zeilen
 }
 
 /**
@@ -840,6 +883,8 @@ function textBreite(text: string): number {
  */
 function zeilenZahl(
   zeile: TabellenZeile | undefined, breiten: number[], spaltenAbstand: number, breite: number,
+  /** Schriftgrad im Verhältnis zur Grundschrift — die Kopfzeile ist kleiner. */
+  grad = 1,
 ): number {
   if (!zeile) return 0
   const summe = breiten.reduce((a, b) => a + b, 0)
@@ -849,9 +894,22 @@ function zeilenZahl(
     if (!c) return
     const spalte = nutzbar * (breiten[i] ?? 1) / summe
       - (i < zeile.zellen.length - 1 ? spaltenAbstand : 0)
-    if (spalte > 0) zahl = Math.max(zahl, Math.ceil(textBreite(c) / spalte))
+    if (spalte > 0) zahl = Math.max(zahl, textZeilen(c, spalte, grad))
   })
   return zahl
+}
+
+/**
+ * Höhe der Kopfzeile. Sie ist kleiner gesetzt als die Daten, bricht aber
+ * ebenso um — „CHF/Mt,Stk" passt in eine schmale Spalte nicht auf eine Zeile,
+ * und die zweite fehlte dem Modell.
+ */
+function kopfHoehe(
+  kopf: string[], breiten: number[], spaltenAbstand = 3, breite = SATZBREITE,
+): number {
+  const zahl = zeilenZahl({ zellen: kopf }, breiten, spaltenAbstand, breite,
+    SCHRIFT.klein / SCHRIFT.grund)
+  return MH.kopfzeile + (zahl - 1) * SCHRIFT.zeile * (SCHRIFT.klein / SCHRIFT.grund) * (25.4 / 72)
 }
 
 function zeilenHoehe(
@@ -923,10 +981,12 @@ function eigBlockHoehe(b: EigentumsartBlock): number {
   // Unter einem Obertitel halten die beiden Titel nur den knappen Vorabstand.
   const titel = b.titel ? MH.hausTitel : MH.eigTitel
   const rahmen = titel + MH.kopfzeile + MH.blockEnde
+  const breiten = [1.8, 1.2, 1.7, 1.55]
   return (b.titel ? MH.eigTitel : 0) + Math.max(
     b.wirtschaft ? rahmen + b.wirtschaft.felder.length * MH.zeile : 0,
     b.ertraege
-      ? rahmen + zeilenHoehe(b.ertraege.zeilen, [1.8, 1.2, 1.7, 1.55], 3, SPALTE_ZWEI)
+      ? titel + kopfHoehe(b.ertraege.kopf, breiten, 3, SPALTE_ZWEI) + MH.blockEnde
+        + zeilenHoehe(b.ertraege.zeilen, breiten, 3, SPALTE_ZWEI)
       : 0,
   )
 }
@@ -1046,16 +1106,25 @@ function uebersichtElementHoehe(e: UebersichtElement, u: UebersichtDaten): numbe
   switch (e.art) {
     case 'situationsplan':
       return MH.eigTitel + e.hoehe + MH.legende + MH.blockEnde
-    case 'grundlagen':
-      return MH.eigTitel + MH.kopfzeile + MH.blockEnde + doppelHoehe(
-        { zeilen: u.grundstuecke.zeilen, breiten: [1.6, 1.3, 1] },
-        { zeilen: u.bestand.zeilen, breiten: [3.45, 1.15, 1.3, 1.35, 1] },
+    case 'grundlagen': {
+      const links = [1.6, 1.3, 1]
+      const rechts = [3.45, 1.15, 1.3, 1.35, 1]
+      return MH.eigTitel + MH.blockEnde + Math.max(
+        kopfHoehe(u.grundstuecke.kopf, links, 3, SPALTE_EINS),
+        kopfHoehe(u.bestand.kopf, rechts, 3, SPALTE_ZWEI),
+      ) + doppelHoehe(
+        { zeilen: u.grundstuecke.zeilen, breiten: links },
+        { zeilen: u.bestand.zeilen, breiten: rechts },
       )
-    case 'kosten':
-      return MH.eigTitel + MH.kopfzeile + MH.blockEnde + Math.max(
+    }
+    case 'kosten': {
+      const breiten = [0.45, 2.5, 1.3, 1.3, 0.7]
+      const kopf = ['BKP', 'Hauptgruppe', 'exkl.', 'inkl.', '%']
+      return MH.eigTitel + kopfHoehe(kopf, breiten, 3, SPALTE_ZWEI) + MH.blockEnde + Math.max(
         u.mengen.length * MH.zeile,
-        zeilenHoehe(kostenZeilen(u.kosten), [0.45, 2.5, 1.3, 1.3, 0.7], 3, SPALTE_ZWEI),
+        zeilenHoehe(kostenZeilen(u.kosten), breiten, 3, SPALTE_ZWEI),
       )
+    }
     case 'block':
       return eigBlockHoehe(e.block)
     case 'mix':
@@ -1866,11 +1935,16 @@ const MH = {
 }
 
 /**
- * Nutzbare Höhe einer A4-Inhaltsseite, abzüglich einer Reserve. Ohne sie kippt
- * eine randvolle Seite: react-pdf bricht dann von sich aus um und hängt eine
- * leere Seite an, die weder Seitenplan noch Fusszeile kennen.
+ * Nutzbare Höhe einer A4-Inhaltsseite, abzüglich einer knappen Reserve. Ohne
+ * sie kippt eine randvolle Seite: react-pdf bricht dann von sich aus um und
+ * hängt eine leere Seite an, die weder Seitenplan noch Fusszeile kennen.
+ *
+ * Ein Millimeter genügt, seit die Rechnung Zeile für Zeile misst — an
+ * gerenderten Seiten nachgeprüft, weicht sie um weniger als einen Millimeter
+ * je Seite ab. Grösser gewählt kostet die Reserve echten Platz: Blöcke
+ * rückten weiter, obwohl sie um Zehntelmillimeter noch gepasst hätten.
  */
-const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 4
+const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 1.5
 
 type MengenElement = Umbruchpunkt & (
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
@@ -1884,17 +1958,19 @@ type MengenElement = Umbruchpunkt & (
 
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
-    case 'benchmarks':
-      return MH.eigTitel + MH.kopfzeile + MH.blockEnde
-        + zeilenHoehe(e.zeilen, [2.4, ...e.kopf.slice(1).map(() => 1.2)])
+    case 'benchmarks': {
+      const breiten = [2.4, ...e.kopf.slice(1).map(() => 1.2)]
+      return MH.eigTitel + kopfHoehe(e.kopf, breiten) + MH.blockEnde
+        + zeilenHoehe(e.zeilen, breiten)
+    }
     // Die Übersicht steht unter dem Balken der Eigentumsart und hält deshalb
     // nur den knappen Vorabstand, wie die Häuser darunter.
     case 'uebersicht':
-      return MH.hausTitel + MH.kopfzeile + MH.blockEnde
+      return MH.hausTitel + kopfHoehe(e.kopf, UEBERSICHT_BREITEN, 2.4) + MH.blockEnde
         + zeilenHoehe(e.zeilen, UEBERSICHT_BREITEN, 2.4)
     case 'eigTitel': return MH.eigTitel
     case 'haus':
-      return MH.hausTitel + MH.kopfzeile + MH.blockEnde
+      return MH.hausTitel + kopfHoehe(e.kopf, MENGEN_BREITEN, 2.4) + MH.blockEnde
         + zeilenHoehe(e.zeilen, MENGEN_BREITEN, 2.4)
     case 'eigTotal': return zeilenHoehe([e.zeile], MENGEN_BREITEN, 2.4) + MH.blockEnde
   }
@@ -1960,7 +2036,7 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
     }
     for (const haus of eig.haeuser) {
       const alle = [...haus.zeilen, haus.total]
-      const rahmen = MH.hausTitel + MH.kopfzeile + MH.blockEnde
+      const rahmen = MH.hausTitel + kopfHoehe(eig.kopf, MENGEN_BREITEN, 2.4) + MH.blockEnde
       const ganz = rahmen + zeilenHoehe(alle, MENGEN_BREITEN, 2.4)
 
       // Passt das Haus überhaupt auf eine ganze Seite, bleibt es zusammen und
