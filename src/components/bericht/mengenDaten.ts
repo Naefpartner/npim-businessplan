@@ -512,7 +512,9 @@ function mietspiegel(
       name,
       farbe: EIGENTUMSART_COLOR[hu[0].eig],
       kennzahl: `${formatNumber(countW(hu))} · ${z(flaeche)} m²`,
-      unterzeile: `${hu[0].eigLabel} · Ø ${z(flaeche > 0 ? ertrag / flaeche : 0)} ${einheit}`,
+      // Die Eigentumsart steht schon in der Farbe des Kopfes und in der
+      // Skala darunter; im Kopf bliebe sie eine Wiederholung.
+      unterzeile: `Ø ${z(flaeche > 0 ? ertrag / flaeche : 0)} ${einheit}`,
     }
   })
 
