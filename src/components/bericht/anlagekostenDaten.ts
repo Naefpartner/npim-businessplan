@@ -51,18 +51,12 @@ function bezug(typ: BkpPosition['typ']): string {
 }
 
 /**
- * Menge mit ihrer Einheit in einer Zelle. Getrennt gesetzt brauchte die
- * Einheit eine eigene Spalte, und in der schmalen Spalte der zweispaltigen
- * A3-Seite fehlte sie dann den Zahlen daneben.
- *
- * Ist die Menge eine Bezugssumme, tritt an die Stelle der Einheit ihre
- * Herkunft: „2'400'000 (BKP 1–4)" sagt, was mit dem Ansatz daneben
- * multipliziert wurde.
+ * Menge mit ihrer Einheit in einer Zelle. Worauf sie sich bezieht, steht in
+ * der Spalte davor — hier bleibt die Zahl.
  */
-function menge(p: PositionResult, herkunft: string): string {
+function menge(p: PositionResult): string {
   if (p.menge == null) return '—'
   const wert = formatNumber(Math.round(p.menge * 100) / 100)
-  if (herkunft) return `${wert} (${herkunft})`
   return p.mengeEinheit ? `${wert} ${p.mengeEinheit}` : wert
 }
 
@@ -223,7 +217,8 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
           zellen: [
             pos.displayCode ?? pos.code,
             pos.label,
-            zeige ? menge(zeige, bezug(zeige.position.typ)) : '—',
+            zeige ? bezug(zeige.position.typ) : '',
+            zeige ? menge(zeige) : '—',
             zeige ? ansatz(zeige) : '—',
             chf(pNetto),
             chf(pMwst),
@@ -246,7 +241,7 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       code: g.code,
       label: g.label,
       balken: [
-        g.code, g.label, '', '',
+        g.code, g.label, '', '', '',
         chf(g.gNetto), chf(g.gMwst), chf(g.gNetto + g.gMwst),
         gesamt > 0 ? ((g.gNetto + g.gMwst) / gesamt * 100).toFixed(1) : '—',
       ],
@@ -259,10 +254,10 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       hinweis: null,
       // Die Beschriftung steht einmal zuoberst; die Hauptgruppen darunter
       // führen keine eigene mehr.
-      kopf: ['BKP', 'Position', 'Menge', 'Einheit',
+      kopf: ['BKP', 'Position', 'Bezug', 'Menge', 'Einheit',
         'exkl. MWST', 'MWST', 'inkl. MWST', '%'],
       gruppen,
-      total: ['', 'Total Anlagekosten', '', '',
+      total: ['', 'Total Anlagekosten', '', '', '',
         chf(tNetto), chf(tMwst), chf(gesamt), gesamt > 0 ? '100.0' : '—'],
     }
   }, [ak, herkunft])

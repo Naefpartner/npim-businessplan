@@ -580,8 +580,6 @@ const s = StyleSheet.create({
   },
   kompaktKopf: {
     flexDirection: 'row',
-    borderBottomWidth: 0.5,
-    borderBottomColor: BERICHT_FARBE.linie,
     paddingBottom: mm(0.7),
     paddingLeft: mm(EINZUG),
     fontSize: 7,
@@ -2330,11 +2328,11 @@ function MengenSeite({
 const ANLAGE_SUMMEN = [0.5, 3.0, 1.3, 1.1, 1.3, 0.7]
 
 /**
- * Die Herleitung Position für Position; nur bei der Detailerfassung. Menge und
- * Ansatz brauchen genug Breite für ihre Einheit — in der schmalen Spalte der
- * zweispaltigen A3-Seite bricht sonst „320 CHF/m²" um und kostet eine Zeile.
+ * Die Herleitung Position für Position; nur bei der Detailerfassung. Der Bezug
+ * steht in einer eigenen Spalte vor der Menge — in dieselbe Zelle geschrieben
+ * drängte er die Zahl an den Rand.
  */
-const ANLAGE_DETAIL = [0.55, 3.2, 1.45, 1.6, 1.3, 1.0, 1.3, 0.6]
+const ANLAGE_DETAIL = [0.55, 3.0, 0.9, 1.35, 1.5, 1.3, 1.0, 1.3, 0.6]
 
 type AnlageElement = Umbruchpunkt & (
   | { art: 'summen' }
@@ -2473,7 +2471,7 @@ function anlagekostenSeiten(
 
 function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: AnlagekostenDaten }) {
   const t: Tabelle = {
-    kopf: a.kopf ?? [], zeilen: [], breiten: ANLAGE_DETAIL, linksBis: 1, spaltenAbstand: 2,
+    kopf: a.kopf ?? [], zeilen: [], breiten: ANLAGE_DETAIL, linksBis: 2, spaltenAbstand: 2,
   }
   return (
     <>
@@ -2514,7 +2512,9 @@ function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: Anlage
                 <Zellen t={t} werte={e.balken} />
               </View>
               {e.zeilen.map((z, r) => (
-                <View key={r} style={[s.kompaktZeile, s.tabLinie]}>
+                <View key={r} style={r < e.zeilen.length - 1
+                  ? [s.kompaktZeile, s.tabLinie]
+                  : s.kompaktZeile}>
                   <Zellen t={t} werte={z.zellen} />
                 </View>
               ))}
