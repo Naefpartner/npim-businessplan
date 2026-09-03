@@ -183,6 +183,11 @@ export interface AnlagekostenDaten {
   }[]
   /** Schlusszeile über alle Hauptgruppen. */
   total?: string[]
+  /**
+   * Bemerkungen zu den Kosten als ausgezeichneter Freitext — Abgrenzungen,
+   * ausgenommene Leistungen, Annahmen. Stehen unter der Tabelle.
+   */
+  bemerkungen?: Absatz[]
 }
 
 /** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
@@ -2483,6 +2488,7 @@ const ANLAGE_DETAIL = [9, 109, 17, 24, 21, 20, 19, 20, 13]
 type AnlageElement = Umbruchpunkt & (
   | { art: 'summen' }
   | { art: 'hinweis'; text: string }
+  | { art: 'bemerkungen'; absaetze: Absatz[] }
   /** Die Spaltenbeschriftung, einmal je Spalte. */
   | { art: 'kopf'; zellen: string[] }
   /** Freistehender Balken — die Schlusszeile über alle Hauptgruppen. */
@@ -2500,6 +2506,10 @@ function anlageHoehe(e: AnlageElement, a: AnlagekostenDaten, breite: number): nu
         + MH.blockEnde + zeilenHoehe(a.summen?.zeilen ?? [], ANLAGE_SUMMEN, 3, breite)
     case 'hinweis':
       return textZeilen(e.text, breite - EINZUG, 1) * MH.zeile + MH.blockEnde
+    case 'bemerkungen':
+      return MH.eigTitel + MH.blockEnde + e.absaetze.reduce(
+        (h, a) => h + textZeilen(a.laeufe.map((l) => l.text).join(''), breite - EINZUG, 1)
+          * MH.zeile, 0)
     case 'kopf':
       return MH.kopfzeileK
         + (zeilenZahl({ zellen: e.zellen }, ANLAGE_DETAIL, 2, breite, 7 / SCHRIFT.grund) - 1)
@@ -2533,6 +2543,10 @@ function anlageElemente(a: AnlagekostenDaten): AnlageElement[] {
     ...(a.total
       ? [{ art: 'balken', zellen: a.total, stark: true, key: '',
         label: 'Total' } as AnlageElement]
+      : []),
+    ...(a.bemerkungen
+      ? [{ art: 'bemerkungen', absaetze: a.bemerkungen,
+        key: 'anlagekosten:bemerkungen', label: 'Bemerkungen' } as AnlageElement]
       : []),
   ]
 }
@@ -2636,6 +2650,14 @@ function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: Anlage
         }
         if (e.art === 'hinweis') {
           return <Text key={i} style={s.anlageHinweis}>{e.text}</Text>
+        }
+        if (e.art === 'bemerkungen') {
+          return (
+            <View key={i} style={s.feldBlock}>
+              <Text style={s.h2}>Bemerkungen</Text>
+              <Freitext absaetze={e.absaetze} />
+            </View>
+          )
         }
         if (e.art === 'kopf') {
           return (

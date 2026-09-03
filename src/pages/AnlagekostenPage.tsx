@@ -3,6 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, AlertCircle, ChevronDown, ChevronRight, Coins, Calculator, Plus, Trash2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { RichText } from '@/components/ui/RichText'
+import { useAnlagekostenBemerkungen } from '@/hooks/useAnlagekostenBemerkungen'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGsfAllocation } from '@/hooks/useGsfAllocation'
 import { useBkpKosten, type BkpPatch, type BkpScope } from '@/hooks/useBkpKosten'
@@ -321,9 +323,40 @@ export function AnlagekostenSection({
         </div>
       )}
       </>)}
+
+      {/* Bemerkungen — was die Zahlen nicht hergeben: Abgrenzungen,
+          ausgenommene Leistungen, Annahmen zum Preisstand. Sie stehen
+          unabhängig von der Erfassungsmethode und erscheinen so auch im
+          Bericht, unter der Kostentabelle. */}
+      {variantId && <AnlagekostenBemerkungen variantId={variantId} canWrite={canWrite} />}
         </div>
       ))}
     </section>
+  )
+}
+
+function AnlagekostenBemerkungen({
+  variantId, canWrite,
+}: { variantId: string; canWrite: boolean }) {
+  const { text, speichern, speichert } = useAnlagekostenBemerkungen(variantId)
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-5 py-2.5">
+        <h3 className="text-sm font-semibold text-slate-700">Bemerkungen</h3>
+      </div>
+      <div className="px-5 py-3">
+        <RichText
+          wert={text}
+          disabled={!canWrite}
+          placeholder="Abgrenzungen, nicht enthaltene Leistungen, Annahmen zum Preisstand …"
+          onChange={(html) => {
+            const wert = html || null
+            if (wert !== (text ?? null)) void speichern(wert)
+          }}
+        />
+        {speichert && <p className="mt-1 text-xs text-slate-400">Wird gespeichert…</p>}
+      </div>
+    </div>
   )
 }
 

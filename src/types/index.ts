@@ -152,6 +152,11 @@ export interface ProjectVariant {
    * (Migration 067). Die Schlüssel vergibt components/bericht.
    */
   bericht_umbrueche: string[]
+  /**
+   * Bemerkungen zu den Anlagekosten als ausgezeichneter Freitext
+   * (Migration 068) — Abgrenzungen, ausgenommene Leistungen, Annahmen.
+   */
+  anlagekosten_bemerkungen: string | null
   created_by: string | null
   created_at: string
   updated_at: string

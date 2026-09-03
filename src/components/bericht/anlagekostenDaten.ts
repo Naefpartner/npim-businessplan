@@ -6,6 +6,7 @@ import { formatNumber } from '@/lib/utils'
 import type { BkpPosition } from '@/lib/bkpKatalog'
 import type { BaseRef } from '@/types'
 import type { PositionResult } from '@/lib/bkpBerechnung'
+import { alsAbsaetze, hatInhalt } from '@/lib/richText'
 import type { AnlagekostenDaten, TabellenZeile } from '@/components/bericht/BerichtDokument'
 
 /** Betrag in Franken, gerundet; Null bleibt sichtbar leer. */
@@ -101,6 +102,9 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
   // Dateiname, Preisstand und Version stehen beim Import.
   const keeValue = useKeeValueImport(variantId)
   const herkunft = keeValue.row('')
+  // Was die Zahlen nicht hergeben — Abgrenzungen, Annahmen — steht als
+  // Freitext an der Variante und gehört unter die Kosten.
+  const bemerkungen = ak.variant?.anlagekosten_bemerkungen ?? null
 
   return useMemo(() => {
     if (ak.presentEig.length === 0) return undefined
@@ -157,11 +161,15 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       zeilen: summenZeilen,
     }
 
+    const absaetze = alsAbsaetze(bemerkungen)
+    const bemerkungenBlock = hatInhalt(absaetze) ? absaetze : undefined
+
     if (methode !== 'detail') {
       return {
         methode,
         format: 'a4' as const,
         summen,
+        bemerkungen: bemerkungenBlock,
         hinweis: methode === 'keevalue'
           ? [
             'Grundlage der Kosten ist das keeValue-Kostenmodell',
@@ -252,6 +260,7 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       methode,
       format: 'a3' as const,
       hinweis: null,
+      bemerkungen: bemerkungenBlock,
       // Die Beschriftung steht einmal zuoberst; die Hauptgruppen darunter
       // führen keine eigene mehr.
       kopf: ['BKP', 'Position', 'Bezug', 'Menge', 'Einheit',
@@ -260,5 +269,5 @@ export function useAnlagekostenDaten(variantId: string | undefined): Anlagekoste
       total: ['', 'Total Anlagekosten', '', '', '',
         chf(tNetto), chf(tMwst), chf(gesamt), gesamt > 0 ? '100.0' : '—'],
     }
-  }, [ak, herkunft])
+  }, [ak, herkunft, bemerkungen])
 }
