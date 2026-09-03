@@ -1935,16 +1935,33 @@ const MH = {
 }
 
 /**
- * Nutzbare Höhe einer A4-Inhaltsseite, abzüglich einer knappen Reserve. Ohne
- * sie kippt eine randvolle Seite: react-pdf bricht dann von sich aus um und
- * hängt eine leere Seite an, die weder Seitenplan noch Fusszeile kennen.
- *
- * Ein Millimeter genügt, seit die Rechnung Zeile für Zeile misst — an
- * gerenderten Seiten nachgeprüft, weicht sie um weniger als einen Millimeter
- * je Seite ab. Grösser gewählt kostet die Reserve echten Platz: Blöcke
- * rückten weiter, obwohl sie um Zehntelmillimeter noch gepasst hätten.
+ * Oberkante der Fusszeile, von der Blattoberkante aus — an gerenderten Seiten
+ * nachgemessen. Nicht aus Rand und Schriftgrad gerechnet: die Zeilenhöhe der
+ * Fusszeile folgt dem Grundschriftgrad der Seite, nicht ihrem eigenen, und
+ * gerechnet läge sie einen halben Millimeter zu tief.
  */
-const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 1.5
+const FUSS_OBEN = 281.6
+
+/**
+ * Mindestabstand des Inhalts zur Fusszeile. Er entscheidet den Umbruch: was
+ * der Fusszeile näher käme als das, wandert auf die nächste Seite — und alles
+ * andere bleibt, wo es steht.
+ */
+const FUSS_ABSTAND = 12
+
+/**
+ * Toleranz der Umbruchrechnung. Sie misst Zeile für Zeile und trifft die
+ * gesetzte Höhe auf etwa einen Millimeter genau; ohne diesen Millimeter
+ * unterschritte eine randvolle Seite den Mindestabstand gelegentlich doch.
+ */
+const HOEHEN_TOLERANZ = 1
+
+/**
+ * Nutzbare Höhe einer A4-Inhaltsseite. Nicht mehr aus dem unteren Rand der
+ * Vorlage abgeleitet, sondern aus dem Abstand zur Fusszeile: der ist die
+ * Bedingung, die zählt.
+ */
+const SEITENHOEHE = FUSS_OBEN - FUSS_ABSTAND - HOEHEN_TOLERANZ - RAND.oben
 
 type MengenElement = Umbruchpunkt & (
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
