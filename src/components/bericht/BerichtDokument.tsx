@@ -580,6 +580,9 @@ const s = StyleSheet.create({
   },
   kompaktKopf: {
     flexDirection: 'row',
+    // Abstand zum Kapiteltitel darüber; ohne ihn klebte die Beschriftung an
+    // „Anlagekosten".
+    marginTop: mm(3),
     paddingBottom: mm(0.7),
     paddingLeft: mm(EINZUG),
     fontSize: 7,
@@ -2022,7 +2025,7 @@ const MH = {
    */
   zeileK: 5.31,
   titelK: 6.93,
-  kopfzeileK: 5.11,
+  kopfzeileK: 8.11,
   blockEndeK: 0.8,
 }
 
@@ -2331,8 +2334,14 @@ const ANLAGE_SUMMEN = [0.5, 3.0, 1.3, 1.1, 1.3, 0.7]
  * Die Herleitung Position für Position; nur bei der Detailerfassung. Der Bezug
  * steht in einer eigenen Spalte vor der Menge — in dieselbe Zelle geschrieben
  * drängte er die Zahl an den Rand.
+ *
+ * Die Anteile sind Millimeter: die Bezeichnung bekommt so viel, wie die
+ * längste des Katalogs braucht („Spezielle Fundationen, Baugrubensicherung,
+ * Grundwasserhaltung" misst bei 8 pt 93 mm), die Betragsspalten nur so viel,
+ * wie eine achtstellige Zahl belegt. Vorher waren sie überbreit und die
+ * Bezeichnung brach um.
  */
-const ANLAGE_DETAIL = [0.55, 3.0, 0.9, 1.35, 1.5, 1.3, 1.0, 1.3, 0.6]
+const ANLAGE_DETAIL = [9, 109, 17, 24, 21, 20, 19, 20, 13]
 
 type AnlageElement = Umbruchpunkt & (
   | { art: 'summen' }
