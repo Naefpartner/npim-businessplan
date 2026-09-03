@@ -542,6 +542,20 @@ const s = StyleSheet.create({
    * den Text darunter, an dem sich die Legende ausrichtet.
    */
   ringFlaeche: { marginTop: mm(2.5), marginBottom: mm(2.5), alignItems: 'center' },
+  /** Bezugsrahmen für die Zahl in der Mitte des Rings. */
+  ringRahmen: { position: 'relative' },
+  /**
+   * Das Total sitzt im Loch des Rings. Über die ganze Fläche gelegt und darin
+   * zentriert — so trifft es die Mitte, ohne dass die Zeilenhöhe der Seite
+   * hineinrechnet.
+   */
+  ringMitte: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringTotal: { fontWeight: 700, textAlign: 'center' },
   legendeZeile: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1487,6 +1501,22 @@ interface RingSegment {
   farbe: string
 }
 
+/** Breite des Rings, als Anteil seines Aussenmasses. */
+const RING_DICKE = 0.22
+
+/**
+ * Schriftgrad des Totals in der Mitte des Rings: so gross wie möglich, aber
+ * innerhalb des Lochs. Die Breite der Zeichenkette wird geschätzt — @react-pdf
+ * misst erst beim Satz, und bis dahin muss der Grad feststehen. Ziffern der
+ * Euclid laufen auf gut 0.6 em, die Tausendertrennung auf rund 0.3 em.
+ */
+function ringTotalGrad(text: string, groesse: number): number {
+  const em = [...text].reduce((a, c) => a + (/\d/.test(c) ? 0.6 : 0.32), 0)
+  // Innendurchmesser, abzüglich eines Rands zum Ring.
+  const platz = groesse * (1 - 2 * RING_DICKE) * 0.82
+  return Math.max(5.5, Math.min(SCHRIFT.klein, platz / (em * (25.4 / 72))))
+}
+
 /** Punkt auf dem Kreis; 0 liegt oben, gezählt wird im Uhrzeigersinn. */
 function ringPunkt(mitte: number, radius: number, anteil: number): [number, number] {
   const winkel = anteil * 2 * Math.PI - Math.PI / 2
@@ -1544,10 +1574,11 @@ function Ringdiagramm({
   const summe = echte.reduce((a, x) => a + x.wert, 0)
   if (summe <= 0) return null
 
-  const dicke = groesse * 0.22 // mm, Ringbreite
+  const dicke = groesse * RING_DICKE // mm, Ringbreite
   const mitte = groesse / 2
   const radius = mitte - dicke / 2
   const pfade = ringPfade(echte, mitte, radius)
+  const total = formatNumber(Math.round(summe))
 
   return (
     <View style={s.ringBlock}>
@@ -1557,13 +1588,22 @@ function Ringdiagramm({
         {einheit ? `${titel} in ${einheit}` : titel}
       </Text>
       <View style={s.ringFlaeche}>
-        <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
-          {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
-          <Circle cx={mitte} cy={mitte} r={radius} stroke="#EFEBE8" strokeWidth={dicke} fill="none" />
-          {pfade.map((p, i) => (
-            <Path key={i} d={p.d} stroke={p.farbe} strokeWidth={dicke} fill="none" />
-          ))}
-        </Svg>
+        <View style={s.ringRahmen}>
+          <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
+            {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
+            <Circle cx={mitte} cy={mitte} r={radius} stroke="#EFEBE8" strokeWidth={dicke} fill="none" />
+            {pfade.map((p, i) => (
+              <Path key={i} d={p.d} stroke={p.farbe} strokeWidth={dicke} fill="none" />
+            ))}
+          </Svg>
+          {/* Das Total im Loch des Rings — der Ring zeigt die Anteile, die
+              Zahl darin, worauf sie sich beziehen. */}
+          <View style={s.ringMitte}>
+            <Text style={[s.ringTotal, { fontSize: ringTotalGrad(total, groesse) }]}>
+              {total}
+            </Text>
+          </View>
+        </View>
       </View>
       {echte.map((seg) => (
         <View key={seg.label} style={s.legendeZeile}>
