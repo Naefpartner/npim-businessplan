@@ -596,6 +596,8 @@ const s = StyleSheet.create({
     marginBottom: mm(1.5),
   },
   spiegelReihe: { flexDirection: 'row', flexShrink: 0 },
+  /** Feine Linie zwischen den Geschossen, über die ganze Breite. */
+  spiegelTrenner: { borderTopWidth: 0.5, borderTopColor: '#E4E4E4', paddingTop: mm(1) },
   /** Ganz links die Geschosse; sie stehen einmal je Zeile statt in jeder Spalte. */
   spiegelGeschossSpalte: { width: mm(11), flexShrink: 0, paddingTop: mm(1) },
   spiegelGeschoss: { fontSize: 6.5, lineHeight: 1.2, color: '#8A8A8A' },
@@ -706,7 +708,10 @@ const s = StyleSheet.create({
   legendeZeile: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: mm(0.8),
+    // Enger als zuvor: die Legende ist eine Aufzählung, keine Tabelle. Am
+    // Zeilenabstand lässt sich dabei nicht sparen — ein eigener `lineHeight`
+    // auf der Zeile macht sie in react-pdf höher statt niedriger, nachgemessen.
+    paddingBottom: mm(0.3),
     paddingLeft: mm(EINZUG),
   },
   legendeMarke: { width: mm(2.2), height: mm(2.2), marginRight: mm(1.8), borderRadius: mm(1.1) },
@@ -2088,7 +2093,7 @@ const MH = {
   /** Abstände über und unter einem Ringdiagramm zusammen. */
   ringRand: 5.0,
   /** Legendenzeile eines Rings. */
-  legendeZeile: 5.1,
+  legendeZeile: 4.55,
   /** Zeile des Wohnungsmixes — der Balken ist niedriger als die Schrift. */
   mixZeile: 5.5,
   /**
@@ -2296,13 +2301,17 @@ const SPIEGEL = {
   kachel: 7.4,
   /** Zeile ohne Kacheln: nur die Geschossbeschriftung. */
   geschoss: 3.75,
+  /** Trennlinie zwischen zwei Geschossen samt Vorabstand. */
+  trenner: 1.2,
   skala: 4.25,
 }
 
 function spiegelHoehe(m: MietspiegelDaten): number {
-  const zeilen = m.geschosse.reduce((h, g) => {
+  const zeilen = m.geschosse.reduce((h, g, i) => {
     const kacheln = Math.max(...g.spalten.map((k) => k.length), 0)
+    // Ab dem zweiten Geschoss die Trennlinie mit ihrem Vorabstand.
     return h + Math.max(kacheln * SPIEGEL.kachel, SPIEGEL.geschoss)
+      + (i > 0 ? SPIEGEL.trenner : 0)
   }, 0)
   return MH.eigTitel + SPIEGEL.hinweis + SPIEGEL.kopf + zeilen + SPIEGEL.skala + MH.blockEnde
 }
@@ -2711,8 +2720,8 @@ function Mietspiegel({ daten, ohneTitel }: { daten: MietspiegelDaten; ohneTitel?
         ))}
       </View>
 
-      {daten.geschosse.map((g) => (
-        <View key={g.label} style={s.spiegelReihe}>
+      {daten.geschosse.map((g, i) => (
+        <View key={g.label} style={[s.spiegelReihe, ...(i > 0 ? [s.spiegelTrenner] : [])]}>
           <View style={s.spiegelGeschossSpalte}>
             <Text style={s.spiegelGeschoss}>{g.label}</Text>
           </View>

@@ -15,7 +15,7 @@ import {
   EIGENTUMSART_COLOR, USE_TYPE_COLOR_5, USE_TYPE_COLOR_3, USE_TYPE_COLOR_1,
   EIGENTUMSART_FAMILY,
 } from '@/lib/kategorieFarben'
-import { CI } from '@/lib/ci'
+import type { CiFamily } from '@/lib/ci'
 import {
   EIGENTUMSART_LABEL, eigentumsartForBuilding, effektiveWohnungCounts,
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
@@ -37,8 +37,15 @@ const MIXBLATT_EIG: Eigentumsart[] = ['genossenschaft', 'verkaufsobjekt']
 /** Reihenfolge der Blöcke, gleich wie in der Projektübersicht. */
 const EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufsobjekt']
 
-/** Abstufungen für die Ringsegmente; Stufe 1 ist als Sektor zu blass. */
-const RING_STUFEN = [9, 7, 5, 3] as const
+/**
+ * Farbrampe über die Wohnungskategorien: die kleinste Wohnung am dunkelsten,
+ * die grösste am hellsten. Ganz aufgehellt wäre der letzte Sektor im Ring
+ * kaum mehr zu sehen, deshalb endet die Rampe bei einem Fünftel.
+ */
+function zimmerRampe(familie: CiFamily, anzahl: number): string[] {
+  if (anzahl <= 1) return [rampOf(familie, 1)]
+  return Array.from({ length: anzahl }, (_, i) => rampOf(familie, 1 - (i / (anzahl - 1)) * 0.8))
+}
 
 /** Beschriftung einer Wohnungskategorie. */
 function zimmerLabel(key: string): string {
@@ -601,7 +608,10 @@ function wohnungsmixBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
         label: EIGENTUMSART_LABEL[eig],
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
-        segmentFarben: RING_STUFEN.map((n) => CI[EIGENTUMSART_FAMILY[eig]][n]),
+        // Von der kleinsten Wohnung zur grössten, dunkel nach hell: die
+        // Reihenfolge der Zeilen ist die der Zimmerzahlen, und die Rampe
+        // folgt ihr — vier feste Stufen wiederholten sich bei mehr Kategorien.
+        segmentFarben: zimmerRampe(EIGENTUMSART_FAMILY[eig], zeilen.length - 1),
         aufMixblatt: MIXBLATT_EIG.includes(eig),
         zeilen,
       }
