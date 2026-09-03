@@ -255,10 +255,12 @@ const PLAN_HOEHE = 70
 const PLAN_BREIT = 75
 
 /**
- * Mindesthöhe des Situationsplans. Darunter bliebe von einem Ausschnitt über
- * die ganze Breite nur noch ein Streifen.
+ * Mindesthöhe des Situationsplans. Er gibt weit nach, bevor die Anlagekosten
+ * von der ersten Seite rutschen — sie gehören zu den Mengen darüber, ein
+ * flacherer Planausschnitt wiegt das auf. Darunter bliebe allerdings nur noch
+ * ein Streifen, dann ist die zweite Seite das kleinere Übel.
  */
-const PLAN_MIN = 52
+const PLAN_MIN = 40
 
 const s = StyleSheet.create({
   /**
@@ -835,21 +837,48 @@ function textBreite(text: string): number {
  * randvolle Seite kippt: react-pdf bricht dann selbst um und hängt eine Seite
  * an, die der Seitenplan nicht kennt.
  */
+function zeilenZahl(
+  zeile: TabellenZeile | undefined, breiten: number[], spaltenAbstand: number, breite: number,
+): number {
+  if (!zeile) return 0
+  const summe = breiten.reduce((a, b) => a + b, 0)
+  const nutzbar = breite - EINZUG
+  let zahl = 1
+  zeile.zellen.forEach((c, i) => {
+    if (!c) return
+    const spalte = nutzbar * (breiten[i] ?? 1) / summe
+      - (i < zeile.zellen.length - 1 ? spaltenAbstand : 0)
+    if (spalte > 0) zahl = Math.max(zahl, Math.ceil(textBreite(c) / spalte))
+  })
+  return zahl
+}
+
 function zeilenHoehe(
   zeilen: TabellenZeile[], breiten: number[], spaltenAbstand = 3, breite = SATZBREITE,
 ): number {
-  const summe = breiten.reduce((a, b) => a + b, 0)
-  const nutzbar = breite - EINZUG
-  return zeilen.reduce((hoehe, z) => {
-    let zeilenZahl = 1
-    z.zellen.forEach((c, i) => {
-      if (!c) return
-      const spalte = nutzbar * (breiten[i] ?? 1) / summe
-        - (i < z.zellen.length - 1 ? spaltenAbstand : 0)
-      if (spalte > 0) zeilenZahl = Math.max(zeilenZahl, Math.ceil(textBreite(c) / spalte))
-    })
-    return hoehe + zeilenZahl * MH.zeile
-  }, 0)
+  return zeilen.reduce(
+    (h, z) => h + zeilenZahl(z, breiten, spaltenAbstand, breite) * MH.zeile, 0)
+}
+
+/**
+ * Höhe einer Doppeltabelle. Beide Seiten setzen Zeile r gemeinsam — bricht auf
+ * einer Seite eine Zelle um, wächst die ganze Zeile. Die Höhen der beiden
+ * Tabellen getrennt zu nehmen und das Maximum zu bilden, wäre zu wenig: die
+ * Umbrüche können auf verschiedene Zeilen fallen.
+ */
+function doppelHoehe(
+  links: { zeilen: TabellenZeile[]; breiten: number[] },
+  rechts: { zeilen: TabellenZeile[]; breiten: number[] },
+): number {
+  const zeilen = Math.max(links.zeilen.length, rechts.zeilen.length)
+  let hoehe = 0
+  for (let r = 0; r < zeilen; r++) {
+    hoehe += Math.max(
+      zeilenZahl(links.zeilen[r], links.breiten, 3, SPALTE_EINS),
+      zeilenZahl(rechts.zeilen[r], rechts.breiten, 3, SPALTE_ZWEI),
+    ) * MH.zeile
+  }
+  return hoehe
 }
 
 /**
@@ -945,29 +974,36 @@ type UebersichtElement = Umbruchpunkt & (
   | { art: 'mix'; mix: Nutzungsmix; dreispaltig: boolean }
 )
 
-/** Höhe der Tabellenblöcke der ersten Seite — ohne den Plan. */
+/**
+ * Höhe der Tabellenblöcke der ersten Seite — ohne den Plan. Gerechnet mit
+ * denselben Höhen wie der Umbruch, sonst schätzt die eine Stelle den Platz
+ * anders ein als die andere.
+ */
 function ersteSeiteOhnePlan(u: UebersichtDaten): number {
-  const zeilen = (n: number) => (n === 0 ? 0 : MH.eigTitel + MH.kopfzeile + MH.blockEnde
-    + n * MH.zeile)
+  const leer = Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length) === 0
   return MH.h1
-    + zeilen(Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length))
-    + zeilen(Math.max(u.mengen.length, u.kosten.length))
+    + (leer ? 0 : uebersichtElementHoehe(
+      { art: 'grundlagen', key: '', label: '' }, u))
+    + uebersichtElementHoehe({ art: 'kosten', key: '', label: '' }, u)
 }
 
 /**
- * Höhe des Situationsplans. Er ist der einzige Posten der ersten Seite, der
- * nicht von den Daten kommt — also gibt er nach, wenn Grundstücke,
- * Bestandsgebäude und Anlagekosten viel Platz brauchen. So bleiben die drei
- * Tabellen beisammen, statt dass die Kosten auf die zweite Seite rutschen.
+ * Höhe des Situationsplans über den Tabellen — oder null, wenn er dort nicht
+ * mehr hingehört.
  *
- * Nach unten begrenzt: ein Plan über die ganze Breite wird sonst zum Streifen,
- * und `objectFit: cover` schneidet immer mehr von oben und unten weg. Reicht
- * auch das Mindestmass nicht, wandern die Kosten weiter — mit noch flacherem
- * Plan wäre niemandem gedient.
+ * Er ist der einzige Posten der ersten Seite, der nicht von den Daten kommt,
+ * also gibt er nach, wenn Grundstücke, Bestandsgebäude und Anlagekosten viel
+ * Platz brauchen: Mengen und Kosten gehören zusammen, ein flacherer
+ * Planausschnitt wiegt das auf. Bleibt selbst dann zu wenig, rückt er hinter
+ * die Tabellen — dort bekommt er wieder seine volle Höhe. Ein Streifen von
+ * dreissig Millimetern zeigte ohnehin nichts mehr, und `objectFit: cover`
+ * schnitte immer mehr von oben und unten weg.
  */
-function planHoehe(u: UebersichtDaten): number {
+function planHoehe(u: UebersichtDaten): number | null {
   const rest = ersteSeiteOhnePlan(u) + MH.eigTitel + MH.legende + MH.blockEnde
-  return Math.max(PLAN_MIN, Math.min(PLAN_BREIT, SEITENHOEHE - rest))
+  const platz = SEITENHOEHE - rest
+  if (platz < PLAN_MIN) return null
+  return Math.min(PLAN_BREIT, platz)
 }
 
 function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
@@ -975,17 +1011,23 @@ function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
   // damit sich Miet- und Verkaufsflächen nicht in einem Ring vermischen.
   const dreispaltig = u.mix.length > 1
   const grundlagen = Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length) > 0
+  const hoehe = u.situationsplanUrl ? planHoehe(u) : null
+  const plan = u.situationsplanUrl
+    ? [{
+      art: 'situationsplan', url: u.situationsplanUrl, hoehe: hoehe ?? PLAN_BREIT,
+      key: 'uebersicht:situationsplan', label: 'Situationsplan',
+    } as const]
+    : []
   return [
-    ...(u.situationsplanUrl
-      ? [{
-        art: 'situationsplan', url: u.situationsplanUrl, hoehe: planHoehe(u),
-        key: 'uebersicht:situationsplan', label: 'Situationsplan',
-      } as const] : []),
+    // Über den Tabellen, solange er dort noch etwas zeigt.
+    ...(hoehe != null ? plan : []),
     ...(grundlagen ? [{
       art: 'grundlagen',
       key: 'uebersicht:grundlagen', label: 'Grundstücke und Bestandsgebäude',
     } as const] : []),
     { art: 'kosten', key: 'uebersicht:kosten', label: 'Mengen und Anlagekosten' },
+    // Sonst dahinter, in voller Höhe.
+    ...(hoehe == null ? plan : []),
     ...u.bloecke.map((block) => ({
       art: 'block', block,
       key: `uebersicht:block:${block.key}`,
@@ -1004,10 +1046,9 @@ function uebersichtElementHoehe(e: UebersichtElement, u: UebersichtDaten): numbe
     case 'situationsplan':
       return MH.eigTitel + e.hoehe + MH.legende + MH.blockEnde
     case 'grundlagen':
-      // Beide Tabellen teilen sich die Zeilen; die höhere gibt die Höhe vor.
-      return MH.eigTitel + MH.kopfzeile + MH.blockEnde + Math.max(
-        zeilenHoehe(u.grundstuecke.zeilen, [1.6, 1.3, 1], 3, SPALTE_EINS),
-        zeilenHoehe(u.bestand.zeilen, [3.45, 1.15, 1.3, 1.35, 1], 3, SPALTE_ZWEI),
+      return MH.eigTitel + MH.kopfzeile + MH.blockEnde + doppelHoehe(
+        { zeilen: u.grundstuecke.zeilen, breiten: [1.6, 1.3, 1] },
+        { zeilen: u.bestand.zeilen, breiten: [3.45, 1.15, 1.3, 1.35, 1] },
       )
     case 'kosten':
       return MH.eigTitel + MH.kopfzeile + MH.blockEnde + Math.max(
@@ -1568,6 +1609,17 @@ interface RingSegment {
 const RING_DICKE = 0.22
 
 /**
+ * Summe in der Mitte des Rings. Beträge ab einer Million werden gerundet
+ * angeschrieben — im Loch des Rings ist die genaue Frankenzahl weder lesbar
+ * noch von Belang; sie steht ohnehin Zeile für Zeile in der Legende. Mengen
+ * bleiben genau: dort ist der Wert die Aussage.
+ */
+function ringSumme(summe: number, einheit?: string): string {
+  if (einheit === 'CHF' && summe >= 1e6) return `${(summe / 1e6).toFixed(1)} Mio`
+  return formatNumber(Math.round(summe))
+}
+
+/**
  * Schriftgrad des Totals in der Mitte des Rings: so gross wie möglich, aber
  * innerhalb des Lochs. Die Breite der Zeichenkette wird geschätzt — @react-pdf
  * misst erst beim Satz, und bis dahin muss der Grad feststehen. Ziffern der
@@ -1641,7 +1693,7 @@ function Ringdiagramm({
   const mitte = groesse / 2
   const radius = mitte - dicke / 2
   const pfade = ringPfade(echte, mitte, radius)
-  const total = formatNumber(Math.round(summe))
+  const total = ringSumme(summe, einheit)
   const grad = ringTotalGrad(total, groesse)
 
   return (
