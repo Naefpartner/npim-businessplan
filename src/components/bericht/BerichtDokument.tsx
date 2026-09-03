@@ -98,10 +98,11 @@ export interface MengenSicht {
   /** „Gesamtprojekt" oder der Name der Etappe. */
   titel: string
   /**
-   * Ob der Balken der einzigen Nutzungsart bereits die Sicht benennt. Dann
-   * bleibt der Kapiteltitel ohne Zusatz.
+   * Ob diese Sicht das Gesamtprojekt zeigt. Dann bleibt der Kapiteltitel ohne
+   * Zusatz — „Gesamtprojekt" sagt über einen Bericht zu genau diesem Projekt
+   * nichts, während der Name einer Etappe die Seiten unterscheidet.
    */
-  titelImBalken: boolean
+  gesamt: boolean
   /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
   /**
@@ -2024,6 +2025,14 @@ function sichtSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): number {
     + (sicht.wohnungsmix.length > 0 ? 1 : 0)
 }
 
+/**
+ * Kapiteltitel einer Sicht. Nur eine Etappe braucht ihren Namen dazu; das
+ * Gesamtprojekt ist der Bericht selbst.
+ */
+function sichtTitel(basis: string, sicht: MengenSicht): string {
+  return sicht.gesamt ? basis : `${basis} — ${sicht.titel}`
+}
+
 /** Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts. */
 const MENGEN_BREITEN = [1.25, 2.0, 0.8, 0.95, 1.05, 0.95, 1.05, 1.05, 1.3]
 
@@ -2050,7 +2059,7 @@ function MengenSeite({
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
       {erste && (
         <Text style={[s.h1, s.h1Kapitel]}>
-          {sicht.titelImBalken ? 'Mengen und Erträge' : `Mengen und Erträge — ${sicht.titel}`}
+          {sichtTitel('Mengen und Erträge', sicht)}
         </Text>
       )}
       {elemente.map((e, i) => {
@@ -2139,7 +2148,7 @@ function MixUndErtragSeite({
 }: { daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number }) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={[s.h1, s.h1Kapitel]}>Wohnungsmix und Erträge — {sicht.titel}</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>{sichtTitel('Wohnungsmix und Erträge', sicht)}</Text>
       {sicht.wohnungsmix.filter((w) => w.aufMixblatt).map((w) => (
         <View key={`w-${w.label}`} style={s.zweiSpalten}>
           <View style={s.spalteEins}>
@@ -2191,7 +2200,7 @@ function WohnungsmixSeite({
 }: { daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number }) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={[s.h1, s.h1Kapitel]}>Wohnungsmix — {sicht.titel}</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>{sichtTitel('Wohnungsmix', sicht)}</Text>
       {sicht.wohnungsmix.map((w) => {
         const eintraege = w.zeilen
           .filter((r) => !r.total)

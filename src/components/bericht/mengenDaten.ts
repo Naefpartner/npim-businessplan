@@ -124,7 +124,9 @@ export function useMengenDaten(
           const haeuser = gebaeude.filter((b) => eigentumsartForBuilding(b.use_type) === eig)
           if (haeuser.length === 0) return null
           const verkauf = eig === 'verkaufsobjekt'
-          const label = einzeln ? titel : EIGENTUMSART_LABEL[eig]
+          // Der Balken benennt die Eigentumsart, nicht die Sicht: „Gesamtprojekt"
+          // sagt über einen Bericht zu genau diesem Projekt nichts.
+          const label = EIGENTUMSART_LABEL[eig]
           return {
             key: eig,
             label,
@@ -185,9 +187,7 @@ export function useMengenDaten(
 
       return {
         titel,
-        // Ohne zweite Nutzungsart steht die Sicht schon im Balken; der
-        // Kapiteltitel wiederholte sie sonst.
-        titelImBalken: einzeln,
+        gesamt: etappeId == null,
         benchmarks: benchmarkTabelle(gebaeude, mehrere),
         haeuserUebersicht,
         eigentumsarten,
