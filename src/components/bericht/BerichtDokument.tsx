@@ -555,7 +555,12 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ringTotal: { fontWeight: 700, textAlign: 'center' },
+  /**
+   * Zeilen im Ring stehen enger als im Fliesstext: die Einheit gehört zur Zahl
+   * darunter, und im Loch ist wenig Platz.
+   */
+  ringTotal: { fontWeight: 700, textAlign: 'center', lineHeight: 1.15 },
+  ringEinheit: { color: '#6B6B6B', textAlign: 'center', lineHeight: 1.15 },
   legendeZeile: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1579,6 +1584,7 @@ function Ringdiagramm({
   const radius = mitte - dicke / 2
   const pfade = ringPfade(echte, mitte, radius)
   const total = formatNumber(Math.round(summe))
+  const grad = ringTotalGrad(total, groesse)
 
   return (
     <View style={s.ringBlock}>
@@ -1599,9 +1605,10 @@ function Ringdiagramm({
           {/* Das Total im Loch des Rings — der Ring zeigt die Anteile, die
               Zahl darin, worauf sie sich beziehen. */}
           <View style={s.ringMitte}>
-            <Text style={[s.ringTotal, { fontSize: ringTotalGrad(total, groesse) }]}>
-              {total}
-            </Text>
+            {einheit && (
+              <Text style={[s.ringEinheit, { fontSize: grad * 0.85 }]}>{einheit}</Text>
+            )}
+            <Text style={[s.ringTotal, { fontSize: grad }]}>{total}</Text>
           </View>
         </View>
       </View>
