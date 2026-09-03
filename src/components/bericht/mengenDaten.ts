@@ -7,7 +7,9 @@ import {
 } from '@/lib/kostenmiete'
 import {
   buildUnits, wohnungsmieten, wohnungsmixKey, zimmerFromEinheit,
+  countW, sumW, type AnalyseUnit, type BuildUnitsOptions,
 } from '@/lib/mengenAnalyse'
+import { rampOf, readableText } from '@/lib/mengenCharts'
 import { formatNumber } from '@/lib/utils'
 import {
   EIGENTUMSART_COLOR, USE_TYPE_COLOR_5, USE_TYPE_COLOR_3, USE_TYPE_COLOR_1,
@@ -21,7 +23,9 @@ import {
 } from '@/types'
 import type { EtappenUmfang } from '@/lib/bericht'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
-import type { MengenDaten, MengenSicht, TabellenZeile } from '@/components/bericht/BerichtDokument'
+import type {
+  MengenDaten, MengenSicht, MietspiegelDaten, TabellenZeile,
+} from '@/components/bericht/BerichtDokument'
 
 /**
  * Eigentumsarten, die auf dem Blatt „Wohnungsmix und Erträge" erscheinen.
@@ -85,19 +89,29 @@ export function useMengenDaten(
    * die WBF-Punkte wie in der Kostenmiete-Sektion. Sie greift nur dort, wo im
    * Mengengerüst kein Mietzins erfasst ist; ein erfasster Wert übersteuert sie.
    */
-  const kostenmieteJeTyp = useMemo(() => {
+  const kostenmiete = useMemo(() => {
+    const leer = { jeTyp: new Map<string, number>(), wohnen: undefined }
     const erg = ak.konsolidiertEffektiv.get('genossenschaft')
-    if (!erg) return new Map<string, number>()
+    if (!erg) return leer
     const m = sammleKostenmieteMengen(ak.buildings, null)
-    if (m.wohnenFlaeche <= 0) return new Map<string, number>()
+    if (m.wohnenFlaeche <= 0) return leer
     const km = berechneKostenmiete(
       basisFromErgebnis(erg, m.vmf, m.wohnenFlaeche, m.wohnungen),
       kostenmieteParams, m.ertragsNutzungen)
     const wohnungen = buildUnits(ak.buildings, ak.etappen)
       .filter((u) => u.eig === 'genossenschaft' && u.istWohnen)
     const verteilt = wohnungsmieten(wohnungen, wbf.punkte, km.maxMietertragWohnen)
-    return new Map(verteilt.rows.map((r) => [r.key, r.mieteMt]))
+    return {
+      jeTyp: new Map(verteilt.rows.map((r) => [r.key, r.mieteMt])),
+      // Der Mietspiegel rechnet die Wohnungsmieten selbst aus derselben
+      // Grundlage — er braucht nicht die Verteilung, sondern ihre Basis.
+      wohnen: {
+        maxMietertragWohnenPa: km.maxMietertragWohnen,
+        punkte: wbf.punkte,
+      },
+    }
   }, [ak.buildings, ak.etappen, ak.konsolidiertEffektiv, kostenmieteParams, wbf.punkte])
+  const kostenmieteJeTyp = kostenmiete.jeTyp
 
   return useMemo(() => {
     if (ak.buildings.length === 0) return undefined
@@ -192,6 +206,7 @@ export function useMengenDaten(
         haeuserUebersicht,
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
+        mietspiegel: mietspiegel(gebaeude, ak.etappen, kostenmiete.wohnen),
         ertraege: ertragsBloecke(gebaeude, mehrere, kostenmieteJeTyp),
       }
     }
@@ -201,7 +216,7 @@ export function useMengenDaten(
       ...(proEtappe ? etappenMitGebaeuden.map((e) => sicht(e.name, e.id)) : []),
     ]
     return { sichten }
-  }, [ak, umfang, kostenmieteJeTyp])
+  }, [ak, umfang, kostenmieteJeTyp, kostenmiete.wohnen])
 }
 
 /**
@@ -460,6 +475,85 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
       { zellen: ['VMF (VKF) / GF total', ...werte.map((w) => pct(w.anteilTotal))] },
       { zellen: ['Gebäudevolumen / GF', ...werte.map((w) => quot(w.gvProGf))] },
     ] as TabellenZeile[],
+  }
+}
+
+/**
+ * Mietspiegel: die Gebäude als Spalten, die Geschosse von oben nach unten, je
+ * Einheit eine Kachel. Eingefärbt wird nach Ertrag je Quadratmeter und Jahr,
+ * über den ganzen Bestand hinweg — so lassen sich die Häuser vergleichen,
+ * statt jedes für sich zu skalieren.
+ *
+ * Dieselbe Darstellung wie im Analyse-Reiter, nur ohne Filter und Klick: im
+ * Bericht steht der Bestand, wie er ist.
+ */
+function mietspiegel(
+  gebaeude: VariantBuildingFull[], etappen: VariantEtappe[],
+  genossenschaftWohnen: BuildUnitsOptions['genossenschaftWohnen'],
+): MietspiegelDaten | undefined {
+  const units = buildUnits(gebaeude, etappen, { genossenschaftWohnen })
+  if (units.length === 0) return undefined
+
+  /** Ertrag je m² und Jahr; beim Verkauf der Preis je m². */
+  const wert = (u: AnalyseUnit) => (u.vmf > 0 ? u.mietePa / u.vmf : 0)
+  const werte = units.map(wert)
+  const min = Math.min(...werte)
+  const max = Math.max(...werte)
+  const anteil = (v: number) => (max > min ? (v - min) / (max - min) : 0.5)
+  const nurVerkauf = units.every((u) => u.eig === 'verkaufsobjekt')
+  const einheit = nurVerkauf ? 'CHF/m²' : 'CHF/m²·a'
+
+  const haeuserIds = [...new Map(units.map((u) => [u.hausId, u.haus])).entries()]
+  const haeuser = haeuserIds.map(([id, name]) => {
+    const hu = units.filter((u) => u.hausId === id)
+    const flaeche = sumW(hu, (u) => u.vmf)
+    const ertrag = sumW(hu, (u) => u.mietePa)
+    return {
+      name,
+      farbe: EIGENTUMSART_COLOR[hu[0].eig],
+      kennzahl: `${formatNumber(countW(hu))} · ${z(flaeche)} m²`,
+      unterzeile: `${hu[0].eigLabel} · Ø ${z(flaeche > 0 ? ertrag / flaeche : 0)} ${einheit}`,
+    }
+  })
+
+  // Die Geschosse aller Häuser in einer Reihe, von oben nach unten. So steht
+  // das Erdgeschoss des einen Hauses auf derselben Zeile wie das des anderen —
+  // der Vergleich, um den es geht.
+  const raenge = new Map<string, number>()
+  for (const u of units) raenge.set(u.geschoss, u.geschossRang)
+  const geschosse = [...raenge.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([label]) => ({
+      label,
+      spalten: haeuserIds.map(([id]) => units
+        .filter((u) => u.hausId === id && u.geschoss === label)
+        .map((u) => {
+          const farbe = rampOf(EIGENTUMSART_FAMILY[u.eig], anteil(wert(u)))
+          return {
+            // Zwei Zeilen halten die Kachel schlank: oben was es ist, unten
+            // wie gross und zu welchem Ansatz.
+            titel: `${u.zimmerLabel}${u.anzahl > 1 ? ` ×${u.anzahl}` : ''}`,
+            zeile: `${z(u.vmf)} m² · ${z(wert(u))} ${einheit}`,
+            farbe,
+            textFarbe: readableText(farbe),
+          }
+        })),
+    }))
+
+  const eigs = EIG_ORDER.filter((e) => units.some((u) => u.eig === e))
+  return {
+    titel: 'Mietspiegel',
+    hinweis: `Einfärbung nach ${einheit} über den ganzen Bestand — die Häuser sind `
+      + 'damit vergleichbar.',
+    einheit,
+    haeuser,
+    geschosse,
+    skala: eigs.map((e) => ({
+      label: EIGENTUMSART_LABEL[e],
+      von: z(min),
+      bis: z(max),
+      farben: [0, 0.25, 0.5, 0.75, 1].map((t) => rampOf(EIGENTUMSART_FAMILY[e], t)),
+    })),
   }
 }
 

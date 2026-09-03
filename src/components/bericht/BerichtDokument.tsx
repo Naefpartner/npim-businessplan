@@ -127,13 +127,40 @@ export interface MengenSicht {
   })[]
   /** Ertragsübersicht je Eigentumsart. */
   ertraege: (EigBlock & { kopf: string[]; aufMixblatt: boolean; zeilen: TabellenZeile[] })[]
+  /** Mietspiegel: Gebäude als Spalten, Geschosse von oben nach unten. */
+  mietspiegel?: MietspiegelDaten
+}
+
+/**
+ * Der Mietspiegel als Bild des Bestands: je Gebäude eine Spalte, darin die
+ * Geschosse von oben nach unten und je Einheit eine Kachel. Die Einfärbung
+ * läuft über den ganzen Bestand, damit sich die Häuser vergleichen lassen.
+ */
+export interface MietspiegelDaten {
+  titel: string
+  hinweis: string
+  /** Einheit der Kachelwerte — steht in jeder Kachel hinter der Zahl. */
+  einheit: string
+  /** Kopf der Spalten, in derselben Reihenfolge wie die Zellen der Geschosse. */
+  haeuser: { name: string; farbe: string; kennzahl: string; unterzeile: string }[]
+  /**
+   * Je Geschoss eine Zeile, von oben nach unten; darin je Gebäude seine
+   * Kacheln. Das Erdgeschoss des einen Hauses steht so auf derselben Zeile wie
+   * das des anderen — der Vergleich, um den es geht.
+   */
+  geschosse: {
+    label: string
+    spalten: { titel: string; zeile: string; farbe: string; textFarbe: string }[][]
+  }[]
+  /** Farbskala je Eigentumsart, mit beiden Enden beschriftet. */
+  skala: { label: string; von: string; bis: string; farben: string[] }[]
 }
 
 /**
  * Kapitel „Anlagekosten". Was es zeigt, hängt an der Erfassungsmethode der
- * Variante — die Zusammenstellung je Hauptgruppe haben alle gemeinsam, die
- * Herleitung Position für Position nur die Detailerfassung. Sie braucht die
- * Breite von A3; die beiden anderen kommen mit A4 aus.
+ * Variante — die Zusammenstellung je Hauptgruppe haben Benchmark und keeValue,
+ * die Herleitung Position für Position nur die Detailerfassung. Sie braucht
+ * die Breite von A3; die beiden anderen kommen mit A4 aus.
  */
 export interface AnlagekostenDaten {
   methode: 'benchmark' | 'keevalue' | 'detail'
@@ -560,6 +587,36 @@ const s = StyleSheet.create({
   spalteHalbLinks: { flexGrow: 1, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
   spalteHalbRechts: { flexGrow: 1, flexShrink: 1, flexBasis: '0%' },
   legende: { fontSize: SCHRIFT.klein, color: '#6B6B6B', marginTop: mm(1.5), marginBottom: mm(2), flexShrink: 0 },
+  // ── Mietspiegel ───────────────────────────────────────────────────────────
+  spiegelHinweis: {
+    fontSize: 6.5,
+    lineHeight: 1.2,
+    color: '#6B6B6B',
+    paddingLeft: mm(EINZUG),
+    marginBottom: mm(1.5),
+  },
+  spiegelReihe: { flexDirection: 'row', flexShrink: 0 },
+  /** Ganz links die Geschosse; sie stehen einmal je Zeile statt in jeder Spalte. */
+  spiegelGeschossSpalte: { width: mm(11), flexShrink: 0, paddingTop: mm(1) },
+  spiegelGeschoss: { fontSize: 6.5, lineHeight: 1.2, color: '#8A8A8A' },
+  /** Eine Gebäudespalte; der Steg rechts trennt sie von der nächsten. */
+  spiegelSpalte: { flexGrow: 1, flexShrink: 1, flexBasis: '0%' },
+  spiegelKopf: { paddingHorizontal: mm(1.4), paddingTop: mm(0.9), paddingBottom: mm(0.8) },
+  spiegelName: { fontSize: SCHRIFT.klein, lineHeight: 1.2, fontWeight: 700, color: '#FFFFFF' },
+  spiegelKennzahl: { fontSize: 6.5, lineHeight: 1.2, color: '#FFFFFF' },
+  spiegelKachel: {
+    paddingHorizontal: mm(1.4),
+    paddingTop: mm(0.8),
+    paddingBottom: mm(0.7),
+    marginBottom: mm(1),
+  },
+  spiegelKachelTitel: { fontSize: 7, lineHeight: 1.2, fontWeight: 700 },
+  spiegelKachelZeile: { fontSize: 6.5, lineHeight: 1.2 },
+  /** Farbskala unter dem Spiegel. */
+  spiegelSkala: { flexDirection: 'row', alignItems: 'center', marginTop: mm(1.5) },
+  spiegelSkalaText: { fontSize: 6.5, lineHeight: 1.2, color: '#6B6B6B' },
+  spiegelSkalaFeld: { width: mm(4), height: mm(2.4) },
+
   /** Satz unter der Kostentabelle — woher die Zahlen stammen. */
   anlageHinweis: { color: '#4A4A4A', paddingLeft: mm(EINZUG), marginBottom: mm(2), flexShrink: 0 },
 
@@ -623,6 +680,10 @@ const s = StyleSheet.create({
    * den Text darunter, an dem sich die Legende ausrichtet.
    */
   ringFlaeche: { marginTop: mm(2.5), marginBottom: mm(2.5), alignItems: 'center' },
+  /** Ring und Legende nebeneinander; der Ring behält seine feste Breite. */
+  ringNeben: { flexDirection: 'row', alignItems: 'center' },
+  ringFlaecheNeben: { marginTop: mm(2), marginBottom: mm(2), marginRight: mm(5), flexShrink: 0 },
+  ringLegendeSpalte: { flexGrow: 1, flexShrink: 1, flexBasis: '0%' },
   /** Bezugsrahmen für die Zahl in der Mitte des Rings. */
   ringRahmen: { position: 'relative' },
   /**
@@ -1827,7 +1888,7 @@ function ringPfade(
  * die Verhältnisse, deshalb steht in ihm keine Beschriftung.
  */
 function Ringdiagramm({
-  titel, segmente, einheit, anschluss, titelFarbe, groesse = 30,
+  titel, segmente, einheit, anschluss, titelFarbe, groesse = 30, legendeRechts,
 }: {
   titel: string
   /** Einheit der Werte; ohne Angabe steht nur der Titel. */
@@ -1837,6 +1898,11 @@ function Ringdiagramm({
   titelFarbe?: string
   /** Aussenmass in Millimetern; schmaler, wenn drei Blöcke auf eine Seite müssen. */
   groesse?: number
+  /**
+   * Legende neben den Ring statt darunter. Wo der Block die halbe Seite hat,
+   * bleibt sonst rechts Platz leer und der Ring rutscht nach unten.
+   */
+  legendeRechts?: boolean
 }) {
   const echte = segmente.filter((x) => x.wert > 0)
   const summe = echte.reduce((a, x) => a + x.wert, 0)
@@ -1849,6 +1915,37 @@ function Ringdiagramm({
   const total = ringSumme(summe, einheit)
   const grad = ringTotalGrad(total, groesse)
 
+  const ring = (
+    <View style={legendeRechts ? s.ringFlaecheNeben : s.ringFlaeche}>
+      <View style={s.ringRahmen}>
+        <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
+          {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
+          <Circle cx={mitte} cy={mitte} r={radius} stroke="#EFEBE8" strokeWidth={dicke} fill="none" />
+          {pfade.map((p, i) => (
+            <Path key={i} d={p.d} stroke={p.farbe} strokeWidth={dicke} fill="none" />
+          ))}
+        </Svg>
+        {/* Das Total im Loch des Rings — der Ring zeigt die Anteile, die
+            Zahl darin, worauf sie sich beziehen. */}
+        <View style={s.ringMitte}>
+          {einheit && (
+            <Text style={[s.ringEinheit, { fontSize: grad * 0.85 }]}>{einheit}</Text>
+          )}
+          <Text style={[s.ringTotal, { fontSize: grad }]}>{total}</Text>
+        </View>
+      </View>
+    </View>
+  )
+
+  const legende = echte.map((seg) => (
+    <View key={seg.label} style={s.legendeZeile}>
+      <View style={[s.legendeMarke, { backgroundColor: seg.farbe }]} />
+      <Text style={s.legendeLabel}>{seg.label}</Text>
+      <Text style={s.legendeWert}>{formatNumber(Math.round(seg.wert))}</Text>
+      <Text style={s.legendeAnteil}>{((seg.wert / summe) * 100).toFixed(1)} %</Text>
+    </View>
+  ))
+
   return (
     <View style={s.ringBlock}>
       <Text style={titelFarbe
@@ -1856,33 +1953,12 @@ function Ringdiagramm({
         : [s.h2, s.h2Schlicht, ...(anschluss ? [s.h2Anschluss] : [])]}>
         {einheit ? `${titel} in ${einheit}` : titel}
       </Text>
-      <View style={s.ringFlaeche}>
-        <View style={s.ringRahmen}>
-          <Svg width={mm(groesse)} height={mm(groesse)} viewBox={`0 0 ${groesse} ${groesse}`}>
-            {/* Grundkreis: schliesst die Fugen zwischen den Bögen. */}
-            <Circle cx={mitte} cy={mitte} r={radius} stroke="#EFEBE8" strokeWidth={dicke} fill="none" />
-            {pfade.map((p, i) => (
-              <Path key={i} d={p.d} stroke={p.farbe} strokeWidth={dicke} fill="none" />
-            ))}
-          </Svg>
-          {/* Das Total im Loch des Rings — der Ring zeigt die Anteile, die
-              Zahl darin, worauf sie sich beziehen. */}
-          <View style={s.ringMitte}>
-            {einheit && (
-              <Text style={[s.ringEinheit, { fontSize: grad * 0.85 }]}>{einheit}</Text>
-            )}
-            <Text style={[s.ringTotal, { fontSize: grad }]}>{total}</Text>
-          </View>
+      {legendeRechts ? (
+        <View style={s.ringNeben}>
+          {ring}
+          <View style={s.ringLegendeSpalte}>{legende}</View>
         </View>
-      </View>
-      {echte.map((seg) => (
-        <View key={seg.label} style={s.legendeZeile}>
-          <View style={[s.legendeMarke, { backgroundColor: seg.farbe }]} />
-          <Text style={s.legendeLabel}>{seg.label}</Text>
-          <Text style={s.legendeWert}>{formatNumber(Math.round(seg.wert))}</Text>
-          <Text style={s.legendeAnteil}>{((seg.wert / summe) * 100).toFixed(1)} %</Text>
-        </View>
-      ))}
+      ) : <>{ring}{legende}</>}
     </View>
   )
 }
@@ -2209,6 +2285,49 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
   return seiten
 }
 
+/**
+ * Höhen des Mietspiegels — an den Stilen gerechnet: die kleinen Texte tragen
+ * einen eigenen Zeilenabstand (1.2), sonst folgte jede Zeile dem
+ * Grundschriftgrad der Seite und die Kacheln würden doppelt so hoch.
+ */
+const SPIEGEL = {
+  hinweis: 4.25,
+  kopf: 10.6,
+  kachel: 8.2,
+  /** Zeile ohne Kacheln: nur die Geschossbeschriftung. */
+  geschoss: 3.75,
+  skala: 4.25,
+}
+
+function spiegelHoehe(m: MietspiegelDaten): number {
+  const zeilen = m.geschosse.reduce((h, g) => {
+    const kacheln = Math.max(...g.spalten.map((k) => k.length), 0)
+    return h + Math.max(kacheln * SPIEGEL.kachel, SPIEGEL.geschoss)
+  }, 0)
+  return MH.eigTitel + SPIEGEL.hinweis + SPIEGEL.kopf + zeilen + SPIEGEL.skala + MH.blockEnde
+}
+
+/** Höhe der Mixblöcke: je Eigentumsart Balken, Ring und Legende daneben. */
+function wohnungsmixHoehe(sicht: MengenSicht): number {
+  return sicht.wohnungsmix.reduce((h, w) => {
+    const eintraege = w.zeilen.filter((r) => !r.total).length
+    // Der Ring misst 30 mm, die Legende je Eintrag eine Zeile — die höhere
+    // Seite gibt die Höhe.
+    const block = MH.hausTitel + Math.max(4 + 30, eintraege * MH.legendeZeile) + MH.blockEnde
+    return h + MH.eigTitel + block
+  }, 0)
+}
+
+/**
+ * Ob der Mietspiegel noch unter den Wohnungsmix passt. Sonst bekommt er eine
+ * eigene Seite — geteilt werden kann er nicht, ohne den Vergleich zwischen den
+ * Häusern zu zerschneiden.
+ */
+function spiegelAufMixseite(sicht: MengenSicht): boolean {
+  if (!sicht.mietspiegel) return false
+  return MH.h1 + wohnungsmixHoehe(sicht) + spiegelHoehe(sicht.mietspiegel) <= SEITENHOEHE
+}
+
 /** Ob eine Sicht das Blatt „Wohnungsmix und Erträge" überhaupt füllt. */
 function hatMixblatt(sicht: MengenSicht): boolean {
   return sicht.wohnungsmix.some((w) => w.aufMixblatt)
@@ -2220,6 +2339,9 @@ function sichtSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): number {
   return mengenSeiten(sicht, gesetzt).length
     + (hatMixblatt(sicht) ? 1 : 0)
     + (sicht.wohnungsmix.length > 0 ? 1 : 0)
+    // Der Mietspiegel steht unter dem Wohnungsmix, sofern er dort noch Platz
+    // hat; sonst auf einer eigenen Seite.
+    + (sicht.mietspiegel && !spiegelAufMixseite(sicht) ? 1 : 0)
 }
 
 /**
@@ -2559,6 +2681,73 @@ function AnlagekostenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   )
 }
 
+/**
+ * Der Mietspiegel: je Gebäude eine Spalte, darin die Geschosse von oben nach
+ * unten und je Einheit eine Kachel. Die Kacheln stehen untereinander statt
+ * nebeneinander wie am Bildschirm — auf der schmalen Seite bliebe sonst von
+ * jeder nur ein Streifen.
+ */
+function Mietspiegel({ daten, ohneTitel }: { daten: MietspiegelDaten; ohneTitel?: boolean }) {
+  const steg = 2
+  return (
+    <View style={s.feldBlock}>
+      {/* Auf eigener Seite trägt die Überschrift den Namen; dort wäre der
+          Balken darunter eine Wiederholung. */}
+      {!ohneTitel && <Text style={s.h2}>{daten.titel}</Text>}
+      <Text style={s.spiegelHinweis}>{daten.hinweis}</Text>
+
+      {/* Kopf: links die Spalte der Geschossbeschriftung, rechts die Gebäude. */}
+      <View style={s.spiegelReihe}>
+        <View style={s.spiegelGeschossSpalte} />
+        {daten.haeuser.map((h, i) => (
+          <View key={h.name} style={[s.spiegelSpalte,
+            ...(i < daten.haeuser.length - 1 ? [{ marginRight: mm(steg) }] : [])]}>
+            <View style={[s.spiegelKopf, { backgroundColor: h.farbe }]}>
+              <Text style={s.spiegelName}>{h.name}</Text>
+              <Text style={s.spiegelKennzahl}>{h.kennzahl}</Text>
+              <Text style={s.spiegelKennzahl}>{h.unterzeile}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {daten.geschosse.map((g) => (
+        <View key={g.label} style={s.spiegelReihe}>
+          <View style={s.spiegelGeschossSpalte}>
+            <Text style={s.spiegelGeschoss}>{g.label}</Text>
+          </View>
+          {g.spalten.map((kacheln, i) => (
+            <View key={i} style={[s.spiegelSpalte,
+              ...(i < g.spalten.length - 1 ? [{ marginRight: mm(steg) }] : [])]}>
+              {kacheln.map((k, j) => (
+                <View key={j} style={[s.spiegelKachel, { backgroundColor: k.farbe }]}>
+                  <Text style={[s.spiegelKachelTitel, { color: k.textFarbe }]}>{k.titel}</Text>
+                  <Text style={[s.spiegelKachelZeile, { color: k.textFarbe }]}>{k.zeile}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+      ))}
+
+      <View style={s.spiegelSkala}>
+        {daten.skala.map((sk) => (
+          <View key={sk.label} style={[s.spiegelSkala, { marginTop: 0, marginRight: mm(6) }]}>
+            <Text style={[s.spiegelSkalaText, { marginRight: mm(1.5) }]}>
+              {sk.label} · {daten.einheit}
+            </Text>
+            <Text style={[s.spiegelSkalaText, { marginRight: mm(1) }]}>{sk.von}</Text>
+            {sk.farben.map((f, i) => (
+              <View key={i} style={[s.spiegelSkalaFeld, { backgroundColor: f }]} />
+            ))}
+            <Text style={[s.spiegelSkalaText, { marginLeft: mm(1) }]}>{sk.bis}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
 /** Freistehende Summenzeile — das Total einer Eigentumsart ohne eigene Tabelle. */
 function Summenzeile({
   zeile, kopf, breiten, grund,
@@ -2640,32 +2829,22 @@ function WohnungsmixSeite({
         return (
           <View key={w.label}>
             <Text style={w.farbe ? titelStil(w.farbe) : s.h2}>{w.label}</Text>
-            {/* Links die Verteilung als Ring, rechts die Zahlen als Balken —
-                dieselben Werte, einmal als Anteil, einmal im Vergleich. */}
-            <View style={s.zweiSpalten}>
-              <View style={s.spalteEins}>
-                <Ringdiagramm
-                  titel="Verteilung nach Zimmerzahl"
-                  anschluss
-                  titelFarbe={w.farbeUnter ?? BERICHT_FARBE.primaerHell}
-                  segmente={eintraege.map((e, i) => ({
-                    label: e.label, wert: e.anzahl, farbe: palette[i % palette.length],
-                  }))}
-                />
-              </View>
-              <View style={s.spalteZwei}>
-                <Wohnungsmix
-                  titel="Anzahl Wohnungen"
-                  anschluss
-                  titelFarbe={w.farbeUnter ?? BERICHT_FARBE.primaerHell}
-                  balkenFarbe={w.farbe}
-                  zeilen={eintraege}
-                />
-              </View>
-            </View>
+            {/* Der Ring zeigt die Verteilung, die Legende daneben die Zahlen —
+                die Balken daneben sagten dasselbe ein zweites Mal. */}
+            <Ringdiagramm
+              titel="Verteilung nach Zimmerzahl"
+              anschluss
+              legendeRechts
+              titelFarbe={w.farbeUnter ?? BERICHT_FARBE.primaerHell}
+              segmente={eintraege.map((e, i) => ({
+                label: e.label, wert: e.anzahl, farbe: palette[i % palette.length],
+              }))}
+            />
           </View>
         )
       })}
+      {sicht.mietspiegel && spiegelAufMixseite(sicht)
+        && <Mietspiegel daten={sicht.mietspiegel} />}
     </InhaltsSeite>
   )
 }
@@ -2701,6 +2880,15 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
       seiten.push(
         <WohnungsmixSeite key={`${sicht.titel}-g`} daten={daten} sicht={sicht}
           seite={nr++} seitenTotal={seitenTotal} />,
+      )
+    }
+    if (sicht.mietspiegel && !spiegelAufMixseite(sicht)) {
+      seiten.push(
+        <InhaltsSeite key={`${sicht.titel}-s`} daten={daten}
+          seite={nr++} seitenTotal={seitenTotal}>
+          <Text style={[s.h1, s.h1Kapitel]}>{sichtTitel('Mietspiegel', sicht)}</Text>
+          <Mietspiegel daten={sicht.mietspiegel} ohneTitel />
+        </InhaltsSeite>,
       )
     }
   }
