@@ -610,8 +610,8 @@ const s = StyleSheet.create({
     paddingBottom: mm(0.7),
     marginBottom: mm(1),
   },
-  spiegelKachelTitel: { fontSize: 7, lineHeight: 1.2, fontWeight: 700 },
-  spiegelKachelZeile: { fontSize: 6.5, lineHeight: 1.2 },
+  spiegelKachelTitel: { fontSize: 6, lineHeight: 1.2, fontWeight: 700 },
+  spiegelKachelZeile: { fontSize: 5.5, lineHeight: 1.2 },
   /** Farbskala unter dem Spiegel. */
   spiegelSkala: { flexDirection: 'row', alignItems: 'center', marginTop: mm(1.5) },
   spiegelSkalaText: { fontSize: 6.5, lineHeight: 1.2, color: '#6B6B6B' },
@@ -2293,7 +2293,7 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
 const SPIEGEL = {
   hinweis: 4.25,
   kopf: 10.6,
-  kachel: 8.2,
+  kachel: 7.4,
   /** Zeile ohne Kacheln: nur die Geschossbeschriftung. */
   geschoss: 3.75,
   skala: 4.25,
