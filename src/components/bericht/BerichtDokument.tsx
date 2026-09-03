@@ -79,6 +79,11 @@ interface EigBlock {
   farbeGrund?: string
   /** Titelbalken der Häuser: eine Stufe unter dem Balken der Eigentumsart. */
   farbeHaus?: string
+  /**
+   * Hinterlegung des Totals über die ganze Sicht — kräftiger als die
+   * Zwischensummen, damit es sich von ihnen abhebt.
+   */
+  farbeTotal?: string
 }
 
 /**
@@ -2017,7 +2022,8 @@ function MengenSeite({
               // dieselbe Ebene, nur zusammengefasst.
               titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerMittel}
               anschluss
-              totalFarbe={e.block.farbeGrund}
+              // Ihre letzte Zeile ist das Total der ganzen Sicht.
+              totalFarbe={e.block.farbeTotal ?? BERICHT_FARBE.primaerHell}
               kopf={e.kopf}
               breiten={UEBERSICHT_BREITEN}
               linksBis={2}
@@ -2039,7 +2045,7 @@ function MengenSeite({
               zeile={e.zeile}
               kopf={e.kopf}
               breiten={MENGEN_BREITEN}
-              grund={e.block.farbeGrund ?? BERICHT_FARBE.primaerZart}
+              grund={e.block.farbeTotal ?? BERICHT_FARBE.primaerHell}
             />
           )
         }

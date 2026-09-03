@@ -131,6 +131,10 @@ export function useMengenDaten(
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
+            // Das Total der ganzen Sicht steht eine Stufe kräftiger als die
+            // Zwischensummen der Häuser — es schliesst nicht eine Tabelle ab,
+            // sondern das Kapitel.
+            farbeTotal: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             // Die Haustitel stehen genau eine Stufe unter dem Balken der
             // Eigentumsart — nah genug, um zusammenzugehören.
             farbeHaus: mehrere ? USE_TYPE_COLOR_5[eig] : undefined,
@@ -163,6 +167,7 @@ export function useMengenDaten(
             // der Tabelle steht.
             key: eig,
             label: 'Übersicht Häuser',
+            farbeTotal: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
             kopf: mengenKopf(verkauf, 'Haus'),
