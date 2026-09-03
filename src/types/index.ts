@@ -147,6 +147,11 @@ export interface ProjectVariant {
   kosten_methode: KostenMethode
   /** Gewählte Betrachtung der Renditeobjekte (Migration 064). */
   rendite_modus: RenditeModus
+  /**
+   * Bausteine des Berichts, vor denen von Hand eine neue Seite beginnt
+   * (Migration 067). Die Schlüssel vergibt components/bericht.
+   */
+  bericht_umbrueche: string[]
   created_by: string | null
   created_at: string
   updated_at: string

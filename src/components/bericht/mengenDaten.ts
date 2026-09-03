@@ -126,6 +126,7 @@ export function useMengenDaten(
           const verkauf = eig === 'verkaufsobjekt'
           const label = einzeln ? titel : EIGENTUMSART_LABEL[eig]
           return {
+            key: eig,
             label,
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
@@ -160,6 +161,7 @@ export function useMengenDaten(
           return {
             // Ohne zweite Eigentumsart benennt der Balken, was in der Tabelle
             // steht; sonst die Eigentumsart, die sie zusammenfasst.
+            key: eig,
             label: einzeln ? 'Übersicht Häuser' : `Übersicht ${EIGENTUMSART_LABEL[eig]}`,
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
@@ -494,6 +496,7 @@ function wohnungsmixBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
         zellen: ['Total', formatNumber(summe), z(summe > 0 ? flaecheTotal / summe : 0), z(flaecheTotal)],
       })
       return {
+        key: eig,
         label: EIGENTUMSART_LABEL[eig],
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
@@ -547,6 +550,7 @@ function ertragsBloecke(
       const summe = reihenfolge.reduce((a, k) => a + menge[k].ertrag, 0)
       zeilen.push({ total: true, zellen: ['Total', '', '', z(summe)] })
       return {
+        key: eig,
         label: EIGENTUMSART_LABEL[eig],
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,

@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, Loader2, Minus, Plus, MoveHorizontal } from 'lucide-react'
+import {
+  ArrowLeft, Download, Loader2, Minus, Plus, MoveHorizontal, SeparatorHorizontal,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useBericht } from '@/contexts/BerichtContext'
@@ -14,7 +16,9 @@ import { fetchVariant } from '@/hooks/useVariants'
 import { supabase } from '@/lib/supabase'
 // Nur der Typ statisch — die Komponenten ziehen @react-pdf nach sich und
 // werden deshalb erst hier auf der Seite geladen.
-import { berichtSeitenplan, type BerichtDaten } from '@/components/bericht/BerichtDokument'
+import {
+  berichtSeitenplan, berichtUmbruchPunkte, type BerichtDaten,
+} from '@/components/bericht/BerichtDokument'
 import {
   PHASE_LABEL, projectAddressLine, type GisKategorie,
   type Project, type ProjectVariant, type Customer, type Parcel, type ExistingBuilding,
@@ -112,6 +116,14 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
 
+  // ── Von Hand gesetzte Seitenumbrüche ───────────────────────────────────────
+  // Die Umbruchrechnung füllt die Seiten so weit wie möglich; wo das fachlich
+  // Zusammengehörendes trennt, entscheidet die Wahl hier. Sie hängt an der
+  // Variante, weil sie an deren Mengen hängt.
+  const [umbrueche, setUmbrueche] = useState<string[]>([])
+  useEffect(() => { setUmbrueche(variant?.bericht_umbrueche ?? []) }, [variant])
+  const [umbruchListe, setUmbruchListe] = useState(false)
+
   const daten = useMemo<BerichtDaten | null>(() => {
     if (!project || !variant) return null
     return {
@@ -130,9 +142,10 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       uebersicht,
       mengen,
       nutzung,
+      umbrueche,
     }
   }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
-      uebersicht, mengen, nutzung])
+      uebersicht, mengen, nutzung, umbrueche])
 
   // ── Sprungnavigation ───────────────────────────────────────────────────────
   // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.
@@ -157,6 +170,33 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)
   const [fehler, setFehler] = useState<string | null>(null)
+
+  /**
+   * Umbruch vor einem Baustein setzen oder aufheben. Erst im Bild, dann in der
+   * Datenbank — die Vorschau soll dem Klick sofort folgen.
+   */
+  const umbruchWechseln = useCallback(async (key: string) => {
+    const neu = umbrueche.includes(key)
+      ? umbrueche.filter((k) => k !== key)
+      : [...umbrueche, key]
+    setUmbrueche(neu)
+    setFehler(null)
+    const { error } = await supabase
+      .from('project_variants').update({ bericht_umbrueche: neu }).eq('id', variantId)
+    if (error) setFehler(`Der Umbruch konnte nicht gesichert werden: ${error.message}`)
+  }, [umbrueche, variantId])
+
+  // Nach Kapitel und Sicht gruppiert, in Druckreihenfolge.
+  const umbruchGruppen = useMemo(() => {
+    if (!daten) return []
+    const gruppen: { kapitel: string; punkte: ReturnType<typeof berichtUmbruchPunkte> }[] = []
+    for (const p of berichtUmbruchPunkte(daten)) {
+      const letzte = gruppen[gruppen.length - 1]
+      if (letzte && letzte.kapitel === p.kapitel) letzte.punkte.push(p)
+      else gruppen.push({ kapitel: p.kapitel, punkte: [p] })
+    }
+    return gruppen
+  }, [daten])
 
   const herunterladen = useCallback(async () => {
     if (!daten) return
@@ -233,7 +273,30 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
             </button>
           ))}
 
-          <span className="ml-auto inline-flex items-center gap-0.5 rounded-lg bg-white p-0.5 ring-1 ring-slate-200">
+          {umbruchGruppen.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setUmbruchListe((z) => !z)}
+              title="Seitenumbrüche von Hand setzen"
+              className={cn(
+                'ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition',
+                umbruchListe || umbrueche.length > 0
+                  ? 'bg-[#8B6956] text-white'
+                  : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50',
+              )}
+            >
+              <SeparatorHorizontal className="h-3.5 w-3.5" />
+              Umbrüche
+              {umbrueche.length > 0 && (
+                <span className="opacity-70">{umbrueche.length}</span>
+              )}
+            </button>
+          )}
+
+          <span className={cn(
+            'inline-flex items-center gap-0.5 rounded-lg bg-white p-0.5 ring-1 ring-slate-200',
+            umbruchGruppen.length === 0 && 'ml-auto',
+          )}>
             <button
               type="button"
               onClick={() => setZoom('breite')}
@@ -264,6 +327,47 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
             </button>
           </span>
         </nav>
+      )}
+
+      {umbruchListe && umbruchGruppen.length > 0 && (
+        <div className="-mt-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="mb-2 text-xs text-slate-500">
+            Neue Seite vor diesem Baustein — angeklickt gesetzt, nochmals angeklickt
+            aufgehoben. Die Zahl ist die Seite, auf der er gegenwärtig beginnt.
+          </p>
+          <div className="max-h-44 space-y-2 overflow-y-auto">
+            {umbruchGruppen.map((g, i) => (
+              <div key={`${g.kapitel}-${i}`} className="flex flex-wrap items-center gap-1">
+                <span className="mr-1 w-32 shrink-0 text-xs font-medium text-slate-500">
+                  {g.kapitel}
+                </span>
+                {g.punkte.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => void umbruchWechseln(p.key)}
+                    title={p.gesetzt
+                      ? 'Umbruch aufheben'
+                      : p.obenAufSeite
+                        ? 'Steht bereits oben auf der Seite; gesetzt bleibt er auch dann dort.'
+                        : 'Neue Seite vor diesem Baustein'}
+                    className={cn(
+                      'rounded-lg px-2 py-1 text-xs transition',
+                      p.gesetzt
+                        ? 'bg-[#8B6956] text-white'
+                        : cn('bg-slate-50 ring-1 ring-slate-200 hover:bg-slate-100',
+                          // Was ohnehin oben steht, muss nicht zum Klick einladen.
+                          p.obenAufSeite ? 'text-slate-400' : 'text-slate-700'),
+                    )}
+                  >
+                    {p.label}
+                    <span className="ml-1.5 opacity-60">{p.seite}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">

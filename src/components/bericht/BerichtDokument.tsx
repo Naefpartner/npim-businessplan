@@ -40,6 +40,12 @@ export interface BerichtDaten {
   mengen?: MengenDaten
   /** Inhalt des Kapitels „Nutzungsberechnung"; fehlt ohne Zonen. */
   nutzung?: NutzungDaten
+  /**
+   * Bausteine, vor denen von Hand eine neue Seite beginnt. Die Rechnung füllt
+   * die Seiten so weit wie möglich; wo das fachlich Zusammengehörendes trennt,
+   * entscheidet die Wahl hier. Schlüssel siehe berichtUmbruchPunkte().
+   */
+  umbrueche?: string[]
 }
 
 /**
@@ -61,6 +67,11 @@ export interface NutzungDaten {
 
 /** Ein Block mit Farbe der Eigentumsart — Grundlage der Mengenblätter. */
 interface EigBlock {
+  /**
+   * Eigentumsart als unveränderlicher Schlüssel. Die Beschriftung taugt nicht
+   * dafür: bei einer einzigen Eigentumsart trägt sie den Namen der Sicht.
+   */
+  key: string
   label: string
   farbe?: string
   farbeUnter?: string
@@ -169,6 +180,8 @@ export interface UebersichtDaten {
 
 /** Wirtschaftlichkeit und Erträge einer Eigentumsart. */
 export interface EigentumsartBlock {
+  /** Eigentumsart als unveränderlicher Schlüssel — für gesetzte Umbrüche. */
+  key: string
   /**
    * Obertitel über beiden Spalten — nur gesetzt, wenn mehrere Eigentumsarten
    * vorkommen. Bei einer einzigen sagte er nichts, was nicht schon dasteht.
@@ -192,6 +205,8 @@ export interface EigentumsartBlock {
  * verwenden — sonst wäre ein Vergleich zwischen ihnen wertlos.
  */
 export interface Nutzungsmix {
+  /** Eigentumsart oder 'gesamt' — unveränderlicher Schlüssel des Blocks. */
+  key: string
   titel: string
   /** Farben der Nutzungsart; fehlen, wenn nur eine vorkommt. */
   farbe?: string
@@ -825,8 +840,19 @@ function mixHoehe(m: Nutzungsmix, dreispaltig: boolean): number {
     : Math.max(flaechen + ertraege, wohnungen))
 }
 
+/**
+ * Anfasser für einen von Hand gesetzten Umbruch. Der Schlüssel muss über
+ * Änderungen an den Daten hinweg derselbe bleiben — sonst wandert ein
+ * gesetzter Umbruch beim nächsten Öffnen auf einen anderen Block.
+ */
+interface Umbruchpunkt {
+  key: string
+  /** Name in der Liste über der Vorschau. */
+  label: string
+}
+
 /** Ein Baustein der Projektübersicht; die Reihenfolge steht fest. */
-type UebersichtElement =
+type UebersichtElement = Umbruchpunkt & (
   | { art: 'situationsplan'; url: string }
   /** Grundstücke und Bestandsgebäude nebeneinander. */
   | { art: 'grundlagen' }
@@ -834,6 +860,7 @@ type UebersichtElement =
   | { art: 'kosten' }
   | { art: 'block'; block: EigentumsartBlock }
   | { art: 'mix'; mix: Nutzungsmix; dreispaltig: boolean }
+)
 
 function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
   // Mehrere Nutzungsarten: je eine flachere, dreispaltige Mixdarstellung,
@@ -842,11 +869,25 @@ function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
   const grundlagen = Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length) > 0
   return [
     ...(u.situationsplanUrl
-      ? [{ art: 'situationsplan', url: u.situationsplanUrl } as const] : []),
-    ...(grundlagen ? [{ art: 'grundlagen' } as const] : []),
-    { art: 'kosten' },
-    ...u.bloecke.map((block) => ({ art: 'block', block }) as const),
-    ...u.mix.map((mix) => ({ art: 'mix', mix, dreispaltig }) as const),
+      ? [{
+        art: 'situationsplan', url: u.situationsplanUrl,
+        key: 'uebersicht:situationsplan', label: 'Situationsplan',
+      } as const] : []),
+    ...(grundlagen ? [{
+      art: 'grundlagen',
+      key: 'uebersicht:grundlagen', label: 'Grundstücke und Bestandsgebäude',
+    } as const] : []),
+    { art: 'kosten', key: 'uebersicht:kosten', label: 'Mengen und Anlagekosten' },
+    ...u.bloecke.map((block) => ({
+      art: 'block', block,
+      key: `uebersicht:block:${block.key}`,
+      label: block.titel ?? 'Wirtschaftlichkeit und Erträge',
+    }) as const),
+    ...u.mix.map((mix) => ({
+      art: 'mix', mix, dreispaltig,
+      key: `uebersicht:mix:${mix.key}`,
+      label: dreispaltig ? `Mix ${mix.titel}` : mix.titel,
+    }) as const),
   ]
 }
 
@@ -874,8 +915,13 @@ function uebersichtElementHoehe(e: UebersichtElement, u: UebersichtDaten): numbe
  * viel. Ohne Vorausrechnung bricht react-pdf selbst um und hängt eine Seite
  * an, die weder Seitenplan noch Sprungnavigation kennen — von dort an zeigt
  * jeder Kapitelknopf eine Seite zu früh.
+ *
+ * `gesetzt` sind die von Hand gewählten Umbrüche: vor diesen Bausteinen
+ * beginnt eine neue Seite, auch wenn noch Platz wäre.
  */
-function uebersichtSeiten(u: UebersichtDaten): UebersichtElement[][] {
+function uebersichtSeiten(
+  u: UebersichtDaten, gesetzt: ReadonlySet<string>,
+): UebersichtElement[][] {
   const seiten: UebersichtElement[][] = []
   let seite: UebersichtElement[] = []
   // Der Kapiteltitel steht nur auf der ersten Seite.
@@ -890,7 +936,9 @@ function uebersichtSeiten(u: UebersichtDaten): UebersichtElement[][] {
     // Der Mix je Nutzungsart beginnt in jedem Fall auf einer eigenen Seite.
     const eigeneSeite = e.art === 'mix' && e.dreispaltig
       && seite.some((x) => x.art !== 'mix')
-    if (seite.length > 0 && (eigeneSeite || hoehe + h > SEITENHOEHE)) umbruch()
+    if (seite.length > 0 && (gesetzt.has(e.key) || eigeneSeite || hoehe + h > SEITENHOEHE)) {
+      umbruch()
+    }
     seite.push(e)
     hoehe += h
   }
@@ -898,11 +946,16 @@ function uebersichtSeiten(u: UebersichtDaten): UebersichtElement[][] {
   return seiten
 }
 
+/** Die von Hand gesetzten Umbrüche als Menge — die Rechnung fragt sie oft ab. */
+function umbruchSet(daten: BerichtDaten): ReadonlySet<string> {
+  return new Set(daten.umbrueche ?? [])
+}
+
 function kapitelSeiten(key: string, daten: BerichtDaten): number {
   if (key === 'projektuebersicht') {
     const u = daten.uebersicht
     // Ohne Kennzahlen steht nur die Ladezeile — eine Seite.
-    return u ? uebersichtSeiten(u).length : 1
+    return u ? uebersichtSeiten(u, umbruchSet(daten)).length : 1
   }
   if (key === 'stammdaten') {
     const n = daten.nutzung
@@ -912,7 +965,9 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
   }
   if (key === 'mengengeruest') {
     const sichten = daten.mengen?.sichten ?? []
-    return sichten.length === 0 ? 1 : sichten.reduce((a, x) => a + sichtSeiten(x), 0)
+    if (sichten.length === 0) return 1
+    const gesetzt = umbruchSet(daten)
+    return sichten.reduce((a, x) => a + sichtSeiten(x, gesetzt), 0)
   }
   return 1
 }
@@ -949,6 +1004,64 @@ export function berichtSeitenplan(
       key: e.kapitel.key, label: e.kapitel.label, seite: e.seite,
     })),
   ]
+}
+
+/** Ein Baustein, vor dem sich ein Umbruch setzen lässt. */
+export interface UmbruchEintrag extends Umbruchpunkt {
+  /** Kapitel, in dem er steht — für die Gruppierung in der Liste. */
+  kapitel: string
+  /** Seite, auf der er im gegenwärtigen Satz beginnt. */
+  seite: number
+  /** Ob vor ihm von Hand ein Umbruch gesetzt ist. */
+  gesetzt: boolean
+  /** Ob er ohnehin schon oben auf der Seite steht. */
+  obenAufSeite: boolean
+}
+
+/**
+ * Alle Bausteine, vor denen sich ein Umbruch setzen lässt, in Druckreihenfolge
+ * und mit der Seite, auf der sie gerade beginnen. Gerechnet mit denselben
+ * Funktionen wie der Satz — die Seitenzahlen stimmen deshalb mit dem PDF
+ * überein, auch nachdem ein Umbruch gesetzt wurde.
+ *
+ * Nur die datengetriebenen Kapitel: die übrigen füllen eine feste Seite, dort
+ * gibt es nichts zu verschieben.
+ */
+export function berichtUmbruchPunkte(daten: BerichtDaten): UmbruchEintrag[] {
+  const gesetzt = umbruchSet(daten)
+  const plan = seitenPlan(kapitelFuer(daten.kapitel).filter((k) => !k.fix), daten)
+  const punkte: UmbruchEintrag[] = []
+
+  function sammle(
+    kapitel: string, ersteSeite: number, seiten: { key: string; label: string }[][],
+  ) {
+    seiten.forEach((elemente, i) => {
+      elemente.forEach((e, j) => {
+        if (!e.key) return
+        punkte.push({
+          key: e.key, label: e.label, kapitel,
+          seite: ersteSeite + i,
+          gesetzt: gesetzt.has(e.key),
+          obenAufSeite: j === 0,
+        })
+      })
+    })
+  }
+
+  for (const e of plan) {
+    if (e.kapitel.key === 'projektuebersicht' && daten.uebersicht) {
+      sammle(e.kapitel.label, e.seite, uebersichtSeiten(daten.uebersicht, gesetzt))
+    }
+    if (e.kapitel.key === 'mengengeruest' && daten.mengen) {
+      let nr = e.seite
+      for (const sicht of daten.mengen.sichten) {
+        sammle(e.kapitel.label, nr, mengenSeiten(sicht, gesetzt))
+        // Mix- und Grafikblatt der Sicht liegen hinter ihren Mengenseiten.
+        nr += sichtSeiten(sicht, gesetzt)
+      }
+    }
+  }
+  return punkte
 }
 
 /** Gesamtzahl der Seiten des Berichts. */
@@ -1317,7 +1430,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
   }
   return (
     <>
-      {uebersichtSeiten(u).map((elemente, n) => (
+      {uebersichtSeiten(u, umbruchSet(daten)).map((elemente, n) => (
         <InhaltsSeite key={n} daten={daten} seite={seite + n} seitenTotal={seitenTotal}>
           {/* Nur die erste Seite trägt die Überschrift; auf den Folgeseiten
               gliedern die Tabellentitel, und im Inhaltsverzeichnis steht
@@ -1566,13 +1679,14 @@ const MH = {
  */
 const SEITENHOEHE = SEITE.a4.hoehe - RAND.oben - RAND.unten - 4
 
-type MengenElement =
+type MengenElement = Umbruchpunkt & (
   | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'uebersicht'; block: EigBlock; kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'eigTitel'; block: EigBlock; kopf: string[] }
   | { art: 'haus'; block: EigBlock; kopf: string[]; name: string
       fortsetzung: boolean; zeilen: TabellenZeile[] }
   | { art: 'eigTotal'; block: EigBlock; kopf: string[]; zeile: TabellenZeile }
+)
 
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
@@ -1589,10 +1703,13 @@ function hoeheVon(e: MengenElement): number {
  * es allein nicht auf eine Seite passt; dann trägt die Fortsetzung denselben
  * Namen mit Zusatz, damit klar bleibt, wozu die Zeilen gehören.
  */
-function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
+function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenElement[][] {
   const seiten: MengenElement[][] = []
   let laufend: MengenElement[] = []
   let hoehe = MH.h1
+  // Schlüssel der Sicht: dieselbe Tabelle steht im Gesamtprojekt und in der
+  // Etappe, ihre Umbrüche sind aber unabhängig voneinander.
+  const sk = `mengen:${sicht.titel}`
 
   function neueSeite() {
     if (laufend.length > 0) seiten.push(laufend)
@@ -1601,7 +1718,7 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
   }
   function lege(e: MengenElement) {
     const h = hoeheVon(e)
-    if (laufend.length > 0 && hoehe + h > SEITENHOEHE) neueSeite()
+    if (laufend.length > 0 && (gesetzt.has(e.key) || hoehe + h > SEITENHOEHE)) neueSeite()
     laufend.push(e)
     hoehe += h
   }
@@ -1624,10 +1741,18 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
   // Die Übersicht der Häuser steht vor den Geschossen — sie führt ins Kapitel
   // ein, statt es zusammenzufassen.
   for (const u of sicht.haeuserUebersicht) {
-    lege({ art: 'uebersicht', block: u, kopf: u.kopf, zeilen: u.zeilen })
+    lege({
+      art: 'uebersicht', block: u, kopf: u.kopf, zeilen: u.zeilen,
+      key: `${sk}:uebersicht:${u.key}`, label: u.label,
+    })
   }
   for (const eig of sicht.eigentumsarten) {
-    lege({ art: 'eigTitel', block: eig, kopf: eig.kopf })
+    // Der Titel der Eigentumsart trägt den Umbruch für alles, was ihm folgt —
+    // ein Umbruch vor dem ersten Haus liesse ihn allein am Seitenfuss stehen.
+    lege({
+      art: 'eigTitel', block: eig, kopf: eig.kopf,
+      key: `${sk}:eig:${eig.key}`, label: eig.label,
+    })
     for (const haus of eig.haeuser) {
       const alle = [...haus.zeilen, haus.total]
       const rahmen = MH.hausTitel + MH.kopfzeile + MH.blockEnde
@@ -1641,6 +1766,7 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
         lege({
           art: 'haus', block: eig, kopf: eig.kopf, name: haus.name,
           fortsetzung: false, zeilen: alle,
+          key: `${sk}:haus:${eig.key}:${haus.name}`, label: haus.name,
         })
         continue
       }
@@ -1654,14 +1780,24 @@ function mengenSeiten(sicht: MengenSicht): MengenElement[][] {
         lege({
           art: 'haus', block: eig, kopf: eig.kopf, name: haus.name,
           fortsetzung: !erste, zeilen: rest.slice(0, nimm),
+          // Nur der Anfang des Hauses ist ein Anfasser; vor einer Fortsetzung
+          // wäre ein gesetzter Umbruch sinnlos — sie beginnt ohnehin oben.
+          key: erste ? `${sk}:haus:${eig.key}:${haus.name}` : '',
+          label: haus.name,
         })
         rest = rest.slice(nimm)
         erste = false
       }
     }
-    lege({ art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total })
+    lege({
+      art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total,
+      key: '', label: eig.label,
+    })
   }
-  lege({ art: 'benchmarks', kopf: sicht.benchmarks.kopf, zeilen: sicht.benchmarks.zeilen })
+  lege({
+    art: 'benchmarks', kopf: sicht.benchmarks.kopf, zeilen: sicht.benchmarks.zeilen,
+    key: `${sk}:benchmarks`, label: 'Benchmarks',
+  })
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
 }
@@ -1673,8 +1809,8 @@ function hatMixblatt(sicht: MengenSicht): boolean {
 }
 
 /** Blattzahl einer Sicht: Mengen (mehrseitig), Mix und Erträge, Grafik. */
-function sichtSeiten(sicht: MengenSicht): number {
-  return mengenSeiten(sicht).length
+function sichtSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): number {
+  return mengenSeiten(sicht, gesetzt).length
     + (hatMixblatt(sicht) ? 1 : 0)
     + (sicht.wohnungsmix.length > 0 ? 1 : 0)
 }
@@ -1893,9 +2029,10 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
     )
   }
   let nr = seite
+  const gesetzt = umbruchSet(daten)
   const seiten: React.ReactNode[] = []
   for (const sicht of m.sichten) {
-    for (const [i, elemente] of mengenSeiten(sicht).entries()) {
+    for (const [i, elemente] of mengenSeiten(sicht, gesetzt).entries()) {
       seiten.push(
         <MengenSeite key={`${sicht.titel}-m${i}`} daten={daten} sicht={sicht}
           elemente={elemente} seite={nr++} seitenTotal={seitenTotal} erste={i === 0} />,

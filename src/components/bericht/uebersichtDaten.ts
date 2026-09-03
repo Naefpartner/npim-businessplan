@@ -421,6 +421,7 @@ export function useUebersichtDaten(
           .map((eig) => {
             const t = mixTitel(eig !== 'verkaufsobjekt', eig === 'verkaufsobjekt')
             return {
+              key: eig,
               titel: EIGENTUMSART_LABEL[eig],
               farbe: EIGENTUMSART_COLOR[eig],
               farbeUnter: USE_TYPE_COLOR_3[eig],
@@ -438,6 +439,7 @@ export function useUebersichtDaten(
           if (nutzungen.length === 0) return []
           const t = mixTitel(hatMiete, hatVerkauf)
           return [{
+            key: 'gesamt',
             titel: gesamtMixWohnungen.length > 0 ? 'Wohnungs- und Nutzungsmix' : 'Nutzungsmix',
             flaechenTitel: t.flaechen,
             ertraegeTitel: t.ertraege,
@@ -448,6 +450,7 @@ export function useUebersichtDaten(
     const bloecke: EigentumsartBlock[] = BERICHT_EIG_ORDER
       .filter((eig) => wirtschaftProEig.has(eig) || ertragProEig.has(eig))
       .map((eig) => ({
+        key: eig,
         titel: mehrere ? EIGENTUMSART_LABEL[eig] : undefined,
         farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
         // Untertitel eine Stufe heller, wie die Subtabellen im Designsystem.
