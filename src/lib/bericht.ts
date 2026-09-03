@@ -61,7 +61,8 @@ export const BERICHT_KAPITEL: BerichtKapitel[] = [
   // führen ihn, das Kapitel hat nur einen neuen Inhalt bekommen.
   { key: 'stammdaten',        label: 'Nutzungsberechnung',        beschrieb: 'Ausnutzung nach AZ, BM, ÜZ und FFZ' },
   { key: 'mengengeruest',     label: 'Mengen und Erträge',        beschrieb: 'Gebäude, Mietflächen, Mietzinse' },
-  { key: 'mengenanalyse',     label: 'Mengen- und Mietzinsanalyse', beschrieb: 'Mietspiegel, Kennzahlen, Preisanalyse' },
+  { key: 'wohnungsmix',       label: 'Wohnungsmix',               beschrieb: 'Verteilung nach Zimmerzahl und Mietspiegel' },
+  { key: 'mengenanalyse',     label: 'Mengen- und Mietzinsanalyse', beschrieb: 'Kennzahlen und Preisanalyse' },
   { key: 'anlagekosten',      label: 'Anlagekosten',              beschrieb: 'Kostenberechnung der gewählten Methode', format: 'a3' },
   { key: 'benchmarks',        label: 'Benchmarks',                beschrieb: 'Kennwertvergleich je Hauptgruppe' },
   { key: 'wirtschaftlichkeit', label: 'Wirtschaftlichkeit',       beschrieb: 'Kostenmiete, Rendite, Verkaufsgewinn' },

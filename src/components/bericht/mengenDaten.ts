@@ -27,13 +27,6 @@ import type {
   MengenDaten, MengenSicht, MietspiegelDaten, TabellenZeile,
 } from '@/components/bericht/BerichtDokument'
 
-/**
- * Eigentumsarten, die auf dem Blatt „Wohnungsmix und Erträge" erscheinen.
- * Renditeobjekte bleiben dort aussen vor — ihre Mengen und Erträge stehen
- * vollständig in der Mengentabelle, im Grafikblatt sind sie weiterhin dabei.
- */
-const MIXBLATT_EIG: Eigentumsart[] = ['genossenschaft', 'verkaufsobjekt']
-
 /** Reihenfolge der Blöcke, gleich wie in der Projektübersicht. */
 const EIG_ORDER: Eigentumsart[] = ['genossenschaft', 'renditeobjekt', 'verkaufsobjekt']
 
@@ -214,7 +207,6 @@ export function useMengenDaten(
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
         mietspiegel: mietspiegel(gebaeude, ak.etappen, kostenmiete.wohnen),
-        ertraege: ertragsBloecke(gebaeude, mehrere, kostenmieteJeTyp),
       }
     }
 
@@ -612,63 +604,9 @@ function wohnungsmixBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
         // Reihenfolge der Zeilen ist die der Zimmerzahlen, und die Rampe
         // folgt ihr — vier feste Stufen wiederholten sich bei mehr Kategorien.
         segmentFarben: zimmerRampe(EIGENTUMSART_FAMILY[eig], zeilen.length - 1),
-        aufMixblatt: MIXBLATT_EIG.includes(eig),
         zeilen,
       }
     })
     .filter((x) => x != null)
 }
 
-/** Ertragsübersicht je Eigentumsart, aufgeschlüsselt nach Nutzung. */
-function ertragsBloecke(
-  gebaeude: VariantBuildingFull[], mehrere: boolean, jeTyp: Map<string, number>,
-) {
-  return EIG_ORDER
-    .map((eig) => {
-      const haeuser = gebaeude.filter((b) => eigentumsartForBuilding(b.use_type) === eig)
-      const verkauf = eig === 'verkaufsobjekt'
-      const menge: Record<string, { flaeche: number; anzahl: number; ertrag: number }> = {}
-      const reihenfolge: string[] = []
-      for (const b of haeuser) {
-        for (const m of b.mietflaechen) {
-          const key = (m.nutzung || '').trim() || '(ohne Nutzung)'
-          if (!(key in menge)) { reihenfolge.push(key); menge[key] = { flaeche: 0, anzahl: 0, ertrag: 0 } }
-          menge[key].flaeche += m.flaeche_m2 || 0
-          menge[key].anzahl += m.anzahl ?? 0
-          menge[key].ertrag += ertragMitKostenmiete(
-            m, verkauf, eig === 'genossenschaft' ? jeTyp : null)
-        }
-      }
-      const zeilen: TabellenZeile[] = reihenfolge
-        .filter((k) => menge[k].ertrag > 0)
-        .sort((a, b) => menge[b].ertrag - menge[a].ertrag)
-        .map((k) => {
-          const e = menge[k]
-          const nachFlaeche = e.flaeche > 0
-          const teiler = nachFlaeche ? e.flaeche : e.anzahl * (verkauf ? 1 : 12)
-          return {
-            zellen: [
-              k,
-              nachFlaeche ? `${z(e.flaeche)} m²` : `${formatNumber(e.anzahl)} Stk`,
-              teiler > 0
-                ? `${z(e.ertrag / teiler)} ${nachFlaeche ? 'CHF/m²' : verkauf ? 'CHF/Stk' : 'CHF/Mt'}`
-                : '—',
-              z(e.ertrag),
-            ],
-          }
-        })
-      if (zeilen.length === 0) return null
-      const summe = reihenfolge.reduce((a, k) => a + menge[k].ertrag, 0)
-      zeilen.push({ total: true, zellen: ['Total', '', '', z(summe)] })
-      return {
-        key: eig,
-        label: EIGENTUMSART_LABEL[eig],
-        farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
-        farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
-        kopf: ['Nutzung', verkauf ? 'Menge VKF' : 'Menge VMF', 'Ansatz', verkauf ? 'CHF' : 'CHF/Jahr'],
-        aufMixblatt: MIXBLATT_EIG.includes(eig),
-        zeilen,
-      }
-    })
-    .filter((x) => x != null)
-}

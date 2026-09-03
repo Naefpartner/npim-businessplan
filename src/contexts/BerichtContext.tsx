@@ -10,7 +10,8 @@ import type { BerichtVorlage } from '@/types'
 
 /** Vorauswahl für einen neuen Bericht. */
 const STANDARD_AUSWAHL = [
-  'projektuebersicht', 'stammdaten', 'mengengeruest', 'anlagekosten', 'wirtschaftlichkeit',
+  'projektuebersicht', 'stammdaten', 'mengengeruest', 'wohnungsmix', 'anlagekosten',
+  'wirtschaftlichkeit',
 ]
 
 interface BerichtWert {

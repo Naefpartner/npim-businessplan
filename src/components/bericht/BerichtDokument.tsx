@@ -119,14 +119,7 @@ export interface MengenSicht {
     total: TabellenZeile
   })[]
   /** Wohnungsmix je Eigentumsart: Zimmerzahl, Anzahl, Fläche. */
-  wohnungsmix: (EigBlock & {
-    segmentFarben?: string[]
-    /** Ob der Block auf dem Blatt „Wohnungsmix und Erträge" erscheint. */
-    aufMixblatt: boolean
-    zeilen: TabellenZeile[]
-  })[]
-  /** Ertragsübersicht je Eigentumsart. */
-  ertraege: (EigBlock & { kopf: string[]; aufMixblatt: boolean; zeilen: TabellenZeile[] })[]
+  wohnungsmix: (EigBlock & { segmentFarben?: string[]; zeilen: TabellenZeile[] })[]
   /** Mietspiegel: Gebäude als Spalten, Geschosse von oben nach unten. */
   mietspiegel?: MietspiegelDaten
 }
@@ -472,6 +465,13 @@ const s = StyleSheet.create({
    * Das Inhaltsverzeichnis behält den Wert der Vorlage.
    */
   h1Kapitel: { marginBottom: 0 },
+  /** Kapitelüberschrift: Nummer links, Titel daneben. */
+  h1Zeile: { flexDirection: 'row' },
+  /**
+   * Breite der Nummernspalte — weit genug für zweistellige Zahlen und weit
+   * genug vom Titel weg, dass beide als eigene Angaben lesbar bleiben.
+   */
+  h1Nummer: { width: mm(9) },
 
   // ── Kapitel und Feldtabellen ──────────────────────────────────────────────
   /**
@@ -1335,6 +1335,11 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     const gesetzt = umbruchSet(daten)
     return sichten.reduce((a, x) => a + sichtSeiten(x, gesetzt), 0)
   }
+  if (key === 'wohnungsmix') {
+    const sichten = daten.mengen?.sichten ?? []
+    const seiten = sichten.reduce((a, x) => a + mixSeiten(x), 0)
+    return seiten > 0 ? seiten : 1
+  }
   return 1
 }
 
@@ -1790,12 +1795,12 @@ function UebersichtBaustein({ el, u }: { el: UebersichtElement; u: UebersichtDat
  * Wie viele Seiten es werden, entscheidet uebersichtSeiten() — dieselbe
  * Funktion, aus der auch der Seitenplan liest.
  */
-function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
+function Projektuebersicht({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
   const u = daten.uebersicht
   if (!u) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>
+        <KapitelTitel nummer={nummer} text={'Projektübersicht'} />
         <Text style={s.hinweis}>Die Kennzahlen werden geladen…</Text>
       </InhaltsSeite>
     )
@@ -1807,7 +1812,7 @@ function Projektuebersicht({ daten, seite, seitenTotal }: Kapitelseite) {
           {/* Nur die erste Seite trägt die Überschrift; auf den Folgeseiten
               gliedern die Tabellentitel, und im Inhaltsverzeichnis steht
               ohnehin nur das Kapitel. */}
-          {n === 0 && <Text style={[s.h1, s.h1Kapitel]}>Projektübersicht</Text>}
+          {n === 0 && <KapitelTitel nummer={nummer} text={'Projektübersicht'} />}
           {elemente.map((e, i) => <UebersichtBaustein key={i} el={e} u={u} />)}
         </InhaltsSeite>
       ))}
@@ -2318,12 +2323,15 @@ function spiegelHoehe(m: MietspiegelDaten): number {
 
 /** Höhe der Mixblöcke: je Eigentumsart Balken, Ring und Legende daneben. */
 function wohnungsmixHoehe(sicht: MengenSicht): number {
+  // Ohne Obertitel trägt der Ring den vollen Vorabstand statt des knappen.
+  const mehrere = sicht.wohnungsmix.length > 1
   return sicht.wohnungsmix.reduce((h, w) => {
     const eintraege = w.zeilen.filter((r) => !r.total).length
     // Der Ring misst 30 mm, die Legende je Eintrag eine Zeile — die höhere
     // Seite gibt die Höhe.
-    const block = MH.hausTitel + Math.max(4 + 30, eintraege * MH.legendeZeile) + MH.blockEnde
-    return h + MH.eigTitel + block
+    const block = (mehrere ? MH.hausTitel : MH.eigTitel)
+      + Math.max(4 + 30, eintraege * MH.legendeZeile) + MH.blockEnde
+    return h + (mehrere ? MH.eigTitel : 0) + block
   }, 0)
 }
 
@@ -2337,20 +2345,19 @@ function spiegelAufMixseite(sicht: MengenSicht): boolean {
   return MH.h1 + wohnungsmixHoehe(sicht) + spiegelHoehe(sicht.mietspiegel) <= SEITENHOEHE
 }
 
-/** Ob eine Sicht das Blatt „Wohnungsmix und Erträge" überhaupt füllt. */
-function hatMixblatt(sicht: MengenSicht): boolean {
-  return sicht.wohnungsmix.some((w) => w.aufMixblatt)
-    || sicht.ertraege.some((e) => e.aufMixblatt)
-}
-
-/** Blattzahl einer Sicht: Mengen (mehrseitig), Mix und Erträge, Grafik. */
+/** Blattzahl der Mengentabellen einer Sicht. */
 function sichtSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): number {
   return mengenSeiten(sicht, gesetzt).length
-    + (hatMixblatt(sicht) ? 1 : 0)
-    + (sicht.wohnungsmix.length > 0 ? 1 : 0)
-    // Der Mietspiegel steht unter dem Wohnungsmix, sofern er dort noch Platz
-    // hat; sonst auf einer eigenen Seite.
-    + (sicht.mietspiegel && !spiegelAufMixseite(sicht) ? 1 : 0)
+}
+
+/**
+ * Blattzahl des Wohnungsmixes einer Sicht: die Verteilung, dazu der
+ * Mietspiegel — unter der Verteilung, wenn er dort noch Platz hat, sonst auf
+ * einer eigenen Seite.
+ */
+function mixSeiten(sicht: MengenSicht): number {
+  if (sicht.wohnungsmix.length === 0) return sicht.mietspiegel ? 1 : 0
+  return 1 + (sicht.mietspiegel && !spiegelAufMixseite(sicht) ? 1 : 0)
 }
 
 /**
@@ -2374,7 +2381,7 @@ const UEBERSICHT_BREITEN = [2.0, 1.25, ...MENGEN_BREITEN.slice(2)]
 
 /** Eine Mengenseite: Kennzahlen, Häuser und Zwischensummen in der Reihenfolge. */
 function MengenSeite({
-  daten, sicht, elemente, seite, seitenTotal, erste,
+  daten, sicht, elemente, seite, seitenTotal, erste, nummer,
 }: {
   daten: BerichtDaten
   sicht: MengenSicht
@@ -2382,13 +2389,12 @@ function MengenSeite({
   seite: number
   seitenTotal: number
   erste: boolean
+  nummer: number
 }) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
       {erste && (
-        <Text style={[s.h1, s.h1Kapitel]}>
-          {sichtTitel('Mengen und Erträge', sicht)}
-        </Text>
+        <KapitelTitel nummer={nummer} text={sichtTitel('Mengen und Erträge', sicht)} />
       )}
       {elemente.map((e, i) => {
         if (e.art === 'benchmarks') {
@@ -2667,12 +2673,12 @@ function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: Anlage
   )
 }
 
-function AnlagekostenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
+function AnlagekostenKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
   const a = daten.anlagekosten
   if (!a) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Anlagekosten</Text>
+        <KapitelTitel nummer={nummer} text={'Anlagekosten'} />
         <Text style={s.hinweis}>Für diese Variante sind keine Kosten erfasst.</Text>
       </InhaltsSeite>
     )
@@ -2682,7 +2688,7 @@ function AnlagekostenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
       {anlagekostenSeiten(a, umbruchSet(daten)).map((spalten, n) => (
         <InhaltsSeite key={n} format={a.format} daten={daten}
           seite={seite + n} seitenTotal={seitenTotal}>
-          {n === 0 && <Text style={[s.h1, s.h1Kapitel]}>Anlagekosten</Text>}
+          {n === 0 && <KapitelTitel nummer={nummer} text={'Anlagekosten'} />}
           <AnlageBausteine elemente={spalten[0]} a={a} />
         </InhaltsSeite>
       ))}
@@ -2772,79 +2778,36 @@ function Summenzeile({
 }
 
 /** Blatt mit Wohnungsmix und Ertragsübersicht. */
-function MixUndErtragSeite({
-  daten, sicht, seite, seitenTotal,
-}: { daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number }) {
-  return (
-    <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={[s.h1, s.h1Kapitel]}>{sichtTitel('Wohnungsmix und Erträge', sicht)}</Text>
-      {sicht.wohnungsmix.filter((w) => w.aufMixblatt).map((w) => (
-        <View key={`w-${w.label}`} style={s.zweiSpalten}>
-          <View style={s.spalteEins}>
-            <Datentabelle
-              titel={w.label}
-              titelFarbe={w.farbeUnter}
-              kopf={['Wohnungstyp', 'Anzahl', 'Ø m²', 'Total m²']}
-              breiten={[1.6, 1, 1, 1.1]}
-              zeilen={w.zeilen}
-            />
-          </View>
-          <View style={s.spalteZwei}>
-            {(() => {
-              const e = sicht.ertraege.find((x) => x.label === w.label)
-              return e ? (
-                <Datentabelle
-                  titel={e.label}
-                  titelFarbe={e.farbeUnter}
-                  kopf={e.kopf}
-                  breiten={[1.8, 1.2, 1.7, 1.55]}
-                  zeilen={e.zeilen}
-                />
-              ) : null
-            })()}
-          </View>
-        </View>
-      ))}
-      {/* Eigentumsarten ohne Wohnungen erscheinen nur mit ihren Erträgen. */}
-      {sicht.ertraege
-        .filter((e) => e.aufMixblatt)
-        .filter((e) => !sicht.wohnungsmix.some((w) => w.aufMixblatt && w.label === e.label))
-        .map((e) => (
-          <Datentabelle
-            key={`e-${e.label}`}
-            titel={e.label}
-            titelFarbe={e.farbeUnter}
-            kopf={e.kopf}
-            breiten={[1.8, 1.2, 1.7, 1.55]}
-            zeilen={e.zeilen}
-          />
-        ))}
-    </InhaltsSeite>
-  )
-}
-
-/** Blatt mit dem Wohnungsmix als Balken. */
 function WohnungsmixSeite({
-  daten, sicht, seite, seitenTotal,
-}: { daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number }) {
+  daten, sicht, seite, seitenTotal, nummer,
+}: {
+  daten: BerichtDaten; sicht: MengenSicht; seite: number; seitenTotal: number; nummer: number
+}) {
   return (
     <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={[s.h1, s.h1Kapitel]}>{sichtTitel('Wohnungsmix', sicht)}</Text>
+      <KapitelTitel nummer={nummer} text={sichtTitel('Wohnungsmix', sicht)} />
       {sicht.wohnungsmix.map((w) => {
         const eintraege = w.zeilen
           .filter((r) => !r.total)
           .map((r) => ({ label: r.zellen[0], anzahl: Number(r.zellen[1].replace(/\D/g, '')) }))
         const palette = w.segmentFarben ?? CHART_PALETTE
+        // Bei nur einer Eigentumsart sagt ihr Name auf diesem Blatt nichts,
+        // was nicht schon feststeht — dann trägt der Ring den einzigen Balken.
+        const mehrere = sicht.wohnungsmix.length > 1
         return (
           <View key={w.label}>
-            <Text style={w.farbe ? titelStil(w.farbe) : s.h2}>{w.label}</Text>
+            {mehrere && (
+              <Text style={w.farbe ? titelStil(w.farbe) : s.h2}>{w.label}</Text>
+            )}
             {/* Der Ring zeigt die Verteilung, die Legende daneben die Zahlen —
                 die Balken daneben sagten dasselbe ein zweites Mal. */}
             <Ringdiagramm
               titel="Verteilung nach Zimmerzahl"
-              anschluss
+              anschluss={mehrere}
               legendeRechts
-              titelFarbe={w.farbeUnter ?? BERICHT_FARBE.primaerHell}
+              titelFarbe={mehrere
+                ? (w.farbeUnter ?? BERICHT_FARBE.primaerHell)
+                : BERICHT_FARBE.primaer}
               segmente={eintraege.map((e, i) => ({
                 label: e.label, wert: e.anzahl, farbe: palette[i % palette.length],
               }))}
@@ -2859,12 +2822,12 @@ function WohnungsmixSeite({
 }
 
 /** Das ganze Kapitel: je Sicht die Mengenseiten, das Mixblatt und die Grafik. */
-function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
+function MengenKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
   const m = daten.mengen
   if (!m || m.sichten.length === 0) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Mengen und Erträge</Text>
+        <KapitelTitel nummer={nummer} text={'Mengen und Erträge'} />
         <Text style={s.hinweis}>Für diese Variante sind keine Gebäude erfasst.</Text>
       </InhaltsSeite>
     )
@@ -2876,28 +2839,8 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
     for (const [i, elemente] of mengenSeiten(sicht, gesetzt).entries()) {
       seiten.push(
         <MengenSeite key={`${sicht.titel}-m${i}`} daten={daten} sicht={sicht}
-          elemente={elemente} seite={nr++} seitenTotal={seitenTotal} erste={i === 0} />,
-      )
-    }
-    if (hatMixblatt(sicht)) {
-      seiten.push(
-        <MixUndErtragSeite key={`${sicht.titel}-x`} daten={daten} sicht={sicht}
-          seite={nr++} seitenTotal={seitenTotal} />,
-      )
-    }
-    if (sicht.wohnungsmix.length > 0) {
-      seiten.push(
-        <WohnungsmixSeite key={`${sicht.titel}-g`} daten={daten} sicht={sicht}
-          seite={nr++} seitenTotal={seitenTotal} />,
-      )
-    }
-    if (sicht.mietspiegel && !spiegelAufMixseite(sicht)) {
-      seiten.push(
-        <InhaltsSeite key={`${sicht.titel}-s`} daten={daten}
-          seite={nr++} seitenTotal={seitenTotal}>
-          <Text style={[s.h1, s.h1Kapitel]}>{sichtTitel('Mietspiegel', sicht)}</Text>
-          <Mietspiegel daten={sicht.mietspiegel} ohneTitel />
-        </InhaltsSeite>,
+          elemente={elemente} seite={nr++} seitenTotal={seitenTotal} erste={i === 0}
+          nummer={nummer} />,
       )
     }
   }
@@ -2908,12 +2851,12 @@ function MengenKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
  * Kapitel „Nutzungsberechnung" auf einer Seite: Grundlagen und Zonen oben,
  * darunter die vier Wege in zwei Spalten, zuletzt der massgebende Wert.
  */
-function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
+function NutzungKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
   const n = daten.nutzung
   if (!n) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
+        <KapitelTitel nummer={nummer} text={'Nutzungsberechnung'} />
         <Text style={s.hinweis}>
           Für dieses Projekt sind keine Bauzonen mit Ausnutzungsziffern erfasst.
         </Text>
@@ -3024,7 +2967,7 @@ function NutzungKapitel({ daten, seite, seitenTotal }: Kapitelseite) {
   return (
     <>
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <Text style={[s.h1, s.h1Kapitel]}>Nutzungsberechnung</Text>
+        <KapitelTitel nummer={nummer} text={'Nutzungsberechnung'} />
         {kopfBereich}
         {!zweiSeitig && !einWeg && wegeBloecke}
         {!zweiSeitig && bemerkungenBlock}
@@ -3074,20 +3017,78 @@ interface Kapitelseite {
   /** Erste Seite des Kapitels. */
   seite: number
   seitenTotal: number
+  /**
+   * Nummer des Kapitels, wie sie im Inhaltsverzeichnis steht. Sie steht vor
+   * jeder Überschrift des Kapitels — auch auf den Blättern dahinter, damit man
+   * beim Blättern sieht, wo man ist.
+   */
+  nummer: number
+}
+
+/**
+ * Überschrift eines Kapitels: Nummer und Text, wie im Inhaltsverzeichnis. Die
+ * Nummer steht in einer eigenen Spalte fester Breite — ein Leerzeichen
+ * dazwischen liesse die Titel je nach Zahl unterschiedlich weit einrücken.
+ */
+function KapitelTitel({ nummer, text }: { nummer: number; text: string }) {
+  return (
+    <View style={s.h1Zeile}>
+      <Text style={[s.h1, s.h1Kapitel, s.h1Nummer]}>{nummer}</Text>
+      <Text style={[s.h1, s.h1Kapitel]}>{text}</Text>
+    </View>
+  )
 }
 
 /** Platzhalter für Kapitel, deren Inhalt noch aussteht. */
 function KapitelPlatzhalter({
-  kapitel, daten, seite, seitenTotal,
+  kapitel, daten, seite, seitenTotal, nummer,
 }: Kapitelseite & { kapitel: BerichtKapitel }) {
   return (
     <InhaltsSeite format={kapitel.format} daten={daten} seite={seite} seitenTotal={seitenTotal}>
-      <Text style={[s.h1, s.h1Kapitel]}>{kapitel.label}</Text>
+      <KapitelTitel nummer={nummer} text={kapitel.label} />
       <Text style={s.hinweis}>
         {kapitel.beschrieb} — dieses Kapitel wird noch aufgebaut.
       </Text>
     </InhaltsSeite>
   )
+}
+
+/**
+ * Kapitel „Wohnungsmix": je Sicht die Verteilung nach Zimmerzahl und darunter
+ * der Mietspiegel. Beide zeigen denselben Bestand — einmal als Anteil, einmal
+ * Haus für Haus.
+ */
+function WohnungsmixKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
+  const m = daten.mengen
+  const sichten = (m?.sichten ?? []).filter((x) => mixSeiten(x) > 0)
+  if (sichten.length === 0) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <KapitelTitel nummer={nummer} text={'Wohnungsmix'} />
+        <Text style={s.hinweis}>Für diese Variante sind keine Wohnungen erfasst.</Text>
+      </InhaltsSeite>
+    )
+  }
+  let nr = seite
+  const seiten: React.ReactNode[] = []
+  for (const sicht of sichten) {
+    if (sicht.wohnungsmix.length > 0) {
+      seiten.push(
+        <WohnungsmixSeite key={`${sicht.titel}-g`} daten={daten} sicht={sicht}
+          seite={nr++} seitenTotal={seitenTotal} nummer={nummer} />,
+      )
+    }
+    if (sicht.mietspiegel && (sicht.wohnungsmix.length === 0 || !spiegelAufMixseite(sicht))) {
+      seiten.push(
+        <InhaltsSeite key={`${sicht.titel}-s`} daten={daten}
+          seite={nr++} seitenTotal={seitenTotal}>
+          <KapitelTitel nummer={nummer} text={sichtTitel('Mietspiegel', sicht)} />
+          <Mietspiegel daten={sicht.mietspiegel} ohneTitel />
+        </InhaltsSeite>,
+      )
+    }
+  }
+  return <>{seiten}</>
 }
 
 /** Wählt die Seite eines Kapitels; noch leere Kapitel bekommen einen Platzhalter. */
@@ -3097,6 +3098,7 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
     case 'mengengeruest':     return <MengenKapitel {...rest} />
     case 'stammdaten':        return <NutzungKapitel {...rest} />
     case 'anlagekosten':      return <AnlagekostenKapitel {...rest} />
+    case 'wohnungsmix':       return <WohnungsmixKapitel {...rest} />
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
@@ -3122,13 +3124,14 @@ export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
     >
       <Titelblatt daten={daten} />
       <Inhaltsverzeichnis plan={plan} daten={daten} seitenTotal={seitenTotal} />
-      {plan.map((e) => (
+      {plan.map((e, i) => (
         <KapitelSeite
           key={e.kapitel.key}
           kapitel={e.kapitel}
           daten={daten}
           seite={e.seite}
           seitenTotal={seitenTotal}
+          nummer={i + 1}
         />
       ))}
     </Document>
