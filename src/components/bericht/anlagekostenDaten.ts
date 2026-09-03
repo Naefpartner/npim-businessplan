@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
+import { useKeeValueImport } from '@/hooks/useKeeValueImport'
 import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import { formatNumber } from '@/lib/utils'
 import type { BkpPosition } from '@/lib/bkpKatalog'
@@ -38,13 +39,18 @@ function ansatz(p: PositionResult): string {
  * - Benchmark: die Hauptgruppen 0–9 auf einer A4-Seite. Mehr gibt die Methode
  *   nicht her — sie rechnet mit Kennwerten je Hauptgruppe.
  * - keeValue: die Hauptgruppen 1–9, ebenfalls A4. Das Grundstück fehlt dort,
- *   weil der Import es nicht führt. Die Herleitung steht im importierten PDF,
- *   das hinten angehängt wird; darauf weist ein Satz unter der Tabelle hin.
+ *   weil der Import es nicht führt. Woher die Zahlen stammen — Modell,
+ *   Preisstand, Datei — steht als Satz unter der Tabelle; die Berechnung des
+ *   Modells selbst legt man dem Bericht separat bei.
  * - Detail: A3, mit jeder erfassten Position, ihrer Menge, ihrem Ansatz und
  *   der Herleitung — die Zusammenstellung der Hauptgruppen steht voran.
  */
-export function useAnlagekostenDaten(): AnlagekostenDaten | undefined {
+export function useAnlagekostenDaten(variantId: string | undefined): AnlagekostenDaten | undefined {
   const ak = useAnlagekostenShared()
+  // Die importierte Datei selbst liegt nicht vor, ihre Herkunft schon:
+  // Dateiname, Preisstand und Version stehen beim Import.
+  const keeValue = useKeeValueImport(variantId)
+  const herkunft = keeValue.row('')
 
   return useMemo(() => {
     if (ak.presentEig.length === 0) return undefined
@@ -107,8 +113,13 @@ export function useAnlagekostenDaten(): AnlagekostenDaten | undefined {
         format: 'a4' as const,
         summen,
         hinweis: methode === 'keevalue'
-          ? 'Die Herleitung der Kosten stammt aus dem keeValue-Kostenmodell; '
-            + 'der Bericht führt sie im Anhang unverändert mit.'
+          ? [
+            'Grundlage der Kosten ist das keeValue-Kostenmodell',
+            herkunft?.preisstand ? `, Preisstand ${herkunft.preisstand}` : '',
+            herkunft?.version ? `, Version ${herkunft.version}` : '',
+            herkunft?.file_name ? ` (${herkunft.file_name})` : '',
+            '. Die Berechnung des Modells liegt dem Bericht separat bei.',
+          ].join('')
           : 'Die Kosten sind über Kennwerte je Hauptgruppe hergeleitet '
             + '(Benchmark-Methode).',
         gruppen: [],
@@ -183,5 +194,5 @@ export function useAnlagekostenDaten(): AnlagekostenDaten | undefined {
       hinweis: null,
       gruppen,
     }
-  }, [ak])
+  }, [ak, herkunft])
 }

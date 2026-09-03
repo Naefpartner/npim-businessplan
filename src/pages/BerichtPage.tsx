@@ -113,7 +113,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
 
   const mengen = useMengenDaten(variantId, umfang)
   const nutzung = useNutzungDaten(project, parzellen, zonen, zonenplan?.publicUrl ?? null)
-  const anlagekosten = useAnlagekostenDaten()
+  const anlagekosten = useAnlagekostenDaten(variantId)
 
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
