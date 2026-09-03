@@ -243,8 +243,17 @@ const EINZUG = 2.3
  */
 const PLAN_HOEHE = 70
 
-/** Höhe des Situationsplans über die ganze Seitenbreite. */
+/**
+ * Höhe des Situationsplans über die ganze Seitenbreite — das Höchstmass. Wird
+ * die Seite eng, gibt er nach; siehe planHoehe().
+ */
 const PLAN_BREIT = 75
+
+/**
+ * Mindesthöhe des Situationsplans. Darunter bliebe von einem Ausschnitt über
+ * die ganze Breite nur noch ein Streifen.
+ */
+const PLAN_MIN = 52
 
 const s = StyleSheet.create({
   /**
@@ -853,7 +862,8 @@ interface Umbruchpunkt {
 
 /** Ein Baustein der Projektübersicht; die Reihenfolge steht fest. */
 type UebersichtElement = Umbruchpunkt & (
-  | { art: 'situationsplan'; url: string }
+  /** Der Plan trägt seine Höhe mit: sie hängt vom Platz auf der Seite ab. */
+  | { art: 'situationsplan'; url: string; hoehe: number }
   /** Grundstücke und Bestandsgebäude nebeneinander. */
   | { art: 'grundlagen' }
   /** Mengen und Anlagekosten nebeneinander. */
@@ -861,6 +871,31 @@ type UebersichtElement = Umbruchpunkt & (
   | { art: 'block'; block: EigentumsartBlock }
   | { art: 'mix'; mix: Nutzungsmix; dreispaltig: boolean }
 )
+
+/** Höhe der Tabellenblöcke der ersten Seite — ohne den Plan. */
+function ersteSeiteOhnePlan(u: UebersichtDaten): number {
+  const zeilen = (n: number) => (n === 0 ? 0 : MH.eigTitel + MH.kopfzeile + MH.blockEnde
+    + n * MH.zeile)
+  return MH.h1
+    + zeilen(Math.max(u.grundstuecke.zeilen.length, u.bestand.zeilen.length))
+    + zeilen(Math.max(u.mengen.length, u.kosten.length))
+}
+
+/**
+ * Höhe des Situationsplans. Er ist der einzige Posten der ersten Seite, der
+ * nicht von den Daten kommt — also gibt er nach, wenn Grundstücke,
+ * Bestandsgebäude und Anlagekosten viel Platz brauchen. So bleiben die drei
+ * Tabellen beisammen, statt dass die Kosten auf die zweite Seite rutschen.
+ *
+ * Nach unten begrenzt: ein Plan über die ganze Breite wird sonst zum Streifen,
+ * und `objectFit: cover` schneidet immer mehr von oben und unten weg. Reicht
+ * auch das Mindestmass nicht, wandern die Kosten weiter — mit noch flacherem
+ * Plan wäre niemandem gedient.
+ */
+function planHoehe(u: UebersichtDaten): number {
+  const rest = ersteSeiteOhnePlan(u) + MH.eigTitel + MH.legende + MH.blockEnde
+  return Math.max(PLAN_MIN, Math.min(PLAN_BREIT, SEITENHOEHE - rest))
+}
 
 function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
   // Mehrere Nutzungsarten: je eine flachere, dreispaltige Mixdarstellung,
@@ -870,7 +905,7 @@ function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
   return [
     ...(u.situationsplanUrl
       ? [{
-        art: 'situationsplan', url: u.situationsplanUrl,
+        art: 'situationsplan', url: u.situationsplanUrl, hoehe: planHoehe(u),
         key: 'uebersicht:situationsplan', label: 'Situationsplan',
       } as const] : []),
     ...(grundlagen ? [{
@@ -894,7 +929,7 @@ function uebersichtElemente(u: UebersichtDaten): UebersichtElement[] {
 function uebersichtElementHoehe(e: UebersichtElement, u: UebersichtDaten): number {
   switch (e.art) {
     case 'situationsplan':
-      return MH.eigTitel + PLAN_BREIT + MH.legende
+      return MH.eigTitel + e.hoehe + MH.legende + MH.blockEnde
     case 'grundlagen':
       // Beide Tabellen teilen sich die Zeilen; die längere gibt die Höhe vor.
       return MH.eigTitel + MH.kopfzeile + MH.blockEnde
@@ -1308,7 +1343,7 @@ function UebersichtBaustein({ el, u }: { el: UebersichtElement; u: UebersichtDat
       return (
         <View style={s.feldBlock}>
           <Text style={s.h2}>Situationsplan</Text>
-          <View style={s.planBreit}>
+          <View style={[s.planBreit, { height: mm(el.hoehe) }]}>
             <Image src={el.url} style={s.plan} />
           </View>
           <Text style={s.legende}>Ausschnitt aus dem kantonalen GIS</Text>
