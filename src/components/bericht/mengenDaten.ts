@@ -22,7 +22,6 @@ import {
   type Eigentumsart, type VariantEtappe, type Wohnungsmix,
 } from '@/types'
 import type { EtappenUmfang } from '@/lib/bericht'
-import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import type { BkpErgebnis } from '@/lib/bkpBerechnung'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
 import type {
@@ -206,7 +205,7 @@ export function useMengenDaten(
         gesamt: etappeId == null,
         benchmarks: benchmarkTabelle(gebaeude, mehrere),
         kostenkennwerte: kostenkennwerte(
-          gebaeude, etappeId, ak.gsfTotal, ak.blockErgebnisseEffektiv, ak.blockList),
+          gebaeude, etappeId, ak.blockErgebnisseEffektiv, ak.blockList),
         haeuserUebersicht,
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
@@ -563,9 +562,22 @@ function mietspiegel(
 }
 
 /**
- * Kostenkennwerte — dargestellt wie im Reiter Anlagekosten unter Benchmarks:
- * je Eigentumsart ein Block mit den Bezugsgrössen, darunter Hauptgruppe für
- * Hauptgruppe die Beträge und ihr Kennwert je Quadratmeter Geschossfläche.
+ * Kostenbereiche der Kennwertmatrix — dieselben wie im Reiter Benchmarks.
+ * Sie stehen als Spaltengruppen nebeneinander, damit sich ablesen lässt, was
+ * ein Kennwert je nach Umfang der Kosten bedeutet.
+ */
+const KOSTEN_BEREICHE: { label: string; codes: number[] }[] = [
+  { label: 'BKP 2', codes: [2] },
+  { label: 'BKP 2 + 6', codes: [2, 6] },
+  { label: 'BKP 1–6', codes: [1, 2, 3, 4, 5, 6] },
+  { label: 'BKP 1–9', codes: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+  { label: 'BKP 0–9', codes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
+]
+
+/**
+ * Kostenkennwerte als Matrix, wie im Reiter Benchmarks: je Eigentumsart ein
+ * Block, darin die Kennzahlen als Zeilen und die BKP-Bereiche als
+ * Spaltengruppen, jede mit den Beträgen exkl. und inkl. Mehrwertsteuer.
  *
  * Die Kosten kommen je Block (Etappe × Eigentumsart) aus derselben Rechnung
  * wie überall im Bericht; für das Gesamtprojekt werden alle Blöcke summiert,
@@ -574,32 +586,34 @@ function mietspiegel(
 function kostenkennwerte(
   gebaeude: VariantBuildingFull[],
   etappeId: string | null,
-  gsfTotal: number,
   bloecke: Map<string, BkpErgebnis>,
   blockList: { etappeId: string | null; eig: Eigentumsart }[],
 ) {
   const vorhanden = EIG_ORDER.filter(
     (eig) => gebaeude.some((b) => eigentumsartForBuilding(b.use_type) === eig))
-  const mehrere = vorhanden.length > 1
+  if (vorhanden.length === 0) return []
 
-  /** Mengen einer Auswahl von Eigentumsarten. */
+  /** Bezugsgrössen aus dem Mengengerüst. */
   function mengen(eigs: Eigentumsart[]) {
-    let gf = 0, gv = 0, vmf = 0
+    let gf = 0, gv = 0, vmf = 0, wohnungen = 0
     for (const b of gebaeude) {
       if (!eigs.includes(eigentumsartForBuilding(b.use_type))) continue
       for (const m of b.mietflaechen) {
         gf += m.gf_m2 || 0
         gv += m.volumen_m3 || 0
         vmf += m.flaeche_m2 || 0
+        // Wohnungen aus dem Zimmermix, sonst die Stückzahl des Geschosses.
+        wohnungen += effektiveWohnungCounts(m.nutzung, m.wohnungsmix, m.anzahl)
+          .reduce((a, [, c]) => a + c, 0)
       }
     }
-    return { gf, gv, vmf }
+    return { gf, gv, vmf, wohnungen }
   }
 
-  /** Kosten einer Auswahl, je Hauptgruppe netto und brutto. */
+  /** Netto und Brutto je BKP-Bereich. */
   function kosten(eigs: Eigentumsart[]) {
     const netto: number[] = Array(10).fill(0)
-    const brutto: number[] = Array(10).fill(0)
+    const mwst: number[] = Array(10).fill(0)
     for (const { etappeId: e, eig } of blockList) {
       if (etappeId != null && e !== etappeId) continue
       if (!eigs.includes(eig)) continue
@@ -608,66 +622,65 @@ function kostenkennwerte(
       for (let c = 0; c <= 9; c++) {
         const k = c as keyof typeof erg.hauptgruppenSummenNetto
         netto[c] += erg.hauptgruppenSummenNetto[k] ?? 0
-        brutto[c] += (erg.hauptgruppenSummenNetto[k] ?? 0) + (erg.hauptgruppenSummenMwst[k] ?? 0)
+        mwst[c] += erg.hauptgruppenSummenMwst[k] ?? 0
       }
     }
-    return { netto, brutto }
+    return KOSTEN_BEREICHE.map((b) => {
+      const n = b.codes.reduce((a, c) => a + netto[c], 0)
+      const m = b.codes.reduce((a, c) => a + mwst[c], 0)
+      return { netto: n, brutto: n + m }
+    })
   }
 
-  const chf = (v: number) => (v !== 0 ? formatNumber(Math.round(v)) : '—')
+  const zahl = (v: number) => (v !== 0 ? formatNumber(Math.round(v)) : '—')
   const je = (v: number, n: number) => (n > 0 && v !== 0 ? formatNumber(Math.round(v / n)) : '—')
 
-  function block(label: string, eigs: Eigentumsart[], farbe?: string, grund?: string) {
+  function block(label: string, eigs: Eigentumsart[], farbe?: string) {
     const m = mengen(eigs)
     const k = kosten(eigs)
-    const zeilen: TabellenZeile[] = HAUPTGRUPPEN
-      .filter((h) => k.netto[h.code] !== 0 || k.brutto[h.code] !== 0)
-      .map((h) => ({
-        zellen: [
-          String(h.code), h.label,
-          chf(k.netto[h.code]), chf(k.brutto[h.code]),
-          je(k.brutto[h.code], m.gf), je(k.brutto[h.code], m.gv),
-        ],
-      }))
-    if (zeilen.length === 0) return null
-    const sumNetto = k.netto.reduce((a, v) => a + v, 0)
-    const sumBrutto = k.brutto.reduce((a, v) => a + v, 0)
-    zeilen.push({
-      total: true,
-      zellen: ['', 'Total Anlagekosten', chf(sumNetto), chf(sumBrutto),
-        je(sumBrutto, m.gf), je(sumBrutto, m.gv)],
+    if (k.every((x) => x.netto === 0 && x.brutto === 0)) return null
+    const zeile = (
+      titel: string, einheit: string | null, bezug: string,
+      wert: (betrag: number) => string,
+    ) => ({
+      label: titel,
+      einheit,
+      bezug,
+      werte: k.flatMap((x) => [wert(x.netto), wert(x.brutto)]),
     })
     return {
-      key: eigs.length === 1 ? eigs[0] : 'total',
+      key: eigs.length === 1 ? eigs[0] : 'gesamt',
       label,
       farbe,
-      farbeGrund: grund,
-      // Die Bezugsgrössen stehen über der Tabelle — ohne sie wären die
-      // Kennwerte Zahlen ohne Nenner.
-      bezug: [
-        { label: 'Grundstück GSF', einheit: 'm²', wert: chf(gsfTotal) },
-        { label: 'Geschossfläche GF', einheit: 'm²', wert: chf(m.gf) },
-        { label: 'Gebäudevolumen GV', einheit: 'm³', wert: chf(m.gv) },
-        { label: 'VMF (VKF)', einheit: 'm²', wert: chf(m.vmf) },
+      bereiche: KOSTEN_BEREICHE.map((b) => b.label),
+      zeilen: [
+        zeile('Anlagekosten', null, 'CHF', (b) => zahl(b)),
+        zeile('Kosten / m² GF', 'CHF/m²', `${zahl(m.gf)} m²`, (b) => je(b, m.gf)),
+        zeile('Kosten / m³ GV', 'CHF/m³', `${zahl(m.gv)} m³`, (b) => je(b, m.gv)),
+        zeile('Kosten / m² VMF (VKF)', 'CHF/m²', `${zahl(m.vmf)} m²`, (b) => je(b, m.vmf)),
+        ...(m.wohnungen > 0
+          ? [zeile('Kosten / Wohnung', 'CHF/Whg', `${zahl(m.wohnungen)} Whg`,
+            (b) => je(b, m.wohnungen))]
+          : []),
       ],
-      kopf: ['BKP', 'Hauptgruppe', 'exkl. MWST', 'inkl. MWST', 'CHF/m² GF', 'CHF/m³ GV'],
-      zeilen,
     }
   }
 
-  const bloeckeAus = [
-    ...(mehrere
-      ? vorhanden.map((eig) => block(
-        EIGENTUMSART_LABEL[eig], [eig],
-        EIGENTUMSART_COLOR[eig], USE_TYPE_COLOR_1[eig]))
-      : []),
-    block(mehrere ? 'Total' : 'Anlagekosten', vorhanden),
+  // Bei einer Eigentumsart trägt der einzige Block ihren Namen und ihre Farbe;
+  // bei mehreren steht das Gesamtprojekt voran, danach jede für sich.
+  if (vorhanden.length === 1) {
+    const b = block(EIGENTUMSART_LABEL[vorhanden[0]], vorhanden,
+      EIGENTUMSART_COLOR[vorhanden[0]])
+    return b ? [b] : []
+  }
+  return [
+    block('Alle Eigentumsarten', vorhanden),
+    ...vorhanden.map((eig) => block(
+      EIGENTUMSART_LABEL[eig], [eig], EIGENTUMSART_COLOR[eig])),
   ].filter((b) => b != null)
-
-  return bloeckeAus
 }
 
-/** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. */
+/** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. *//** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. */
 function wohnungsmixBloecke(gebaeude: VariantBuildingFull[], mehrere: boolean) {
   return EIG_ORDER
     .map((eig) => {

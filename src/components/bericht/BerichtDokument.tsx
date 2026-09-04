@@ -108,14 +108,22 @@ export interface MengenSicht {
   /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
   /**
-   * Kostenkennwerte, dargestellt wie im Reiter Anlagekosten unter Benchmarks:
-   * je Eigentumsart ein Block mit seinen Bezugsgrössen, darunter Hauptgruppe
-   * für Hauptgruppe die Beträge und ihre Kennwerte.
+   * Kostenkennwerte als Matrix, wie im Reiter Benchmarks: je Eigentumsart ein
+   * Block, darin die Kennzahlen als Zeilen und die BKP-Bereiche als
+   * Spaltengruppen mit je zwei Spalten — exkl. und inkl. Mehrwertsteuer.
    */
   kostenkennwerte: (EigBlock & {
-    bezug: Feld[]
-    kopf: string[]
-    zeilen: TabellenZeile[]
+    /** Beschriftung der Spaltengruppen, z.B. „BKP 2 + 6". */
+    bereiche: string[]
+    zeilen: {
+      label: string
+      /** Einheit der Kennzahl; die Zeile „Anlagekosten" hat keine. */
+      einheit: string | null
+      /** Bezugsgrösse, auf die geteilt wird. */
+      bezug: string
+      /** Je Bereich zwei Werte: exkl., inkl. */
+      werte: string[]
+    }[]
   })[]
   /**
    * Je Eigentumsart die Häuser in je einer Zeile — steht den Geschossen voran.
@@ -629,6 +637,15 @@ const s = StyleSheet.create({
   },
   spiegelKachelTitel: { fontSize: 6, lineHeight: 1.2, fontWeight: 700 },
   spiegelKachelZeile: { fontSize: 5.5, lineHeight: 1.2 },
+  // ── Kostenmatrix der Kennwerte ────────────────────────────────────────────
+  kostenBereiche: { flexDirection: 'row', paddingLeft: mm(EINZUG), marginTop: mm(1.5) },
+  kostenBereich: {
+    fontSize: 7,
+    fontWeight: 700,
+    textAlign: 'center',
+    paddingRight: mm(2),
+  },
+
   /** Farbskala unter dem Spiegel. */
   spiegelSkala: { flexDirection: 'row', alignItems: 'center', marginTop: mm(1.5) },
   spiegelSkalaText: { fontSize: 6.5, lineHeight: 1.2, color: '#6B6B6B' },
@@ -3073,36 +3090,47 @@ function kennwertBreiten(kopf: string[]): number[] {
   return [2.4, ...kopf.slice(1).map(() => 1.2)]
 }
 
+/** Kostenkennwerte einer Sicht, wie sie das Kapitel setzt. */
+type Kostenblock = MengenSicht['kostenkennwerte'][number]
+
 /**
- * Ein Block des Kapitels „Kennwerte". `sektion` steht nur beim ersten Block
- * einer Gruppe — sie bekommt dort ihren Balken; `titel` benennt, was die
- * Tabelle zeigt, und entfällt, wo der Sektionsbalken schon alles sagt.
+ * Ein Block des Kapitels „Kennwerte". Entweder eine gewöhnliche Tabelle
+ * (Flächen und Volumen) oder die Kostenmatrix mit ihren Spaltengruppen.
+ * `sektion` steht nur beim ersten Block einer Gruppe — sie bekommt dort ihren
+ * Balken; `titel` benennt, was die Tabelle zeigt.
  */
-interface KennwertBlock {
+type KennwertBlock = {
   sektion: string | null
   titel: string | null
   titelFarbe?: string
-  /** Bezugsgrössen über der Tabelle; nur bei den Kostenkennwerten. */
-  bezug?: Feld[]
-  kopf: string[]
-  /** Eigene Spaltenanteile; ohne Angabe die der Kennwerttabellen. */
-  breiten?: number[]
-  zeilen: TabellenZeile[]
-}
+} & (
+  | { art: 'tabelle'; kopf: string[]; zeilen: TabellenZeile[] }
+  | { art: 'kosten'; block: Kostenblock }
+)
 
 /**
- * Spalten der Kostenkennwerte: links die Nummer, daneben die Hauptgruppe, dann
- * Beträge und Kennwerte. Nicht die Anteile der Kennwerttabellen — dort trägt
- * die erste Spalte einen ganzen Satz, hier nur eine Ziffer.
+ * Spalten der Kostenmatrix: Kennzahl, Bezug und je Bereich zwei Beträge. Die
+ * Anteile sind so bemessen, dass eine achtstellige Zahl bei 8 pt Platz hat —
+ * zwölf Spalten passen nur mit dem kompakten Satz und der Breite von A3.
  */
-const KOSTENKENNWERT_BREITEN = [0.5, 2.6, 1.3, 1.3, 1.1, 1.1]
+const KOSTEN_MATRIX = { kennzahl: 2.6, bezug: 1.3, betrag: 1.15 }
 
-function kennwertHoehe(b: KennwertBlock): number {
-  const breiten = b.breiten ?? kennwertBreiten(b.kopf)
-  return (b.sektion ? MH.eigTitel : 0)
-    + (b.titel ? MH.hausTitel : 0)
-    + (b.bezug ? MH.kopfzeile + MH.zeile : 0)
-    + kopfHoehe(b.kopf, breiten) + MH.blockEnde + zeilenHoehe(b.zeilen, breiten)
+function kostenBreiten(bereiche: number): number[] {
+  return [
+    KOSTEN_MATRIX.kennzahl, KOSTEN_MATRIX.bezug,
+    ...Array.from({ length: bereiche * 2 }, () => KOSTEN_MATRIX.betrag),
+  ]
+}
+
+function kennwertHoehe(b: KennwertBlock, breite: number): number {
+  const rahmen = (b.sektion ? MH.eigTitel : 0) + (b.titel ? MH.hausTitel : 0) + MH.blockEnde
+  if (b.art === 'kosten') {
+    // Zwei Kopfzeilen: die Bereiche, darunter exkl./inkl.
+    return rahmen + 2 * MH.kopfzeileK + b.block.zeilen.length * MH.zeileK
+  }
+  const breiten = kennwertBreiten(b.kopf)
+  return rahmen + kopfHoehe(b.kopf, breiten, 3, breite)
+    + zeilenHoehe(b.zeilen, breiten, 3, breite)
 }
 
 /**
@@ -3119,6 +3147,7 @@ function kennwertBloecke(daten: BerichtDaten): KennwertBlock[] {
   for (const x of sichten) {
     if (x.benchmarks.zeilen.length === 0) continue
     bloecke.push({
+      art: 'tabelle',
       sektion: erste ? 'Flächen- und Volumenkennwerte' : null,
       // Der Name der Sicht nur, wo es mehrere gibt — sonst sagt der
       // Sektionsbalken darüber schon alles.
@@ -3133,14 +3162,11 @@ function kennwertBloecke(daten: BerichtDaten): KennwertBlock[] {
   for (const x of sichten) {
     for (const k of x.kostenkennwerte) {
       bloecke.push({
+        art: 'kosten',
         sektion: erste ? 'Kostenkennwerte' : null,
-        // Je Eigentumsart ein Block; bei mehreren Sichten dazu deren Name.
         titel: mehrere ? `${x.gesamt ? 'Gesamtprojekt' : x.titel} · ${k.label}` : k.label,
         titelFarbe: k.farbe,
-        bezug: k.bezug,
-        kopf: k.kopf,
-        breiten: KOSTENKENNWERT_BREITEN,
-        zeilen: k.zeilen,
+        block: k,
       })
       erste = false
     }
@@ -3149,21 +3175,66 @@ function kennwertBloecke(daten: BerichtDaten): KennwertBlock[] {
 }
 
 function kennwertSeiten(daten: BerichtDaten): KennwertBlock[][] {
+  const hoehe = seitenHoehe(KENNWERT_FORMAT)
+  const breite = satzBreite(KENNWERT_FORMAT)
   const seiten: KennwertBlock[][] = []
   let laufend: KennwertBlock[] = []
-  let hoehe = MH.h1
+  let belegt = MH.h1
   for (const b of kennwertBloecke(daten)) {
-    const h = kennwertHoehe(b)
-    if (laufend.length > 0 && hoehe + h > SEITENHOEHE) {
+    const h = kennwertHoehe(b, breite)
+    if (laufend.length > 0 && belegt + h > hoehe) {
       seiten.push(laufend)
       laufend = []
-      hoehe = 0
+      belegt = 0
     }
     laufend.push(b)
-    hoehe += h
+    belegt += h
   }
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
+}
+
+/**
+ * Format des Kapitels. Die Kostenmatrix trägt zwölf Spalten — auf A4 bliebe
+ * für eine achtstellige Zahl kein Platz.
+ */
+const KENNWERT_FORMAT: SeitenFormat = 'a3'
+
+/** Die Kostenmatrix: Kennzahlen als Zeilen, BKP-Bereiche als Spaltengruppen. */
+function Kostenmatrix({ block }: { block: Kostenblock }) {
+  const breiten = kostenBreiten(block.bereiche.length)
+  const t: Tabelle = { kopf: [], zeilen: [], breiten, linksBis: 0, spaltenAbstand: 2 }
+  return (
+    <View style={s.kompaktBlock}>
+      {/* Erste Kopfzeile: die Bereiche über je zwei Spalten. */}
+      <View style={s.kostenBereiche}>
+        <Text style={{ flexGrow: KOSTEN_MATRIX.kennzahl + KOSTEN_MATRIX.bezug, flexBasis: 0 }} />
+        {block.bereiche.map((b) => (
+          <Text key={b} style={[s.kostenBereich,
+            { flexGrow: KOSTEN_MATRIX.betrag * 2, flexBasis: 0 }]}>
+            {b}
+          </Text>
+        ))}
+      </View>
+      {/* Zweite Kopfzeile: Kennzahl, Bezug und je Bereich exkl./inkl. */}
+      <View style={s.kompaktKopf}>
+        <Zellen t={{ ...t, linksBis: 0 }} werte={['Kennzahl', 'Bezug',
+          ...block.bereiche.flatMap(() => ['exkl. MWST', 'inkl. MWST'])]} />
+      </View>
+      {block.zeilen.map((z, i) => (
+        <View key={i} style={[s.kompaktZeile, s.tabLinie, ...(i === 0 ? [s.tabTotal] : [])]}>
+          <Zellen
+            t={t}
+            werte={[
+              z.einheit ? `${z.label} (${z.einheit})` : z.label,
+              z.bezug,
+              ...z.werte,
+            ]}
+          />
+        </View>
+      ))}
+    </View>
+  )
 }
 
 /**
@@ -3175,7 +3246,7 @@ function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
   const seiten = kennwertSeiten(daten)
   if (seiten.length === 0) {
     return (
-      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+      <InhaltsSeite format={KENNWERT_FORMAT} daten={daten} seite={seite} seitenTotal={seitenTotal}>
         <KapitelTitel nummer={nummer} text="Kennwerte" />
         <Text style={s.hinweis}>Für diese Variante sind keine Mengen erfasst.</Text>
       </InhaltsSeite>
@@ -3184,7 +3255,8 @@ function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
   return (
     <>
       {seiten.map((bloecke, n) => (
-        <InhaltsSeite key={n} daten={daten} seite={seite + n} seitenTotal={seitenTotal}>
+        <InhaltsSeite key={n} format={KENNWERT_FORMAT} daten={daten}
+          seite={seite + n} seitenTotal={seitenTotal}>
           {n === 0 && <KapitelTitel nummer={nummer} text="Kennwerte" />}
           {bloecke.map((b, i) => (
             <View key={i}>
@@ -3195,22 +3267,15 @@ function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
                   {b.titel}
                 </Text>
               )}
-              {b.bezug && (
-                <Datentabelle
-                  kopf={b.bezug.map((f) => f.label)}
-                  breiten={b.bezug.map(() => 1)}
-                  // Alle Spalten links: die Bezugsgrössen stehen unter ihrer
-                  // Beschriftung, nicht am rechten Rand ihrer Spalte.
-                  linksBis={b.bezug.length}
-                  zeilen={[{ zellen: b.bezug.map((f) => `${f.wert} ${f.einheit ?? ''}`.trim()) }]}
-                />
-              )}
-              <Datentabelle
-                kopf={b.kopf}
-                breiten={b.breiten ?? kennwertBreiten(b.kopf)}
-                linksBis={1}
-                zeilen={b.zeilen}
-              />
+              {b.art === 'kosten'
+                ? <Kostenmatrix block={b.block} />
+                : (
+                  <Datentabelle
+                    kopf={b.kopf}
+                    breiten={kennwertBreiten(b.kopf)}
+                    zeilen={b.zeilen}
+                  />
+                )}
             </View>
           ))}
         </InhaltsSeite>
