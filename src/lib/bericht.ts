@@ -64,7 +64,8 @@ export const BERICHT_KAPITEL: BerichtKapitel[] = [
   { key: 'wohnungsmix',       label: 'Wohnungsmix',               beschrieb: 'Verteilung nach Zimmerzahl und Mietspiegel' },
   { key: 'mengenanalyse',     label: 'Mengen- und Mietzinsanalyse', beschrieb: 'Kennzahlen und Preisanalyse' },
   { key: 'anlagekosten',      label: 'Anlagekosten',              beschrieb: 'Kostenberechnung der gewählten Methode', format: 'a3' },
-  { key: 'benchmarks',        label: 'Benchmarks',                beschrieb: 'Flächen, Volumen und ihre Verhältnisse' },
+  // Schlüssel bleibt 'benchmarks': gespeicherte Vorlagen führen ihn.
+  { key: 'benchmarks',        label: 'Kennwerte',                 beschrieb: 'Flächen- und Volumenkennwerte, Kostenkennwerte' },
   { key: 'wirtschaftlichkeit', label: 'Wirtschaftlichkeit',       beschrieb: 'Kostenmiete, Rendite, Verkaufsgewinn' },
   { key: 'mittelfluss',       label: 'Mittelflussrechnung',       beschrieb: 'Terminplan und Quartalsverteilung', format: 'a3' },
   { key: 'honorare',          label: 'Honorarrechner',            beschrieb: 'Planerhonorare nach SIA' },

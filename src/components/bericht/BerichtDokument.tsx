@@ -107,6 +107,8 @@ export interface MengenSicht {
   gesamt: boolean
   /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
+  /** Kostenkennwerte je Bezugsgrösse — dieselben Spalten wie die Flächen. */
+  kostenkennwerte: { kopf: string[]; zeilen: TabellenZeile[] }
   /**
    * Je Eigentumsart die Häuser in je einer Zeile — steht den Geschossen voran.
    * Leer bei nur einem Haus und in den Etappensichten.
@@ -1341,7 +1343,7 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     return sichten.reduce((a, x) => a + sichtSeiten(x, gesetzt), 0)
   }
   if (key === 'benchmarks') {
-    const seiten = benchmarkSeiten(daten).length
+    const seiten = kennwertSeiten(daten).length
     return seiten > 0 ? seiten : 1
   }
   if (key === 'wohnungsmix') {
@@ -3058,35 +3060,68 @@ function KapitelPlatzhalter({
   )
 }
 
-/** Spaltenanteile der Benchmarktabelle — Kennwert links, je Sicht eine Spalte. */
-function benchmarkBreiten(kopf: string[]): number[] {
+/** Spaltenanteile der Kennwerttabellen — Kennwert links, je Sicht eine Spalte. */
+function kennwertBreiten(kopf: string[]): number[] {
   return [2.4, ...kopf.slice(1).map(() => 1.2)]
 }
 
-/** Höhe eines Benchmarkblocks samt Titelbalken. */
-function benchmarkHoehe(b: { kopf: string[]; zeilen: TabellenZeile[] }): number {
-  const breiten = benchmarkBreiten(b.kopf)
-  return MH.eigTitel + kopfHoehe(b.kopf, breiten) + MH.blockEnde + zeilenHoehe(b.zeilen, breiten)
+/**
+ * Ein Block des Kapitels „Kennwerte". `sektion` steht nur beim ersten Block
+ * einer Gruppe — sie bekommt dort ihren Balken; `titel` benennt die Sicht und
+ * entfällt, wo es nur eine gibt.
+ */
+interface KennwertBlock {
+  sektion: string | null
+  titel: string | null
+  kopf: string[]
+  zeilen: TabellenZeile[]
 }
 
-/** Je Sicht ein Block; ohne Etappen bleibt es beim Gesamtprojekt. */
-function benchmarkBloecke(daten: BerichtDaten) {
-  return (daten.mengen?.sichten ?? [])
-    .filter((x) => x.benchmarks.zeilen.length > 0)
-    .map((x) => ({
-      // Die Gesamtsicht braucht keinen Namen — sie ist der Bericht selbst.
-      titel: x.gesamt ? 'Kennwerte' : x.titel,
-      kopf: x.benchmarks.kopf,
-      zeilen: x.benchmarks.zeilen,
-    }))
+function kennwertHoehe(b: KennwertBlock): number {
+  const breiten = kennwertBreiten(b.kopf)
+  return (b.sektion ? MH.eigTitel : 0)
+    + (b.titel ? MH.hausTitel : 0)
+    + kopfHoehe(b.kopf, breiten) + MH.blockEnde + zeilenHoehe(b.zeilen, breiten)
 }
 
-function benchmarkSeiten(daten: BerichtDaten): ReturnType<typeof benchmarkBloecke>[] {
-  const seiten: ReturnType<typeof benchmarkBloecke>[] = []
-  let laufend: ReturnType<typeof benchmarkBloecke> = []
+/**
+ * Die Blöcke des Kapitels: erst die Flächen- und Volumenkennwerte aller
+ * Sichten, dann die Kostenkennwerte. Nach Sektion geordnet, nicht nach Sicht —
+ * so stehen vergleichbare Tabellen beieinander.
+ */
+function kennwertBloecke(daten: BerichtDaten): KennwertBlock[] {
+  const sichten = daten.mengen?.sichten ?? []
+  const mehrere = sichten.length > 1
+  const bloecke: KennwertBlock[] = []
+  const sektionen: [string, (x: MengenSicht) => { kopf: string[]; zeilen: TabellenZeile[] }][] = [
+    ['Flächen- und Volumenkennwerte', (x) => x.benchmarks],
+    ['Kostenkennwerte', (x) => x.kostenkennwerte],
+  ]
+  for (const [sektion, hol] of sektionen) {
+    let erste = true
+    for (const x of sichten) {
+      const t = hol(x)
+      if (t.zeilen.length === 0) continue
+      bloecke.push({
+        sektion: erste ? sektion : null,
+        // Der Name der Sicht nur, wo es mehrere gibt — sonst sagt der
+        // Sektionsbalken darüber schon alles.
+        titel: mehrere ? (x.gesamt ? 'Gesamtprojekt' : x.titel) : null,
+        kopf: t.kopf,
+        zeilen: t.zeilen,
+      })
+      erste = false
+    }
+  }
+  return bloecke
+}
+
+function kennwertSeiten(daten: BerichtDaten): KennwertBlock[][] {
+  const seiten: KennwertBlock[][] = []
+  let laufend: KennwertBlock[] = []
   let hoehe = MH.h1
-  for (const b of benchmarkBloecke(daten)) {
-    const h = benchmarkHoehe(b)
+  for (const b of kennwertBloecke(daten)) {
+    const h = kennwertHoehe(b)
     if (laufend.length > 0 && hoehe + h > SEITENHOEHE) {
       seiten.push(laufend)
       laufend = []
@@ -3100,16 +3135,16 @@ function benchmarkSeiten(daten: BerichtDaten): ReturnType<typeof benchmarkBloeck
 }
 
 /**
- * Kapitel „Benchmarks": die Kennwerte der Mengen — Flächen, Volumen und ihre
- * Verhältnisse. Sie standen bisher am Ende der Mengentabellen; dort gingen sie
- * zwischen den Häusern unter.
+ * Kapitel „Kennwerte": die Flächen- und Volumenkennwerte der Mengen und die
+ * Kostenkennwerte der Anlagekosten. Beide in denselben Spalten, damit sich
+ * Menge und Preis nebeneinander lesen lassen.
  */
-function BenchmarkKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
-  const seiten = benchmarkSeiten(daten)
+function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
+  const seiten = kennwertSeiten(daten)
   if (seiten.length === 0) {
     return (
       <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
-        <KapitelTitel nummer={nummer} text="Benchmarks" />
+        <KapitelTitel nummer={nummer} text="Kennwerte" />
         <Text style={s.hinweis}>Für diese Variante sind keine Mengen erfasst.</Text>
       </InhaltsSeite>
     )
@@ -3118,15 +3153,19 @@ function BenchmarkKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
     <>
       {seiten.map((bloecke, n) => (
         <InhaltsSeite key={n} daten={daten} seite={seite + n} seitenTotal={seitenTotal}>
-          {n === 0 && <KapitelTitel nummer={nummer} text="Benchmarks" />}
+          {n === 0 && <KapitelTitel nummer={nummer} text="Kennwerte" />}
           {bloecke.map((b, i) => (
-            <Datentabelle
-              key={i}
-              titel={b.titel}
-              kopf={b.kopf}
-              breiten={benchmarkBreiten(b.kopf)}
-              zeilen={b.zeilen}
-            />
+            <View key={i}>
+              {b.sektion && <Text style={s.h2}>{b.sektion}</Text>}
+              <Datentabelle
+                titel={b.titel ?? undefined}
+                titelFarbe={b.titel ? BERICHT_FARBE.primaerMittel : undefined}
+                anschluss={Boolean(b.titel && b.sektion)}
+                kopf={b.kopf}
+                breiten={kennwertBreiten(b.kopf)}
+                zeilen={b.zeilen}
+              />
+            </View>
           ))}
         </InhaltsSeite>
       ))}
@@ -3180,7 +3219,7 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
     case 'stammdaten':        return <NutzungKapitel {...rest} />
     case 'anlagekosten':      return <AnlagekostenKapitel {...rest} />
     case 'wohnungsmix':       return <WohnungsmixKapitel {...rest} />
-    case 'benchmarks':        return <BenchmarkKapitel {...rest} />
+    case 'benchmarks':        return <KennwertKapitel {...rest} />
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }

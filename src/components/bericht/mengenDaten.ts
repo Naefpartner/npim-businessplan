@@ -17,11 +17,12 @@ import {
 } from '@/lib/kategorieFarben'
 import type { CiFamily } from '@/lib/ci'
 import {
-  EIGENTUMSART_LABEL, eigentumsartForBuilding, effektiveWohnungCounts,
+  EIGENTUMSART_LABEL, eigentumsartForBuilding, effektiveWohnungCounts, isNutzungWohnen,
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, WOHNUNG_FALLBACK_KEY,
   type Eigentumsart, type VariantEtappe, type Wohnungsmix,
 } from '@/types'
 import type { EtappenUmfang } from '@/lib/bericht'
+import type { BkpErgebnis } from '@/lib/bkpBerechnung'
 import type { VariantBuildingFull } from '@/hooks/useMengengeruest'
 import type {
   MengenDaten, MengenSicht, MietspiegelDaten, TabellenZeile,
@@ -203,6 +204,8 @@ export function useMengenDaten(
         titel,
         gesamt: etappeId == null,
         benchmarks: benchmarkTabelle(gebaeude, mehrere),
+        kostenkennwerte: kostenkennwerte(
+          gebaeude, etappeId, mehrere, ak.blockErgebnisseEffektiv, ak.blockList),
         haeuserUebersicht,
         eigentumsarten,
         wohnungsmix: wohnungsmixBloecke(gebaeude, mehrere),
@@ -556,6 +559,85 @@ function mietspiegel(
       farben: [0, 0.25, 0.5, 0.75, 1].map((t) => rampOf(EIGENTUMSART_FAMILY[e], t)),
     })),
   }
+}
+
+/**
+ * Kostenkennwerte: was die Anlagekosten je Bezugsgrösse ausmachen. Dieselben
+ * Spalten wie die Flächen- und Volumenkennwerte, damit sich die beiden
+ * Tabellen zeilenweise lesen lassen.
+ *
+ * Die Kosten kommen je Block (Etappe × Eigentumsart) aus derselben Rechnung
+ * wie überall im Bericht; für das Gesamtprojekt werden alle Blöcke summiert,
+ * für eine Etappe nur ihre.
+ */
+function kostenkennwerte(
+  gebaeude: VariantBuildingFull[],
+  etappeId: string | null,
+  mehrere: boolean,
+  bloecke: Map<string, BkpErgebnis>,
+  blockList: { etappeId: string | null; eig: Eigentumsart }[],
+) {
+  const spalten = [
+    ...(mehrere
+      ? EIG_ORDER
+          .filter((eig) => gebaeude.some((b) => eigentumsartForBuilding(b.use_type) === eig))
+          .map((eig) => ({ label: EIGENTUMSART_LABEL[eig], eigs: [eig] }))
+      : []),
+    { label: 'Total', eigs: EIG_ORDER },
+  ]
+
+  const werte = spalten.map(({ eigs }) => {
+    // Mengen der Spalte.
+    const haeuser = gebaeude.filter(
+      (b) => eigs.includes(eigentumsartForBuilding(b.use_type)))
+    let gf = 0, gv = 0, vmf = 0, wohnungen = 0
+    for (const b of haeuser) {
+      for (const m of b.mietflaechen) {
+        gf += m.gf_m2 || 0
+        gv += m.volumen_m3 || 0
+        vmf += m.flaeche_m2 || 0
+        if (isNutzungWohnen(m.nutzung)) wohnungen += m.anzahl ?? 0
+      }
+    }
+    // Kosten der Spalte: die Blöcke dieser Sicht und dieser Eigentumsarten.
+    let brutto = 0, grundstueck = 0, gebaeudeKosten = 0
+    for (const { etappeId: e, eig } of blockList) {
+      if (etappeId != null && e !== etappeId) continue
+      if (!eigs.includes(eig)) continue
+      const erg = bloecke.get(`${e}::${eig}`)
+      if (!erg) continue
+      for (let c = 0; c <= 9; c++) {
+        const k = c as keyof typeof erg.hauptgruppenSummenNetto
+        brutto += (erg.hauptgruppenSummenNetto[k] ?? 0) + (erg.hauptgruppenSummenMwst[k] ?? 0)
+      }
+      grundstueck += (erg.hauptgruppenSummenNetto[0] ?? 0) + (erg.hauptgruppenSummenMwst[0] ?? 0)
+      gebaeudeKosten += (erg.hauptgruppenSummenNetto[2] ?? 0) + (erg.hauptgruppenSummenMwst[2] ?? 0)
+    }
+    // Erstellungskosten sind die Anlagekosten ohne das Grundstück.
+    const erstellung = brutto - grundstueck
+    return {
+      brutto, erstellung, gebaeudeKosten, gf, gv, vmf, wohnungen,
+    }
+  })
+
+  const chf = (v: number) => (v > 0 ? formatNumber(Math.round(v)) : '—')
+  const je = (zaehler: number, nenner: number, einheit: string) =>
+    (nenner > 0 && zaehler > 0 ? `${formatNumber(Math.round(zaehler / nenner))} ${einheit}` : '—')
+
+  const zeilen: TabellenZeile[] = [
+    { zellen: ['Anlagekosten BKP 0–9 inkl. MWST', ...werte.map((w) => chf(w.brutto))] },
+    { zellen: ['Erstellungskosten BKP 1–9 inkl. MWST', ...werte.map((w) => chf(w.erstellung))] },
+    { zellen: ['Erstellungskosten / GF', ...werte.map((w) => je(w.erstellung, w.gf, 'CHF/m²'))] },
+    { zellen: ['Erstellungskosten / GV', ...werte.map((w) => je(w.erstellung, w.gv, 'CHF/m³'))] },
+    { zellen: ['Gebäude BKP 2 / GV', ...werte.map((w) => je(w.gebaeudeKosten, w.gv, 'CHF/m³'))] },
+    { zellen: ['Anlagekosten / VMF (VKF)', ...werte.map((w) => je(w.brutto, w.vmf, 'CHF/m²'))] },
+  ]
+  if (werte.some((w) => w.wohnungen > 0)) {
+    zeilen.push({
+      zellen: ['Anlagekosten je Wohnung', ...werte.map((w) => je(w.brutto, w.wohnungen, 'CHF'))],
+    })
+  }
+  return { kopf: ['Kennwert', ...spalten.map((sp) => sp.label)], zeilen }
 }
 
 /** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. */
