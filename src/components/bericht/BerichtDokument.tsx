@@ -107,8 +107,16 @@ export interface MengenSicht {
   gesamt: boolean
   /** Kennwerte der Flächen und ihre Verhältnisse, je Eigentumsart und total. */
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
-  /** Kostenkennwerte je Bezugsgrösse — dieselben Spalten wie die Flächen. */
-  kostenkennwerte: { kopf: string[]; zeilen: TabellenZeile[] }
+  /**
+   * Kostenkennwerte, dargestellt wie im Reiter Anlagekosten unter Benchmarks:
+   * je Eigentumsart ein Block mit seinen Bezugsgrössen, darunter Hauptgruppe
+   * für Hauptgruppe die Beträge und ihre Kennwerte.
+   */
+  kostenkennwerte: (EigBlock & {
+    bezug: Feld[]
+    kopf: string[]
+    zeilen: TabellenZeile[]
+  })[]
   /**
    * Je Eigentumsart die Häuser in je einer Zeile — steht den Geschossen voran.
    * Leer bei nur einem Haus und in den Etappensichten.
@@ -3067,20 +3075,33 @@ function kennwertBreiten(kopf: string[]): number[] {
 
 /**
  * Ein Block des Kapitels „Kennwerte". `sektion` steht nur beim ersten Block
- * einer Gruppe — sie bekommt dort ihren Balken; `titel` benennt die Sicht und
- * entfällt, wo es nur eine gibt.
+ * einer Gruppe — sie bekommt dort ihren Balken; `titel` benennt, was die
+ * Tabelle zeigt, und entfällt, wo der Sektionsbalken schon alles sagt.
  */
 interface KennwertBlock {
   sektion: string | null
   titel: string | null
+  titelFarbe?: string
+  /** Bezugsgrössen über der Tabelle; nur bei den Kostenkennwerten. */
+  bezug?: Feld[]
   kopf: string[]
+  /** Eigene Spaltenanteile; ohne Angabe die der Kennwerttabellen. */
+  breiten?: number[]
   zeilen: TabellenZeile[]
 }
 
+/**
+ * Spalten der Kostenkennwerte: links die Nummer, daneben die Hauptgruppe, dann
+ * Beträge und Kennwerte. Nicht die Anteile der Kennwerttabellen — dort trägt
+ * die erste Spalte einen ganzen Satz, hier nur eine Ziffer.
+ */
+const KOSTENKENNWERT_BREITEN = [0.5, 2.6, 1.3, 1.3, 1.1, 1.1]
+
 function kennwertHoehe(b: KennwertBlock): number {
-  const breiten = kennwertBreiten(b.kopf)
+  const breiten = b.breiten ?? kennwertBreiten(b.kopf)
   return (b.sektion ? MH.eigTitel : 0)
     + (b.titel ? MH.hausTitel : 0)
+    + (b.bezug ? MH.kopfzeile + MH.zeile : 0)
     + kopfHoehe(b.kopf, breiten) + MH.blockEnde + zeilenHoehe(b.zeilen, breiten)
 }
 
@@ -3093,22 +3114,33 @@ function kennwertBloecke(daten: BerichtDaten): KennwertBlock[] {
   const sichten = daten.mengen?.sichten ?? []
   const mehrere = sichten.length > 1
   const bloecke: KennwertBlock[] = []
-  const sektionen: [string, (x: MengenSicht) => { kopf: string[]; zeilen: TabellenZeile[] }][] = [
-    ['Flächen- und Volumenkennwerte', (x) => x.benchmarks],
-    ['Kostenkennwerte', (x) => x.kostenkennwerte],
-  ]
-  for (const [sektion, hol] of sektionen) {
-    let erste = true
-    for (const x of sichten) {
-      const t = hol(x)
-      if (t.zeilen.length === 0) continue
+
+  let erste = true
+  for (const x of sichten) {
+    if (x.benchmarks.zeilen.length === 0) continue
+    bloecke.push({
+      sektion: erste ? 'Flächen- und Volumenkennwerte' : null,
+      // Der Name der Sicht nur, wo es mehrere gibt — sonst sagt der
+      // Sektionsbalken darüber schon alles.
+      titel: mehrere ? (x.gesamt ? 'Gesamtprojekt' : x.titel) : null,
+      kopf: x.benchmarks.kopf,
+      zeilen: x.benchmarks.zeilen,
+    })
+    erste = false
+  }
+
+  erste = true
+  for (const x of sichten) {
+    for (const k of x.kostenkennwerte) {
       bloecke.push({
-        sektion: erste ? sektion : null,
-        // Der Name der Sicht nur, wo es mehrere gibt — sonst sagt der
-        // Sektionsbalken darüber schon alles.
-        titel: mehrere ? (x.gesamt ? 'Gesamtprojekt' : x.titel) : null,
-        kopf: t.kopf,
-        zeilen: t.zeilen,
+        sektion: erste ? 'Kostenkennwerte' : null,
+        // Je Eigentumsart ein Block; bei mehreren Sichten dazu deren Name.
+        titel: mehrere ? `${x.gesamt ? 'Gesamtprojekt' : x.titel} · ${k.label}` : k.label,
+        titelFarbe: k.farbe,
+        bezug: k.bezug,
+        kopf: k.kopf,
+        breiten: KOSTENKENNWERT_BREITEN,
+        zeilen: k.zeilen,
       })
       erste = false
     }
@@ -3157,12 +3189,26 @@ function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
           {bloecke.map((b, i) => (
             <View key={i}>
               {b.sektion && <Text style={s.h2}>{b.sektion}</Text>}
+              {b.titel && (
+                <Text style={titelStil(b.titelFarbe ?? BERICHT_FARBE.primaerMittel,
+                  Boolean(b.sektion))}>
+                  {b.titel}
+                </Text>
+              )}
+              {b.bezug && (
+                <Datentabelle
+                  kopf={b.bezug.map((f) => f.label)}
+                  breiten={b.bezug.map(() => 1)}
+                  // Alle Spalten links: die Bezugsgrössen stehen unter ihrer
+                  // Beschriftung, nicht am rechten Rand ihrer Spalte.
+                  linksBis={b.bezug.length}
+                  zeilen={[{ zellen: b.bezug.map((f) => `${f.wert} ${f.einheit ?? ''}`.trim()) }]}
+                />
+              )}
               <Datentabelle
-                titel={b.titel ?? undefined}
-                titelFarbe={b.titel ? BERICHT_FARBE.primaerMittel : undefined}
-                anschluss={Boolean(b.titel && b.sektion)}
                 kopf={b.kopf}
-                breiten={kennwertBreiten(b.kopf)}
+                breiten={b.breiten ?? kennwertBreiten(b.kopf)}
+                linksBis={1}
                 zeilen={b.zeilen}
               />
             </View>
