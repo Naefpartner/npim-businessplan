@@ -60,7 +60,7 @@ export function BerichtPage() {
 }
 
 function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId: string }) {
-  const { druckKapitel, anrede, umfang } = useBericht()
+  const { druckKapitel, anrede, umfang, etappenAuswahl } = useBericht()
   const { photos, thumbnailPhotoId } = useProjectPhotos(projektId)
   // Planausschnitte nach Thema: die Projektübersicht zeigt die amtliche
   // Vermessung, die Nutzungsberechnung den Zonenplan. Fehlt das Thema, tritt
@@ -111,7 +111,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const thumbnail = photos.find((p) => p.id === thumbnailPhotoId) ?? photos[0] ?? null
   const adresse = project ? projectAddressLine(project) : null
 
-  const mengen = useMengenDaten(variantId, umfang)
+  const mengen = useMengenDaten(variantId, umfang, etappenAuswahl)
   const nutzung = useNutzungDaten(project, parzellen, zonen, zonenplan?.publicUrl ?? null)
   const anlagekosten = useAnlagekostenDaten(variantId)
 
@@ -153,6 +153,10 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   // ── Sprungnavigation ───────────────────────────────────────────────────────
   // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.
   const kapitelSprung = useMemo(() => (daten ? berichtSeitenplan(daten) : []), [daten])
+  // Gemerkt wird das Kapitel, nicht die Seite: ändert sich der Umfang,
+  // verschieben sich die Seitenzahlen, und die Vorschau soll trotzdem stehen
+  // bleiben, wo man gerade liest.
+  const [zielKapitel, setZielKapitel] = useState<string | null>(null)
   const [zielSeite, setZielSeite] = useState(1)
 
   // Vergrösserung nur der Vorschau. Der Browser-Zoom skaliert die ganze
@@ -166,9 +170,14 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
     return naechste ?? jetzt
   })
 
-  // Ändert sich die Kapitelauswahl, verschieben sich die Seitenzahlen — die
-  // gemerkte Zielseite passt dann nicht mehr.
-  useEffect(() => { setZielSeite(1) }, [druckKapitel, umfang])
+  // Verschieben sich die Seitenzahlen, wandert die Zielseite mit dem Kapitel
+  // mit. Fällt das Kapitel weg, bleibt es beim Anfang.
+  useEffect(() => {
+    if (!zielKapitel) return
+    const e = kapitelSprung.find((k) => k.key === zielKapitel)
+    setZielSeite(e ? e.seite : 1)
+    if (!e) setZielKapitel(null)
+  }, [kapitelSprung, zielKapitel])
 
   // ── Herunterladen ──────────────────────────────────────────────────────────
   const [erzeugt, setErzeugt] = useState(false)
@@ -262,11 +271,13 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
             <button
               key={k.key}
               type="button"
-              onClick={() => setZielSeite(k.seite)}
+              onClick={() => { setZielKapitel(k.key); setZielSeite(k.seite) }}
               title={`Seite ${k.seite}`}
               className={cn(
                 'rounded-lg px-2.5 py-1 text-xs font-medium transition',
-                zielSeite === k.seite
+                // Hervorgehoben ist das gewählte Kapitel, nicht die Seitenzahl:
+                // beim Umschalten des Umfangs ändert sie sich, das Kapitel nicht.
+                (zielKapitel ? zielKapitel === k.key : zielSeite === k.seite)
                   ? 'bg-[#8B6956] text-white'
                   : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50',
               )}

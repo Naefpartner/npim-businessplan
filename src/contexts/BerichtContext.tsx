@@ -32,6 +32,13 @@ interface BerichtWert {
   /** Ob Kapitel mit Etappenbezug gesamt, je Etappe oder beides zeigen. */
   umfang: EtappenUmfang
   setUmfang: (u: EtappenUmfang) => void
+  /**
+   * Ausgewählte Etappen; leer bedeutet alle. Greift nur, wo Etappen gezeigt
+   * werden — bei „gesamt" bleibt die Wahl liegen, statt verloren zu gehen.
+   */
+  etappenAuswahl: string[]
+  etappeUmschalten: (id: string) => void
+  setEtappenAuswahl: (ids: string[]) => void
 }
 
 const Ctx = createContext<BerichtWert | null>(null)
@@ -54,7 +61,10 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
   const [auswahl, setAuswahl] = useState<string[]>(STANDARD_AUSWAHL)
   const [aktiveVorlage, setAktiveVorlage] = useState<BerichtVorlage | null>(null)
   const [anrede, setAnrede] = useState<AuftragAnrede>('Auftraggeberin')
-  const [umfang, setUmfang] = useState<EtappenUmfang>('beide')
+  // Standard ist das Gesamtprojekt: es steht in jedem Bericht, die Etappen
+  // sind der Zusatz.
+  const [umfang, setUmfang] = useState<EtappenUmfang>('gesamt')
+  const [etappenAuswahl, setEtappenAuswahl] = useState<string[]>([])
 
   // Beim Wechsel der Variante auf die Vorauswahl zurück — die Kapitel einer
   // anderen Variante sagen über diese nichts aus.
@@ -62,7 +72,13 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
     if (!kontext) return
     setAuswahl(STANDARD_AUSWAHL)
     setAktiveVorlage(null)
+    // Die Etappen einer anderen Variante gibt es hier nicht.
+    setEtappenAuswahl([])
   }, [kontext?.variantId])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const etappeUmschalten = useCallback((id: string) => {
+    setEtappenAuswahl((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
+  }, [])
 
   const umschalten = useCallback((key: string) => {
     setAuswahl((a) => (a.includes(key) ? a.filter((k) => k !== key) : sortiereKapitel([...a, key])))
@@ -85,8 +101,9 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
   const wert = useMemo<BerichtWert>(() => ({
     kontext, auswahl, druckKapitel, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
     anrede, setAnrede, umfang, setUmfang,
+    etappenAuswahl, etappeUmschalten, setEtappenAuswahl,
   }), [kontext, auswahl, druckKapitel, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
-       anrede, umfang])
+       anrede, umfang, etappenAuswahl, etappeUmschalten])
 
   return <Ctx.Provider value={wert}>{children}</Ctx.Provider>
 }

@@ -3,6 +3,7 @@ import { Loader2, Save, Trash2, Check, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useBericht } from '@/contexts/BerichtContext'
 import { useBerichtVorlagen } from '@/hooks/useBerichtVorlagen'
+import { useVariantEtappen } from '@/hooks/useVariantEtappen'
 import { BERICHT_KAPITEL, AUFTRAG_ANREDEN, ETAPPEN_UMFANG } from '@/lib/bericht'
 import { PRIMARY_DARK, PRIMARY_LIGHT } from '@/lib/ci'
 import { cn } from '@/lib/utils'
@@ -13,8 +14,12 @@ import { cn } from '@/lib/utils'
  */
 export function BerichtSidebarPanel() {
   const { canWrite } = useAuth()
-  const { auswahl, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
-          anrede, setAnrede, umfang, setUmfang } = useBericht()
+  const { kontext, auswahl, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
+          anrede, setAnrede, umfang, setUmfang,
+          etappenAuswahl, etappeUmschalten, setEtappenAuswahl } = useBericht()
+  // Etappen der Variante — nur wo es mehr als eine gibt, ist eine Auswahl
+  // überhaupt eine Frage.
+  const { etappen } = useVariantEtappen(kontext?.variantId)
   const { vorlagen, loading, speichern, loeschen } = useBerichtVorlagen()
 
   const [name, setName] = useState('')
@@ -104,6 +109,50 @@ export function BerichtSidebarPanel() {
           Gilt für Kapitel, die es gesamt und je Etappe gibt. Ohne zweite Etappe
           erscheint nur das Gesamtprojekt.
         </p>
+
+        {/* Welche Etappen — nur wo Etappen überhaupt gedruckt werden. */}
+        {umfang !== 'gesamt' && etappen.length > 1 && (
+          <div className="mt-3">
+            <div className="flex items-baseline justify-between">
+              <label className="text-[11px] text-slate-500">Welche Etappen</label>
+              {etappenAuswahl.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setEtappenAuswahl([])}
+                  className="text-[10px] text-slate-400 underline hover:text-slate-600"
+                >
+                  alle
+                </button>
+              )}
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {etappen.map((e) => {
+                // Leere Auswahl heisst alle — dann sind alle angehakt.
+                const an = etappenAuswahl.length === 0 || etappenAuswahl.includes(e.id)
+                return (
+                  <li key={e.id}>
+                    <button
+                      type="button"
+                      onClick={() => etappeUmschalten(e.id)}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition',
+                        an ? 'text-slate-700 hover:bg-slate-50' : 'text-slate-400 hover:bg-slate-50',
+                      )}
+                    >
+                      <span className={cn(
+                        'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border',
+                        an ? 'border-[#8B6956] bg-[#8B6956] text-white' : 'border-slate-300',
+                      )}>
+                        {an && <Check className="h-2.5 w-2.5" />}
+                      </span>
+                      {e.name}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
       </div>
 
       <h2 className="mt-5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">

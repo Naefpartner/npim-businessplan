@@ -80,6 +80,8 @@ function ertragVon(
  */
 export function useMengenDaten(
   variantId: string, umfang: EtappenUmfang,
+  /** Ausgewählte Etappen; leer heisst alle. */
+  etappenAuswahl: string[] = [],
 ): MengenDaten | undefined {
   const ak = useAnlagekostenShared()
   const { params: kostenmieteParams } = useKostenmiete(variantId)
@@ -118,8 +120,10 @@ export function useMengenDaten(
     if (ak.buildings.length === 0) return undefined
 
     const mehrere = ak.presentEig.length > 1
-    const etappenMitGebaeuden = ak.etappen.filter(
-      (e: VariantEtappe) => ak.buildings.some((b) => b.etappe_id === e.id))
+    const etappenMitGebaeuden = ak.etappen
+      .filter((e: VariantEtappe) => ak.buildings.some((b) => b.etappe_id === e.id))
+      // Leere Auswahl heisst alle — sonst nur die gewählten.
+      .filter((e: VariantEtappe) => etappenAuswahl.length === 0 || etappenAuswahl.includes(e.id))
     const proEtappe = etappenMitGebaeuden.length > 1 && umfang !== 'gesamt'
     const gesamt = !proEtappe || umfang === 'beide'
 
@@ -218,7 +222,7 @@ export function useMengenDaten(
       ...(proEtappe ? etappenMitGebaeuden.map((e) => sicht(e.name, e.id)) : []),
     ]
     return { sichten }
-  }, [ak, umfang, kostenmieteJeTyp, kostenmiete.wohnen])
+  }, [ak, umfang, etappenAuswahl, kostenmieteJeTyp, kostenmiete.wohnen])
 }
 
 /**
