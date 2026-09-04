@@ -164,36 +164,42 @@ export interface MietspiegelDaten {
 export interface AnlagekostenDaten {
   methode: 'benchmark' | 'keevalue' | 'detail'
   format: SeitenFormat
-  /**
-   * Zusammenstellung je Hauptgruppe. Fehlt bei der Detailberechnung: dort
-   * steht die Herleitung selbst, mit ihren eigenen Summen je Hauptgruppe.
-   */
-  summen?: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }
   /** Satz unter der Tabelle — woher die Kosten stammen. */
   hinweis: string | null
   /**
-   * Nur bei der Detailerfassung: die Beschriftung der Spalten, einmal für das
-   * ganze Blatt. Je Hauptgruppe wiederholt stünde sie zehnmal da.
-   */
-  kopf?: string[]
-  /**
-   * Nur bei der Detailerfassung: je Hauptgruppe ihre Positionen. Die Summen
-   * der Gruppe stehen in ihrem Titelbalken (`balken`), nicht in einer eigenen
-   * Zeile — das spart je Gruppe eine Zeile.
-   */
-  gruppen: {
-    code: string
-    label: string
-    balken: string[]
-    zeilen: TabellenZeile[]
-  }[]
-  /** Schlusszeile über alle Hauptgruppen. */
-  total?: string[]
-  /**
    * Bemerkungen zu den Kosten als ausgezeichneter Freitext — Abgrenzungen,
-   * ausgenommene Leistungen, Annahmen. Stehen unter der Tabelle.
+   * ausgenommene Leistungen, Annahmen. Stehen unter der letzten Tabelle.
    */
   bemerkungen?: Absatz[]
+  /** Ob mehr als eine Sicht gedruckt wird; dann trägt jede ihren Obertitel. */
+  mehrereSichten: boolean
+  /** Gesamtprojekt und/oder Etappen — je Sicht eine eigene Aufstellung. */
+  sichten: {
+    titel: string
+    /**
+     * Zusammenstellung je Hauptgruppe. Fehlt bei der Detailberechnung: dort
+     * steht die Herleitung selbst, mit ihren eigenen Summen je Hauptgruppe.
+     */
+    summen?: { titel: string; kopf: string[]; zeilen: TabellenZeile[] }
+    /**
+     * Nur bei der Detailerfassung: die Beschriftung der Spalten, einmal für
+     * die Sicht. Je Hauptgruppe wiederholt stünde sie zehnmal da.
+     */
+    kopf?: string[]
+    /**
+     * Nur bei der Detailerfassung: je Hauptgruppe ihre Positionen. Die Summen
+     * der Gruppe stehen in ihrem Titelbalken (`balken`), nicht in einer
+     * eigenen Zeile — das spart je Gruppe eine Zeile.
+     */
+    gruppen: {
+      code: string
+      label: string
+      balken: string[]
+      zeilen: TabellenZeile[]
+    }[]
+    /** Schlusszeile über alle Hauptgruppen. */
+    total?: string[]
+  }[]
 }
 
 /** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
@@ -2483,7 +2489,9 @@ const ANLAGE_SUMMEN = [0.5, 3.0, 1.3, 1.1, 1.3, 0.7]
 const ANLAGE_DETAIL = [9, 109, 17, 24, 21, 20, 19, 20, 13]
 
 type AnlageElement = Umbruchpunkt & (
-  | { art: 'summen' }
+  /** Obertitel einer Sicht — nur, wenn mehr als eine gedruckt wird. */
+  | { art: 'sicht'; titel: string }
+  | { art: 'summen'; titel: string; kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'hinweis'; text: string }
   | { art: 'bemerkungen'; absaetze: Absatz[] }
   /** Die Spaltenbeschriftung, einmal je Spalte. */
@@ -2495,12 +2503,14 @@ type AnlageElement = Umbruchpunkt & (
 )
 
 /** Höhe eines Bausteins; `breite` ist die Spalte, in der er steht. */
-function anlageHoehe(e: AnlageElement, a: AnlagekostenDaten, breite: number): number {
+function anlageHoehe(e: AnlageElement, breite: number): number {
   const grad = SCHRIFT.klein / SCHRIFT.grund
   switch (e.art) {
+    case 'sicht':
+      return MH.eigTitel
     case 'summen':
-      return MH.eigTitel + kopfHoehe(a.summen?.kopf ?? [], ANLAGE_SUMMEN, 3, breite)
-        + MH.blockEnde + zeilenHoehe(a.summen?.zeilen ?? [], ANLAGE_SUMMEN, 3, breite)
+      return MH.eigTitel + kopfHoehe(e.kopf, ANLAGE_SUMMEN, 3, breite)
+        + MH.blockEnde + zeilenHoehe(e.zeilen, ANLAGE_SUMMEN, 3, breite)
     case 'hinweis':
       return textZeilen(e.text, breite - EINZUG, 1) * MH.zeile + MH.blockEnde
     case 'bemerkungen':
@@ -2523,29 +2533,39 @@ function anlageHoehe(e: AnlageElement, a: AnlagekostenDaten, breite: number): nu
 
 /** Bausteine des Kapitels in Druckreihenfolge. */
 function anlageElemente(a: AnlagekostenDaten): AnlageElement[] {
-  return [
+  const el: AnlageElement[] = []
+  for (const sicht of a.sichten) {
+    if (a.mehrereSichten) {
+      el.push({ art: 'sicht', titel: sicht.titel,
+        key: `anlagekosten:sicht:${sicht.titel}`, label: sicht.titel })
+    }
     // Die Zusammenstellung trägt nur, wo es keine Herleitung gibt; bei der
     // Detailberechnung stünde sie über ihren eigenen Summen.
-    ...(a.summen
-      ? [{ art: 'summen', key: 'anlagekosten:summen', label: a.summen.titel } as AnlageElement]
-      : []),
-    ...(a.hinweis
-      ? [{ art: 'hinweis', text: a.hinweis, key: '', label: 'Hinweis' } as AnlageElement]
-      : []),
-    ...(a.kopf ? [kopfElement(a.kopf)] : []),
-    ...a.gruppen.map((g): AnlageElement => ({
-      art: 'gruppe', balken: g.balken, zeilen: g.zeilen,
-      key: `anlagekosten:gruppe:${g.code}`, label: `${g.code} ${g.label}`,
-    })),
-    ...(a.total
-      ? [{ art: 'balken', zellen: a.total, stark: true, key: '',
-        label: 'Total' } as AnlageElement]
-      : []),
-    ...(a.bemerkungen
-      ? [{ art: 'bemerkungen', absaetze: a.bemerkungen,
-        key: 'anlagekosten:bemerkungen', label: 'Bemerkungen' } as AnlageElement]
-      : []),
-  ]
+    if (sicht.summen) {
+      el.push({
+        art: 'summen', titel: sicht.summen.titel, kopf: sicht.summen.kopf,
+        zeilen: sicht.summen.zeilen,
+        key: `anlagekosten:summen:${sicht.titel}`, label: sicht.summen.titel,
+      })
+    }
+    if (sicht.kopf) el.push(kopfElement(sicht.kopf))
+    for (const g of sicht.gruppen) {
+      el.push({
+        art: 'gruppe', balken: g.balken, zeilen: g.zeilen,
+        key: `anlagekosten:gruppe:${sicht.titel}:${g.code}`,
+        label: `${g.code} ${g.label}`,
+      })
+    }
+    if (sicht.total) {
+      el.push({ art: 'balken', zellen: sicht.total, stark: true, key: '', label: 'Total' })
+    }
+  }
+  if (a.hinweis) el.push({ art: 'hinweis', text: a.hinweis, key: '', label: 'Hinweis' })
+  if (a.bemerkungen) {
+    el.push({ art: 'bemerkungen', absaetze: a.bemerkungen,
+      key: 'anlagekosten:bemerkungen', label: 'Bemerkungen' })
+  }
+  return el
 }
 
 /** Die Beschriftung der Spalten; sie wiederholt sich auf jeder Folgeseite. */
@@ -2569,6 +2589,8 @@ function anlagekostenSeiten(
   const elemente = anlageElemente(a)
   const hoeheJeSpalte = seitenHoehe(a.format)
   const breite = satzBreite(a.format)
+  // Beschriftung der Detailtabellen; sie wiederholt sich auf jeder Folgeseite.
+  const kopf = a.sichten.find((x) => x.kopf)?.kopf
 
   const seiten: AnlageSeite[] = []
   let laufend: AnlageElement[] = []
@@ -2580,14 +2602,14 @@ function anlagekostenSeiten(
     laufend = []
     hoehe = 0
     // Ohne Beschriftung stünden die Zahlen der Folgeseite ohne Bezug da.
-    if (a.kopf) {
-      const k = kopfElement(a.kopf)
+    if (kopf) {
+      const k = kopfElement(kopf)
       laufend.push(k)
-      hoehe += anlageHoehe(k, a, breite)
+      hoehe += anlageHoehe(k, breite)
     }
   }
   function lege(e: AnlageElement) {
-    const h = anlageHoehe(e, a, breite)
+    const h = anlageHoehe(e, breite)
     if (laufend.length > 0 && (gesetzt.has(e.key) || hoehe + h > hoeheJeSpalte)) neueSpalte()
     laufend.push(e)
     hoehe += h
@@ -2595,7 +2617,7 @@ function anlagekostenSeiten(
 
   for (const e of elemente) {
     if (e.art !== 'gruppe') { lege(e); continue }
-    if (anlageHoehe(e, a, breite) <= hoeheJeSpalte) { lege(e); continue }
+    if (anlageHoehe(e, breite) <= hoeheJeSpalte) { lege(e); continue }
     // Zu hoch für eine ganze Spalte: zeilenweise aufteilen.
     const rahmen = MH.titelK + MH.blockEndeK
     let rest = e.zeilen
@@ -2604,7 +2626,7 @@ function anlagekostenSeiten(
       const platz = hoeheJeSpalte - hoehe - rahmen
       let passt = 0
       while (passt < rest.length
-        && anlageHoehe({ ...e, zeilen: rest.slice(0, passt + 1) }, a, breite) - rahmen <= platz) {
+        && anlageHoehe({ ...e, zeilen: rest.slice(0, passt + 1) }, breite) - rahmen <= platz) {
         passt++
       }
       if (passt < 3 && laufend.length > 0) { neueSpalte(); continue }
@@ -2628,20 +2650,25 @@ function anlagekostenSeiten(
 
 function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: AnlagekostenDaten }) {
   const t: Tabelle = {
-    kopf: a.kopf ?? [], zeilen: [], breiten: ANLAGE_DETAIL, linksBis: 2, spaltenAbstand: 2,
+    kopf: a.sichten.find((x) => x.kopf)?.kopf ?? [],
+    zeilen: [], breiten: ANLAGE_DETAIL, linksBis: 2, spaltenAbstand: 2,
   }
   return (
     <>
       {elemente.map((e, i) => {
-        if (e.art === 'summen' && a.summen) {
+        if (e.art === 'sicht') {
+          return <Text key={i} style={s.h2}>{e.titel}</Text>
+        }
+        if (e.art === 'summen') {
           return (
             <Datentabelle
               key={i}
-              titel={a.summen.titel}
-              kopf={a.summen.kopf}
+              titel={e.titel}
+              anschluss={a.mehrereSichten}
+              kopf={e.kopf}
               breiten={ANLAGE_SUMMEN}
               linksBis={1}
-              zeilen={a.summen.zeilen}
+              zeilen={e.zeilen}
             />
           )
         }
