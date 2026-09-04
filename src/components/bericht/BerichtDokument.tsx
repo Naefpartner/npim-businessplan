@@ -1340,6 +1340,10 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     const gesetzt = umbruchSet(daten)
     return sichten.reduce((a, x) => a + sichtSeiten(x, gesetzt), 0)
   }
+  if (key === 'benchmarks') {
+    const seiten = benchmarkSeiten(daten).length
+    return seiten > 0 ? seiten : 1
+  }
   if (key === 'wohnungsmix') {
     const sichten = daten.mengen?.sichten ?? []
     const seiten = sichten.reduce((a, x) => a + mixSeiten(x), 0)
@@ -2159,7 +2163,6 @@ function seitenHoehe(format: SeitenFormat): number {
 }
 
 type MengenElement = Umbruchpunkt & (
-  | { art: 'benchmarks'; kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'uebersicht'; block: EigBlock; titel: string
       kopf: string[]; zeilen: TabellenZeile[] }
   | { art: 'eigTitel'; block: EigBlock; kopf: string[] }
@@ -2170,11 +2173,6 @@ type MengenElement = Umbruchpunkt & (
 
 function hoeheVon(e: MengenElement): number {
   switch (e.art) {
-    case 'benchmarks': {
-      const breiten = [2.4, ...e.kopf.slice(1).map(() => 1.2)]
-      return MH.eigTitel + kopfHoehe(e.kopf, breiten) + MH.blockEnde
-        + zeilenHoehe(e.zeilen, breiten)
-    }
     // Die Übersicht steht unter dem Balken der Eigentumsart und hält deshalb
     // nur den knappen Vorabstand, wie die Häuser darunter.
     case 'uebersicht':
@@ -2292,10 +2290,6 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
       key: '', label: eig.label,
     })
   }
-  lege({
-    art: 'benchmarks', kopf: sicht.benchmarks.kopf, zeilen: sicht.benchmarks.zeilen,
-    key: `${sk}:benchmarks`, label: 'Benchmarks',
-  })
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
 }
@@ -2402,17 +2396,6 @@ function MengenSeite({
         <KapitelTitel nummer={nummer} text={sichtTitel('Mengen und Erträge', sicht)} />
       )}
       {elemente.map((e, i) => {
-        if (e.art === 'benchmarks') {
-          return (
-            <Datentabelle
-              key={i}
-              titel="Benchmarks"
-              kopf={e.kopf}
-              breiten={[2.4, ...e.kopf.slice(1).map(() => 1.2)]}
-              zeilen={e.zeilen}
-            />
-          )
-        }
         if (e.art === 'uebersicht') {
           return (
             <Datentabelle
@@ -3075,6 +3058,82 @@ function KapitelPlatzhalter({
   )
 }
 
+/** Spaltenanteile der Benchmarktabelle — Kennwert links, je Sicht eine Spalte. */
+function benchmarkBreiten(kopf: string[]): number[] {
+  return [2.4, ...kopf.slice(1).map(() => 1.2)]
+}
+
+/** Höhe eines Benchmarkblocks samt Titelbalken. */
+function benchmarkHoehe(b: { kopf: string[]; zeilen: TabellenZeile[] }): number {
+  const breiten = benchmarkBreiten(b.kopf)
+  return MH.eigTitel + kopfHoehe(b.kopf, breiten) + MH.blockEnde + zeilenHoehe(b.zeilen, breiten)
+}
+
+/** Je Sicht ein Block; ohne Etappen bleibt es beim Gesamtprojekt. */
+function benchmarkBloecke(daten: BerichtDaten) {
+  return (daten.mengen?.sichten ?? [])
+    .filter((x) => x.benchmarks.zeilen.length > 0)
+    .map((x) => ({
+      // Die Gesamtsicht braucht keinen Namen — sie ist der Bericht selbst.
+      titel: x.gesamt ? 'Kennwerte' : x.titel,
+      kopf: x.benchmarks.kopf,
+      zeilen: x.benchmarks.zeilen,
+    }))
+}
+
+function benchmarkSeiten(daten: BerichtDaten): ReturnType<typeof benchmarkBloecke>[] {
+  const seiten: ReturnType<typeof benchmarkBloecke>[] = []
+  let laufend: ReturnType<typeof benchmarkBloecke> = []
+  let hoehe = MH.h1
+  for (const b of benchmarkBloecke(daten)) {
+    const h = benchmarkHoehe(b)
+    if (laufend.length > 0 && hoehe + h > SEITENHOEHE) {
+      seiten.push(laufend)
+      laufend = []
+      hoehe = 0
+    }
+    laufend.push(b)
+    hoehe += h
+  }
+  if (laufend.length > 0) seiten.push(laufend)
+  return seiten
+}
+
+/**
+ * Kapitel „Benchmarks": die Kennwerte der Mengen — Flächen, Volumen und ihre
+ * Verhältnisse. Sie standen bisher am Ende der Mengentabellen; dort gingen sie
+ * zwischen den Häusern unter.
+ */
+function BenchmarkKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
+  const seiten = benchmarkSeiten(daten)
+  if (seiten.length === 0) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <KapitelTitel nummer={nummer} text="Benchmarks" />
+        <Text style={s.hinweis}>Für diese Variante sind keine Mengen erfasst.</Text>
+      </InhaltsSeite>
+    )
+  }
+  return (
+    <>
+      {seiten.map((bloecke, n) => (
+        <InhaltsSeite key={n} daten={daten} seite={seite + n} seitenTotal={seitenTotal}>
+          {n === 0 && <KapitelTitel nummer={nummer} text="Benchmarks" />}
+          {bloecke.map((b, i) => (
+            <Datentabelle
+              key={i}
+              titel={b.titel}
+              kopf={b.kopf}
+              breiten={benchmarkBreiten(b.kopf)}
+              zeilen={b.zeilen}
+            />
+          ))}
+        </InhaltsSeite>
+      ))}
+    </>
+  )
+}
+
 /**
  * Kapitel „Wohnungsmix": je Sicht die Verteilung nach Zimmerzahl und darunter
  * der Mietspiegel. Beide zeigen denselben Bestand — einmal als Anteil, einmal
@@ -3121,6 +3180,7 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
     case 'stammdaten':        return <NutzungKapitel {...rest} />
     case 'anlagekosten':      return <AnlagekostenKapitel {...rest} />
     case 'wohnungsmix':       return <WohnungsmixKapitel {...rest} />
+    case 'benchmarks':        return <BenchmarkKapitel {...rest} />
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
