@@ -639,30 +639,36 @@ function kostenkennwerte(
     const m = mengen(eigs)
     const k = kosten(eigs)
     if (k.every((x) => x.netto === 0 && x.brutto === 0)) return null
-    const zeile = (
-      titel: string, einheit: string | null, bezug: string,
-      wert: (betrag: number) => string,
-    ) => ({
-      label: titel,
-      einheit,
-      bezug,
-      werte: k.flatMap((x) => [wert(x.netto), wert(x.brutto)]),
-    })
+
+    // Die Kennzahlen stehen als Spalten, die BKP-Bereiche als Zeilen: so
+    // bleibt die Tabelle schmal und passt neben die übrigen Blöcke auf ein
+    // Blatt. Umgekehrt — Bereiche als Spalten — bräuchte sie zwölf Spalten.
+    const kennzahlen: { kopf: string; bezug: string; wert: (b: number) => string }[] = [
+      { kopf: 'Anlagekosten', bezug: 'CHF', wert: (b) => zahl(b) },
+      { kopf: 'CHF/m² GF', bezug: `${zahl(m.gf)} m²`, wert: (b) => je(b, m.gf) },
+      { kopf: 'CHF/m³ GV', bezug: `${zahl(m.gv)} m³`, wert: (b) => je(b, m.gv) },
+      { kopf: 'CHF/m² VMF (VKF)', bezug: `${zahl(m.vmf)} m²`, wert: (b) => je(b, m.vmf) },
+      ...(m.wohnungen > 0
+        ? [{ kopf: 'CHF/Whg', bezug: `${zahl(m.wohnungen)} Whg`,
+          wert: (b: number) => je(b, m.wohnungen) }]
+        : []),
+    ]
+
+    const zeilen: TabellenZeile[] = [
+      // Worauf geteilt wird, gleich unter der Beschriftung.
+      { einzug: true, zellen: ['Bezug', ...kennzahlen.map((x) => x.bezug)] },
+      ...KOSTEN_BEREICHE.flatMap((b, i) => [
+        { zellen: [`${b.label} exkl. MWST`, ...kennzahlen.map((x) => x.wert(k[i].netto))] },
+        { zellen: [`${b.label} inkl. MWST`, ...kennzahlen.map((x) => x.wert(k[i].brutto))] },
+      ]),
+    ]
+
     return {
       key: eigs.length === 1 ? eigs[0] : 'gesamt',
       label,
       farbe,
-      bereiche: KOSTEN_BEREICHE.map((b) => b.label),
-      zeilen: [
-        zeile('Anlagekosten', null, 'CHF', (b) => zahl(b)),
-        zeile('Kosten / m² GF', 'CHF/m²', `${zahl(m.gf)} m²`, (b) => je(b, m.gf)),
-        zeile('Kosten / m³ GV', 'CHF/m³', `${zahl(m.gv)} m³`, (b) => je(b, m.gv)),
-        zeile('Kosten / m² VMF (VKF)', 'CHF/m²', `${zahl(m.vmf)} m²`, (b) => je(b, m.vmf)),
-        ...(m.wohnungen > 0
-          ? [zeile('Kosten / Wohnung', 'CHF/Whg', `${zahl(m.wohnungen)} Whg`,
-            (b) => je(b, m.wohnungen))]
-          : []),
-      ],
+      kopf: ['Kostenbasis', ...kennzahlen.map((x) => x.kopf)],
+      zeilen,
     }
   }
 
