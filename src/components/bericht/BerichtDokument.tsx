@@ -3178,11 +3178,11 @@ function kennwertSeiten(daten: BerichtDaten): KennwertBlock[][] {
 }
 
 /**
- * Format des Kapitels. Die Kostenkennwerte tragen sechs Spalten und elf Zeilen
- * je Eigentumsart — auf A3 stehen sie mit den Flächenkennwerten zusammen auf
- * einem Blatt.
+ * Format des Kapitels. Sechs Spalten kommen mit A4 aus, seit die Kennzahlen
+ * oben und die Kostenbasen links stehen — quer gelegt brauchte die Matrix
+ * zwölf Spalten und ein grösseres Blatt.
  */
-const KENNWERT_FORMAT: SeitenFormat = 'a3'
+const KENNWERT_FORMAT: SeitenFormat = 'a4'
 
 /**
  * Kompakt gesetzte Kennwerttabelle: 8 pt, engere Zeilen — wie die
