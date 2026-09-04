@@ -120,11 +120,19 @@ export function useMengenDaten(
     if (ak.buildings.length === 0) return undefined
 
     const mehrere = ak.presentEig.length > 1
-    const etappenMitGebaeuden = ak.etappen
-      .filter((e: VariantEtappe) => ak.buildings.some((b) => b.etappe_id === e.id))
-      // Leere Auswahl heisst alle — sonst nur die gewählten.
-      .filter((e: VariantEtappe) => etappenAuswahl.length === 0 || etappenAuswahl.includes(e.id))
-    const proEtappe = etappenMitGebaeuden.length > 1 && umfang !== 'gesamt'
+    const mitGebaeuden = ak.etappen.filter(
+      (e: VariantEtappe) => ak.buildings.some((b) => b.etappe_id === e.id))
+    // Leere Auswahl heisst alle — sonst nur die gewählten.
+    const etappenMitGebaeuden = mitGebaeuden.filter(
+      (e: VariantEtappe) => etappenAuswahl.length === 0 || etappenAuswahl.includes(e.id))
+    /*
+     * Ob Etappen gezeigt werden, entscheidet die Variante, nicht die Auswahl:
+     * gibt es nur eine Etappe, wäre ihre Sicht dieselbe Tabelle ein zweites
+     * Mal. Wählt jemand aus mehreren aber genau eine, ist das ein Entscheid —
+     * dann steht diese eine da, und nicht wieder das Gesamtprojekt.
+     */
+    const proEtappe = mitGebaeuden.length > 1 && umfang !== 'gesamt'
+      && etappenMitGebaeuden.length > 0
     const gesamt = !proEtappe || umfang === 'beide'
 
 
