@@ -3,10 +3,8 @@ import { ExternalLink } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useVariantTab } from '@/contexts/VariantTabContext'
-import {
-  eigentumsartForBuilding, isNutzungWohnen, WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL,
-} from '@/types'
-import { isGarageNutzung } from '@/lib/bkp2'
+import { WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL } from '@/types'
+import { sammleNebenNutzungen, sammleWohnungsmix, wbfMenge } from '@/lib/wohnbaufoerderung'
 import { CHART_PALETTE } from '@/lib/ci'
 import { USE_TYPE_COLOR_1 } from '@/lib/kategorieFarben'
 import { berechneWbf, defaultNutzungRate } from '@/lib/wbf'
@@ -18,10 +16,6 @@ import { cn, formatNumber } from '@/lib/utils'
 const EIG: 'genossenschaft' = 'genossenschaft'
 // Sehr heller Grünton (CI Genossenschaft, Stufe 1) für Zwischenresultate/Totale.
 const HILITE = USE_TYPE_COLOR_1.genossenschaft
-
-function isParkNutzung(n: string): boolean {
-  return isGarageNutzung(n) || /\bpp\b|parkpl|parkplatz|tiefgarage|einstellh|autoeinstell/i.test(n)
-}
 
 export function WbfZhBerechnung({ variantId }: { variantId: string }) {
   const ak = useAnlagekostenShared()
@@ -40,41 +34,18 @@ export function WbfZhBerechnung({ variantId }: { variantId: string }) {
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
   const isKons = tabKey === 'konsolidiert'
 
-  // Wohnungsmix der Genossenschaft aus den Mengen (Konsolidiert oder Etappe).
-  const mix = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const k of WOHNUNGSMIX_KEYS) m[k as string] = 0
-    for (const b of ak.buildings) {
-      if (eigentumsartForBuilding(b.use_type) !== EIG) continue
-      if (!isKons && b.etappe_id !== tabKey) continue
-      for (const mf of b.mietflaechen) {
-        if (!isNutzungWohnen(mf.nutzung) || !mf.wohnungsmix) continue
-        for (const k of WOHNUNGSMIX_KEYS) m[k as string] += mf.wohnungsmix[k] ?? 0
-      }
-    }
-    return m
-  }, [ak.buildings, isKons, tabKey])
-
-  // Nicht-Wohn-Nutzungen (Genossenschaft) aus den Mengen: Menge = VMF (m²),
-  // bei Parkplätzen = Stk. Gruppiert nach Nutzungsbezeichnung.
-  const nebenNutzungen = useMemo(() => {
-    const map = new Map<string, { nutzung: string; isPark: boolean; menge: number }>()
-    for (const b of ak.buildings) {
-      if (eigentumsartForBuilding(b.use_type) !== EIG) continue
-      if (!isKons && b.etappe_id !== tabKey) continue
-      for (const mf of b.mietflaechen) {
-        if (isNutzungWohnen(mf.nutzung)) continue
-        const name = (mf.nutzung || '').trim() || '(ohne Nutzung)'
-        const park = isParkNutzung(name)
-        const menge = park ? (mf.anzahl || 0) : (mf.flaeche_m2 || 0)
-        if (menge <= 0) continue
-        const e = map.get(name) ?? { nutzung: name, isPark: park, menge: 0 }
-        e.menge += menge
-        map.set(name, e)
-      }
-    }
-    return [...map.values()].sort((a, b) => Number(a.isPark) - Number(b.isPark) || a.nutzung.localeCompare(b.nutzung))
-  }, [ak.buildings, isKons, tabKey])
+  // Wohnungsmix und die übrigen Nutzungen der Genossenschaft aus den Mengen —
+  // dieselben Funktionen, aus denen auch das Berichtskapitel liest.
+  const mix = useMemo(
+    () => sammleWohnungsmix(ak.buildings, isKons ? null : tabKey),
+    [ak.buildings, isKons, tabKey],
+  )
+  const nebenNutzungen = useMemo(
+    () => sammleNebenNutzungen(ak.buildings, isKons ? null : tabKey)
+      .map((n) => ({ ...n, menge: wbfMenge(n) }))
+      .filter((n) => n.menge > 0),
+    [ak.buildings, isKons, tabKey],
+  )
 
   const nebenKosten = nebenNutzungen.map((n) => {
     const rate = p.nutzungRates[n.nutzung] ?? defaultNutzungRate(n.nutzung, n.isPark)
@@ -86,7 +57,11 @@ export function WbfZhBerechnung({ variantId }: { variantId: string }) {
   // Investition = gesamte Anlagekosten inkl. Land; Erstellung = ohne Land,
   // d. h. Anlagekosten abzüglich Position 010 (Grundstückserwerb).
   const { geplantErstellung, geplantInvestition } = useMemo(() => {
-    const erg = isKons ? ak.konsolidiert.get(EIG)?.ergebnis : ak.blockErgebnisse.get(`${tabKey}::${EIG}`)
+    // Der Stand, auf dem gerechnet wird — also die in den Anlagekosten
+    // gewählte Erfassungsmethode, nicht nur der Detailkatalog.
+    const erg = isKons
+      ? ak.konsolidiertEffektiv.get(EIG)
+      : ak.blockErgebnisseEffektiv.get(`${tabKey}::${EIG}`)
     if (!erg) return { geplantErstellung: 0, geplantInvestition: 0 }
     const p010 = erg.positionen['010']
     const pos010Brutto = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
@@ -94,7 +69,7 @@ export function WbfZhBerechnung({ variantId }: { variantId: string }) {
       geplantInvestition: erg.totalBrutto,
       geplantErstellung: erg.totalBrutto - pos010Brutto,
     }
-  }, [ak.konsolidiert, ak.blockErgebnisse, isKons, tabKey])
+  }, [ak.konsolidiertEffektiv, ak.blockErgebnisseEffektiv, isKons, tabKey])
 
   const r = berechneWbf(mix, p, nebenTotal, geplantErstellung, geplantInvestition)
   const presentKeys = WOHNUNGSMIX_KEYS.filter((k) => (mix[k as string] || 0) > 0)

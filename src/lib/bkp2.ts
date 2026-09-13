@@ -57,6 +57,16 @@ export function isGarageNutzung(nutzung: string): boolean {
 }
 
 /**
+ * Erkennt Nutzungen, die je Stück vermietet oder gerechnet werden —
+ * Parkplätze, Einstellhallen, Abstellplätze. Weiter gefasst als
+ * `isGarageNutzung`, das nur die Zuordnung zur BKP-2-Zeile trifft.
+ */
+export function isParkNutzung(nutzung: string): boolean {
+  return isGarageNutzung(nutzung)
+    || /\bpp\b|parkpl|parkplatz|tiefgarage|einstellh|autoeinstell|abstellplatz/i.test(nutzung)
+}
+
+/**
  * Ordnet eine Mietflächen-Zeile einer BKP-2-Zeile zu:
  *   - Parking/Garage          → Tiefgarage
  *   - sonst unterirdisch       → Unterirdisch (Keller, Nebenräume)

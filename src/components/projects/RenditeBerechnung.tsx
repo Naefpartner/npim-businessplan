@@ -1,19 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
-import { eigentumsartForBuilding } from '@/types'
-import { isGarageNutzung } from '@/lib/bkp2'
 import { USE_TYPE_COLOR_1 } from '@/lib/kategorieFarben'
 import { useRendite } from '@/hooks/useRendite'
-import { berechneRendite } from '@/lib/rendite'
+import { berechneRendite, investitionAusErgebnis, sammleRenditeMengen } from '@/lib/rendite'
 import { useUndoableSetter } from '@/contexts/UndoContext'
 import { cn, formatNumber } from '@/lib/utils'
 
 const EIG: 'renditeobjekt' = 'renditeobjekt'
 const HILITE = USE_TYPE_COLOR_1.renditeobjekt // heller Blauton für Zwischensummen
-
-function isParkNutzung(n: string): boolean {
-  return isGarageNutzung(n) || /\bpp\b|parkpl|parkplatz|tiefgarage|einstellh|autoeinstell|abstellplatz/i.test(n)
-}
 
 export function RenditeBerechnung({
   variantId, mode = 'rendite', etappeId = null,
@@ -28,55 +22,21 @@ export function RenditeBerechnung({
   const setParams = useUndoableSetter(p, setParamsRaw, mode === 'residual' ? 'Residualwert' : 'Renditeberechnung', `rendite:${variantId}`)
 
   // Mietertrag SOLL je Nutzung aus den Mengen (Renditeobjekte) + Total-VMF.
-  const { ertraege, totalVmf } = useMemo(() => {
-    const map = new Map<string, { nutzung: string; isPark: boolean; vmf: number; stk: number; ertrag: number }>()
-    let totalVmf = 0
-    for (const b of ak.buildings) {
-      if (eigentumsartForBuilding(b.use_type) !== EIG) continue
-      if (etappeId != null && b.etappe_id !== etappeId) continue
-      for (const mf of b.mietflaechen) {
-        const fl = mf.flaeche_m2 || 0
-        const anz = mf.anzahl || 0
-        totalVmf += fl
-        const ertrag = (mf.miete_chf_pa || 0)
-          || (mf.miete_chf_m2_pa ? mf.miete_chf_m2_pa * fl : 0)
-          || (mf.miete_chf_stk_mt ? mf.miete_chf_stk_mt * anz * 12 : 0)
-        if (ertrag <= 0) continue
-        const name = (mf.nutzung || '').trim() || '(ohne Nutzung)'
-        const isPark = isParkNutzung(name) || (fl <= 0 && anz > 0)
-        const e = map.get(name) ?? { nutzung: name, isPark, vmf: 0, stk: 0, ertrag: 0 }
-        e.vmf += fl
-        e.stk += anz
-        e.ertrag += ertrag
-        map.set(name, e)
-      }
-    }
-    return {
-      ertraege: [...map.values()].sort((a, b) => Number(a.isPark) - Number(b.isPark) || b.ertrag - a.ertrag),
-      totalVmf,
-    }
-  }, [ak.buildings, etappeId])
+  const { ertraege, totalVmf } = useMemo(
+    () => sammleRenditeMengen(ak.buildings, etappeId),
+    [ak.buildings, etappeId],
+  )
 
   const mietertragSoll = ertraege.reduce((s, e) => s + e.ertrag, 0)
 
-  // Anlagekosten Renditeobjekt (konsolidiert) brutto — aus der Erfassungsmethode,
-  // die in den Anlagekosten gewählt ist (Detailkatalog oder keeValue).
-  const { investition, erstellung } = useMemo(() => {
-    const erg = etappeId == null
+  // Anlagekosten Renditeobjekt brutto — aus der Erfassungsmethode, die in den
+  // Anlagekosten gewählt ist (Detailkatalog oder keeValue).
+  const { investition, erstellung } = useMemo(
+    () => investitionAusErgebnis(etappeId == null
       ? ak.konsolidiertEffektiv.get(EIG)
-      : ak.blockErgebnisseEffektiv.get(`${etappeId}::${EIG}`)
-    if (!erg) return { investition: 0, erstellung: 0 }
-    let inv = 0
-    for (let c = 0; c <= 9; c++) {
-      const key = c as keyof typeof erg.hauptgruppenSummenNetto
-      inv += (erg.hauptgruppenSummenNetto[key] ?? 0) + (erg.hauptgruppenSummenMwst[key] ?? 0)
-    }
-    // „Anlagekosten exkl. Grundstück": nur Position 010 (Grundstück) herausrechnen
-    // (die übrigen Positionen der HG 0 bleiben drin).
-    const p010 = erg.positionen['010']
-    const land = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
-    return { investition: inv, erstellung: inv - land }
-  }, [ak.konsolidiertEffektiv, ak.blockErgebnisseEffektiv, etappeId])
+      : ak.blockErgebnisseEffektiv.get(`${etappeId}::${EIG}`)),
+    [ak.konsolidiertEffektiv, ak.blockErgebnisseEffektiv, etappeId],
+  )
 
   // Grundstücksfläche des Reiters: konsolidiert die ganze Parzelle, auf
   // Etappenebene der Anteil, der in den Landkosten dieses Blocks steckt.

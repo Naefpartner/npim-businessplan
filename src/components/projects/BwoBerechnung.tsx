@@ -2,10 +2,8 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useVariantTab } from '@/contexts/VariantTabContext'
-import {
-  eigentumsartForBuilding, isNutzungWohnen, WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL,
-} from '@/types'
-import { isGarageNutzung } from '@/lib/bkp2'
+import { WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL } from '@/types'
+import { sammleNebenNutzungen, sammleWohnungsmix } from '@/lib/wohnbaufoerderung'
 import { USE_TYPE_COLOR_1 } from '@/lib/kategorieFarben'
 import { berechneBwo, defaultWohnLimit, defaultNutzungLimit } from '@/lib/bwo'
 import { useBwo } from '@/hooks/useBwo'
@@ -15,10 +13,6 @@ import { cn, formatNumber } from '@/lib/utils'
 
 const EIG: 'genossenschaft' = 'genossenschaft'
 const HILITE = USE_TYPE_COLOR_1.genossenschaft
-
-function isParkNutzung(n: string): boolean {
-  return isGarageNutzung(n) || /\bpp\b|parkpl|parkplatz|tiefgarage|einstellh|autoeinstell|abstellplatz/i.test(n)
-}
 
 export function BwoBerechnung({ variantId }: { variantId: string }) {
   const ak = useAnlagekostenShared()
@@ -37,39 +31,17 @@ export function BwoBerechnung({ variantId }: { variantId: string }) {
   const tabKey = tabs.some((t) => t.key === activeTab) ? activeTab : 'konsolidiert'
   const isKons = tabKey === 'konsolidiert'
 
-  // Wohnungsmix der Genossenschaft aus den Mengen.
-  const mix = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const k of WOHNUNGSMIX_KEYS) m[k as string] = 0
-    for (const b of ak.buildings) {
-      if (eigentumsartForBuilding(b.use_type) !== EIG) continue
-      if (!isKons && b.etappe_id !== tabKey) continue
-      for (const mf of b.mietflaechen) {
-        if (!isNutzungWohnen(mf.nutzung) || !mf.wohnungsmix) continue
-        for (const k of WOHNUNGSMIX_KEYS) m[k as string] += mf.wohnungsmix[k] ?? 0
-      }
-    }
-    return m
-  }, [ak.buildings, isKons, tabKey])
-
-  // Nebenflächen (Genossenschaft, ohne Wohnen) aus den Mengen — Einheiten = Anzahl.
-  const nebenNutzungen = useMemo(() => {
-    const map = new Map<string, { nutzung: string; isPark: boolean; anzahl: number }>()
-    for (const b of ak.buildings) {
-      if (eigentumsartForBuilding(b.use_type) !== EIG) continue
-      if (!isKons && b.etappe_id !== tabKey) continue
-      for (const mf of b.mietflaechen) {
-        if (isNutzungWohnen(mf.nutzung)) continue
-        const name = (mf.nutzung || '').trim() || '(ohne Nutzung)'
-        const anzahl = mf.anzahl || 0
-        if (anzahl <= 0) continue
-        const e = map.get(name) ?? { nutzung: name, isPark: isParkNutzung(name), anzahl: 0 }
-        e.anzahl += anzahl
-        map.set(name, e)
-      }
-    }
-    return [...map.values()].sort((a, b) => Number(a.isPark) - Number(b.isPark) || a.nutzung.localeCompare(b.nutzung))
-  }, [ak.buildings, isKons, tabKey])
+  // Wohnungsmix und Nebenflächen der Genossenschaft aus den Mengen — hier
+  // zählen die Einheiten, nicht die Flächen.
+  const mix = useMemo(
+    () => sammleWohnungsmix(ak.buildings, isKons ? null : tabKey),
+    [ak.buildings, isKons, tabKey],
+  )
+  const nebenNutzungen = useMemo(
+    () => sammleNebenNutzungen(ak.buildings, isKons ? null : tabKey)
+      .filter((n) => n.anzahl > 0),
+    [ak.buildings, isKons, tabKey],
+  )
 
   const nebenKosten = nebenNutzungen.map((n) => {
     const limit = p.nutzungLimits[n.nutzung] ?? defaultNutzungLimit(n.nutzung, n.isPark)
@@ -79,9 +51,13 @@ export function BwoBerechnung({ variantId }: { variantId: string }) {
 
   // Geplante Anlagekosten (Genossenschaft, konsolidiert, inkl. Land) brutto.
   const geplant = useMemo(() => {
-    const erg = isKons ? ak.konsolidiert.get(EIG)?.ergebnis : ak.blockErgebnisse.get(`${tabKey}::${EIG}`)
+    // Der Stand, auf dem gerechnet wird — also die in den Anlagekosten
+    // gewählte Erfassungsmethode, nicht nur der Detailkatalog.
+    const erg = isKons
+      ? ak.konsolidiertEffektiv.get(EIG)
+      : ak.blockErgebnisseEffektiv.get(`${tabKey}::${EIG}`)
     return erg ? erg.totalBrutto : 0
-  }, [ak.konsolidiert, ak.blockErgebnisse, isKons, tabKey])
+  }, [ak.konsolidiertEffektiv, ak.blockErgebnisseEffektiv, isKons, tabKey])
 
   const r = berechneBwo(mix, p, nebenTotal, geplant)
   const presentKeys = WOHNUNGSMIX_KEYS.filter((k) => (mix[k as string] || 0) > 0)
