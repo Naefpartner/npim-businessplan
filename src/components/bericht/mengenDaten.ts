@@ -48,6 +48,17 @@ function zimmerLabel(key: string): string {
   return `${WOHNUNGSMIX_LABEL[key as keyof typeof WOHNUNGSMIX_LABEL] ?? key} Zi.`
 }
 
+/**
+ * Beschriftung der ertragbringenden Fläche: Verkaufsobjekte führen eine
+ * Verkaufsfläche (VKF), Renditeobjekte und Genossenschaften eine
+ * Vermietungsfläche (VMF). Stehen beide in derselben Spalte, nennt die
+ * Beschriftung beide.
+ */
+function flaechenKuerzel(verkauf: boolean, uebrige: boolean): string {
+  if (verkauf && uebrige) return 'VMF (VKF)'
+  return verkauf ? 'VKF' : 'VMF'
+}
+
 /** Zahl oder Gedankenstrich — leere Mengen sollen sichtbar leer sein. */
 function z(v: number | null | undefined): string {
   return v != null && v !== 0 ? formatNumber(Math.round(v)) : '—'
@@ -470,6 +481,12 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
     }
   })
 
+  // Die Zeilen gelten für alle Spalten der Tabelle — die Beschriftung nennt
+  // deshalb beide Flächenbegriffe, sobald Verkaufsobjekte neben anderen stehen.
+  const istVerkauf = (b: VariantBuildingFull) =>
+    eigentumsartForBuilding(b.use_type) === 'verkaufsobjekt'
+  const flaeche = flaechenKuerzel(gebaeude.some(istVerkauf), gebaeude.some((b) => !istVerkauf(b)))
+
   // Einheiten stehen in der Zelle, nicht im Kopf: die Zeilen tragen
   // verschiedene — Flächen, Anteile und ein Verhältnis.
   const m2 = (v: number) => (v > 0 ? `${z(v)} m²` : '—')
@@ -478,15 +495,19 @@ function benchmarkTabelle(gebaeude: VariantBuildingFull[], mehrere: boolean) {
   const quot = (v: number | null) => (v != null ? `${v.toFixed(2)} m³/m²` : '—')
 
   return {
-    kopf: ['Kennwert', ...spalten.map((sp) => sp.label)],
+    // „Kennwert" beschriftet die Spalte der Bezeichnungen — sie sagt es selbst.
+    // Die Spaltennamen braucht es nur, wo mehrere Eigentumsarten nebeneinander
+    // stehen; bei einer einzigen ist „Total" die einzige Zahlenspalte, und die
+    // Tabelle kommt ohne Beschriftung aus.
+    kopf: ['', ...spalten.map((sp) => (mehrere ? sp.label : ''))],
     zeilen: [
       { zellen: ['Geschossfläche oberirdisch', ...werte.map((w) => m2(w.gfOi))] },
       { zellen: ['Geschossfläche unterirdisch', ...werte.map((w) => m2(w.gfUi))] },
       { zellen: ['Gebäudevolumen oberirdisch', ...werte.map((w) => m3(w.gvOi))] },
       { zellen: ['Gebäudevolumen unterirdisch', ...werte.map((w) => m3(w.gvUi))] },
       { zellen: ['Anteil Gebäudevolumen unterirdisch', ...werte.map((w) => pct(w.gvAnteilUi))] },
-      { zellen: ['VMF (VKF) / GF oberirdisch', ...werte.map((w) => pct(w.anteilOi))] },
-      { zellen: ['VMF (VKF) / GF total', ...werte.map((w) => pct(w.anteilTotal))] },
+      { zellen: [`${flaeche} / GF oberirdisch`, ...werte.map((w) => pct(w.anteilOi))] },
+      { zellen: [`${flaeche} / GF total`, ...werte.map((w) => pct(w.anteilTotal))] },
       { zellen: ['Gebäudevolumen / GF', ...werte.map((w) => quot(w.gvProGf))] },
     ] as TabellenZeile[],
   }
@@ -647,55 +668,90 @@ function kostenkennwerte(
   const zahl = (v: number) => (v !== 0 ? formatNumber(Math.round(v)) : '—')
   const je = (v: number, n: number) => (n > 0 && v !== 0 ? formatNumber(Math.round(v / n)) : '—')
 
-  function block(label: string, eigs: Eigentumsart[], farbe?: string) {
+  /**
+   * Je Eigentumsart zwei Blöcke: einer mit den Beträgen exklusive, einer mit
+   * denen inklusive Mehrwertsteuer. In einer Tabelle abwechselnd gesetzt,
+   * standen die beiden Stände Zeile um Zeile durcheinander; getrennt lässt
+   * sich jeder für sich lesen und mit dem Nachbarblock vergleichen.
+   */
+  function bloeckeFuer(label: string, eigs: Eigentumsart[], farbe?: string) {
     const m = mengen(eigs)
     const k = kosten(eigs)
-    if (k.every((x) => x.netto === 0 && x.brutto === 0)) return null
+    if (k.every((x) => x.netto === 0 && x.brutto === 0)) return []
 
     // Die Kennzahlen stehen als Spalten, die BKP-Bereiche als Zeilen: so
     // bleibt die Tabelle schmal und passt neben die übrigen Blöcke auf ein
     // Blatt. Umgekehrt — Bereiche als Spalten — bräuchte sie zwölf Spalten.
-    const kennzahlen: { kopf: string; bezug: string; wert: (b: number) => string }[] = [
-      { kopf: 'Anlagekosten', bezug: 'CHF', wert: (b) => zahl(b) },
-      { kopf: 'CHF/m² GF', bezug: `${zahl(m.gf)} m²`, wert: (b) => je(b, m.gf) },
-      { kopf: 'CHF/m³ GV', bezug: `${zahl(m.gv)} m³`, wert: (b) => je(b, m.gv) },
-      { kopf: 'CHF/m² VMF (VKF)', bezug: `${zahl(m.vmf)} m²`, wert: (b) => je(b, m.vmf) },
+    // Der Kopf nennt die Bezugsgrösse, die Zeile darunter ihre Menge — die
+    // Beträge sind dann Franken je Einheit dieser Grösse. „CHF/m² GF" im Kopf
+    // sagte dasselbe zweimal und liess offen, worauf sich das m² bezieht.
+    const flaeche = flaechenKuerzel(
+      eigs.includes('verkaufsobjekt'), eigs.some((e) => e !== 'verkaufsobjekt'))
+    const kennzahlen: {
+      kopf: string; bezug: string; einheit: string; wert: (b: number) => string
+    }[] = [
+      { kopf: 'Anlagekosten', bezug: 'CHF', einheit: 'CHF', wert: (b) => zahl(b) },
+      {
+        kopf: 'Geschossfläche', bezug: `${zahl(m.gf)} m²`, einheit: 'CHF/m² GF',
+        wert: (b) => je(b, m.gf),
+      },
+      {
+        kopf: 'Gebäudevolumen', bezug: `${zahl(m.gv)} m³`, einheit: 'CHF/m³ GV',
+        wert: (b) => je(b, m.gv),
+      },
+      {
+        kopf: flaeche, bezug: `${zahl(m.vmf)} m²`, einheit: `CHF/m² ${flaeche}`,
+        wert: (b) => je(b, m.vmf),
+      },
       ...(m.wohnungen > 0
-        ? [{ kopf: 'CHF/Whg', bezug: `${zahl(m.wohnungen)} Whg`,
+        ? [{ kopf: 'Wohnungen', bezug: `${zahl(m.wohnungen)} Whg`, einheit: 'CHF/Whg',
           wert: (b: number) => je(b, m.wohnungen) }]
         : []),
     ]
 
-    const zeilen: TabellenZeile[] = [
-      // Worauf geteilt wird, gleich unter der Beschriftung.
-      { einzug: true, zellen: ['Bezug', ...kennzahlen.map((x) => x.bezug)] },
-      ...KOSTEN_BEREICHE.flatMap((b, i) => [
-        { zellen: [`${b.label} exkl. MWST`, ...kennzahlen.map((x) => x.wert(k[i].netto))] },
-        { zellen: [`${b.label} inkl. MWST`, ...kennzahlen.map((x) => x.wert(k[i].brutto))] },
-      ]),
-    ]
+    const kopf = ['Kostenbasis', ...kennzahlen.map((x) => x.kopf)]
 
-    return {
+    // Die Bezugsgrössen gelten für beide Stände — sie stehen deshalb einmal
+    // voran, mit der Spaltenbeschriftung, statt in jedem Block noch einmal.
+    const bezug = {
       key: eigs.length === 1 ? eigs[0] : 'gesamt',
       label,
       farbe,
-      kopf: ['Kostenbasis', ...kennzahlen.map((x) => x.kopf)],
-      zeilen,
+      mwst: 'bezug' as const,
+      kopf,
+      zeilen: [{ einzug: true, zellen: ['Bezug', ...kennzahlen.map((x) => x.bezug)] }],
+      mitNaechstem: true,
     }
+
+    // Die Betragsblöcke tragen als Beschriftung die Einheit ihrer Zahlen —
+    // die Bezugsgrössen stehen schon über der Bezugszeile.
+    const machBlock = (mwst: 'exkl' | 'inkl') => ({
+      key: eigs.length === 1 ? eigs[0] : 'gesamt',
+      label,
+      farbe,
+      mwst,
+      kopf: ['', ...kennzahlen.map((x) => x.einheit)],
+      zeilen: KOSTEN_BEREICHE.map((b, i) => ({
+        zellen: [b.label,
+          ...kennzahlen.map((x) => x.wert(mwst === 'inkl' ? k[i].brutto : k[i].netto))],
+      })) as TabellenZeile[],
+    })
+
+    return [bezug, machBlock('exkl'), machBlock('inkl')]
   }
 
   // Bei einer Eigentumsart trägt der einzige Block ihren Namen und ihre Farbe;
   // bei mehreren steht das Gesamtprojekt voran, danach jede für sich.
+  // Farbe nur, wo mehrere Eigentumsarten nebeneinander stehen — sonst
+  // unterscheidet sie nichts, und es bleibt bei der Kupferfamilie.
   if (vorhanden.length === 1) {
-    const b = block(EIGENTUMSART_LABEL[vorhanden[0]], vorhanden,
-      EIGENTUMSART_COLOR[vorhanden[0]])
-    return b ? [b] : []
+    return bloeckeFuer(EIGENTUMSART_LABEL[vorhanden[0]], vorhanden)
   }
   return [
-    block('Alle Eigentumsarten', vorhanden),
-    ...vorhanden.map((eig) => block(
+    ...bloeckeFuer('Alle Eigentumsarten', vorhanden),
+    ...vorhanden.flatMap((eig) => bloeckeFuer(
       EIGENTUMSART_LABEL[eig], [eig], EIGENTUMSART_COLOR[eig])),
-  ].filter((b) => b != null)
+  ]
 }
 
 /** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. *//** Wohnungsmix je Eigentumsart — Zimmerzahl, Anzahl, mittlere Fläche. */

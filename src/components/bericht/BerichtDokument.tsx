@@ -42,6 +42,13 @@ export interface BerichtDaten {
   nutzung?: NutzungDaten
   /** Inhalt des Kapitels „Anlagekosten"; fehlt ohne erfasste Kosten. */
   anlagekosten?: AnlagekostenDaten
+  /** Inhalt des Kapitels „Wirtschaftlichkeit"; fehlt ohne erfasste Kosten. */
+  wirtschaftlichkeit?: BereichsKapitelDaten
+  /**
+   * Inhalt des Kapitels „Anlagekostenlimiten"; fehlt, wo keine Genossenschaft
+   * erfasst ist — die Limiten gelten nur für den geförderten Wohnungsbau.
+   */
+  limiten?: BereichsKapitelDaten
   /**
    * Bausteine, vor denen von Hand eine neue Seite beginnt. Die Rechnung füllt
    * die Seiten so weit wie möglich; wo das fachlich Zusammengehörendes trennt,
@@ -109,10 +116,17 @@ export interface MengenSicht {
   benchmarks: { kopf: string[]; zeilen: TabellenZeile[] }
   /**
    * Kostenkennwerte je Eigentumsart: die Kennzahlen als Spalten, die
-   * BKP-Bereiche als Zeilen — je Bereich eine exkl. und eine inkl.
-   * Mehrwertsteuer. Die erste Zeile nennt die Bezugsgrössen.
+   * BKP-Bereiche als Zeilen. Je Eigentumsart zwei Blöcke — einer exklusive,
+   * einer inklusive Mehrwertsteuer. Die erste Zeile nennt die Bezugsgrössen.
    */
-  kostenkennwerte: (EigBlock & { kopf: string[]; zeilen: TabellenZeile[] })[]
+  kostenkennwerte: (EigBlock & {
+    /** Bezugszeile, Nettobeträge oder Bruttobeträge. */
+    mwst: 'bezug' | 'exkl' | 'inkl'
+    /** Der Block gehört mit dem nächsten zusammen (Bezug und Nettobeträge). */
+    mitNaechstem?: boolean
+    kopf: string[]
+    zeilen: TabellenZeile[]
+  })[]
   /**
    * Je Eigentumsart die Häuser in je einer Zeile — steht den Geschossen voran.
    * Leer bei nur einem Haus und in den Etappensichten.
@@ -202,6 +216,77 @@ export interface AnlagekostenDaten {
   }[]
 }
 
+/**
+ * Ein Kapitel aus Bereichen mit Tabellen — so gebaut sind „Wirtschaftlichkeit"
+ * (je Eigentumsart ihre Rechnung) und „Anlagekostenlimiten" (WBF und BWO).
+ * Beide teilen sich Umbruchrechnung und Satz; sie unterscheiden sich nur im
+ * Inhalt, den die Datenmodule zusammenstellen.
+ */
+export interface BereichsKapitelDaten {
+  /** Ob mehr als eine Sicht gedruckt wird; dann trägt jede ihren Obertitel. */
+  mehrereSichten: boolean
+  /** Gesamtprojekt und/oder Etappen — je Sicht dieselben Bereiche. */
+  sichten: KapitelSicht[]
+}
+
+export interface KapitelSicht {
+  /** „Gesamtprojekt" oder der Name der Etappe. */
+  titel: string
+  gesamt: boolean
+  bereiche: KapitelBereich[]
+}
+
+/**
+ * Ein Bereich des Kapitels mit seinen Tabellen. Die drei Farben sind die
+ * Stufen der Farbsystematik: Balken oben (Stufe 7), Tabellentitel darunter
+ * (Stufe 3), Summenzeilen (Stufe 1). Welche Familie — Kupfer oder die der
+ * Eigentumsart — entscheidet das Datenmodul: Kupfer, solange nur eine
+ * Nutzungsart vorkommt, sonst je Eigentumsart ihre eigene.
+ */
+export interface KapitelBereich {
+  /**
+   * Balken über dem Bereich. Leer, wo er nichts unterscheidet — bei einer
+   * einzigen Eigentumsart etwa; dann führen die Tabellen den Bereich selbst
+   * an und tragen seine Farbe.
+   */
+  titel: string
+  /** Balkenfarbe des Bereichs (Stufe 7). */
+  farbe: string
+  /** Titelfläche der Tabellen — eine Stufe heller als der Balken (Stufe 3). */
+  tabellenFarbe: string
+  /** Hinterlegung der Summenzeilen (Stufe 1). */
+  totalFarbe: string
+  /** Hinterlegung einer einzelnen hervorgehobenen Zelle (Stufe 3). */
+  zelleFarbe: string
+  tabellen: KapitelTabelle[]
+  /** Satz unter den Tabellen — woher die Zahlen stammen. */
+  hinweis?: string
+  /**
+   * Beginnt auf einer neuen Seite, auch wenn darunter noch Platz wäre. Für
+   * Bereiche, die für sich stehen — eine zweite Rechnung desselben Gegenstands
+   * liest sich neben der ersten nicht.
+   */
+  neueSeite?: boolean
+}
+
+export interface KapitelTabelle {
+  titel: string
+  kopf: string[]
+  /** Spaltenanteile. */
+  breiten: number[]
+  /** Bis zu dieser Spalte linksbündig, danach rechtsbündig. */
+  linksBis: number
+  /** Zweite Beschriftungszeile, über der Linie. */
+  kopfZusatz?: string[]
+  /** Hell hinterlegte Spalte — der Basisfall einer Sensitivitätstafel. */
+  hellSpalte?: number
+  /** Spalten mit Einheiten; sie bleiben links neben ihrer Zahl. */
+  einheitenSpalten?: number[]
+  /** Abstand zwischen den Spalten in mm; ohne Angabe die üblichen 3. */
+  spaltenAbstand?: number
+  zeilen: TabellenZeile[]
+}
+
 /** Eine Zeile einer Feldtabelle: Bezeichnung links, Wert rechts. */
 export interface Feld {
   label: string
@@ -219,6 +304,18 @@ export interface TabellenZeile {
   zellen: string[]
   /** Hervorgehobene Summenzeile. */
   total?: boolean
+  /**
+   * Hell hinterlegte Zeile ohne Auszeichnung — der Basisfall einer
+   * Sensitivitätstafel etwa, der sich abheben soll, ohne wie eine Summe zu
+   * wirken.
+   */
+  hell?: boolean
+  /**
+   * Spalte dieser Zeile, die eine Stufe kräftiger hinterlegt ist — das Kreuz
+   * aus heller Zeile und heller Spalte trifft sich dort, und die Zelle ist der
+   * Wert, von dem aus alle anderen zu lesen sind.
+   */
+  dunkelSpalte?: number
   /** Untergeordnete Zeile — eingerückt und leiser gesetzt (Mieteinheiten). */
   einzug?: boolean
 }
@@ -654,13 +751,18 @@ const s = StyleSheet.create({
     marginTop: mm(1.2),
     marginBottom: mm(0.7),
   },
-  /** Beschriftung ohne Vorabstand — sie steht unter einem Titelbalken. */
+  /**
+   * Beschriftung ohne Vorabstand — sie steht unter einem Titelbalken. Die
+   * Linie darunter trennt sie von den Zahlen, wie in den Datentabellen.
+   */
   kompaktKopfEng: {
     flexDirection: 'row',
     paddingBottom: mm(0.7),
     paddingLeft: mm(EINZUG),
     fontSize: 7,
     color: '#4A4A4A',
+    borderBottomWidth: 0.5,
+    borderBottomColor: BERICHT_FARBE.linie,
   },
   kompaktKopf: {
     flexDirection: 'row',
@@ -794,6 +896,25 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     paddingTop: mm(ZEILE.oben),
     paddingBottom: mm(ZEILE.unten),
+    paddingLeft: mm(EINZUG),
+  },
+  /** Mehrzeiliger Kopf: die Zeilen stehen untereinander in einem Rahmen. */
+  tabKopfGestapelt: { flexDirection: 'column' },
+  tabKopfZeile: { flexDirection: 'row' },
+  /**
+   * Ein gestapelter Kopf steht im Grad der Daten, nicht in dem der
+   * Beschriftung: beide Zeilen tragen Zahlen, die mit denen darunter zu
+   * vergleichen sind — kleiner gesetzt wirkten dieselben Werte ungleich.
+   */
+  tabKopfDaten: { fontSize: SCHRIFT.grund },
+  /**
+   * Zeile, deren senkrechte Innenabstände in den Zellen stecken. Nur so füllt
+   * die Hinterlegung einer Spalte die ganze Zeilenhöhe: eine Fläche auf der
+   * Zelle endet sonst am Innenabstand der Zeile, und das Band bekäme zwischen
+   * den Trennlinien Lücken.
+   */
+  tabZeileFlach: {
+    flexDirection: 'row',
     paddingLeft: mm(EINZUG),
   },
   /** Trennlinie einer Datenzeile — nur dort, wo die Tabelle noch Zeilen hat. */
@@ -1070,10 +1191,20 @@ function zeilenZahl(
  */
 function kopfHoehe(
   kopf: string[], breiten: number[], spaltenAbstand = 3, breite = SATZBREITE,
+  /** Zweite Beschriftungszeile; sie steht im selben Rahmen. */
+  zusatz?: string[],
 ): number {
-  const zahl = zeilenZahl({ zellen: kopf }, breiten, spaltenAbstand, breite,
-    SCHRIFT.klein / SCHRIFT.grund)
-  return MH.kopfzeile + (zahl - 1) * SCHRIFT.zeile * (SCHRIFT.klein / SCHRIFT.grund) * (25.4 / 72)
+  const grad = SCHRIFT.klein / SCHRIFT.grund
+  const zeile = (g: number) => SCHRIFT.zeile * g * (25.4 / 72)
+  if (!zusatz) {
+    const zahl = zeilenZahl({ zellen: kopf }, breiten, spaltenAbstand, breite, grad)
+    return MH.kopfzeile + (zahl - 1) * zeile(grad)
+  }
+  // Ein gestapelter Kopf steht ganz im Grad der Daten: jede seiner Zeilen ist
+  // damit höher als eine gewöhnliche Beschriftungszeile.
+  const zahl = zeilenZahl({ zellen: kopf }, breiten, spaltenAbstand, breite)
+    + zeilenZahl({ zellen: zusatz }, breiten, spaltenAbstand, breite)
+  return MH.kopfzeile + (zeile(1) - zeile(grad)) + (zahl - 1) * zeile(1)
 }
 
 function zeilenHoehe(
@@ -1354,6 +1485,14 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     const a = daten.anlagekosten
     return a ? anlagekostenSeiten(a, umbruchSet(daten)).length : 1
   }
+  if (key === 'wirtschaftlichkeit') {
+    const w = daten.wirtschaftlichkeit
+    return w ? bereichsSeiten(w, key, umbruchSet(daten)).length : 1
+  }
+  if (key === 'anlagekostenlimiten') {
+    const l = daten.limiten
+    return l ? bereichsSeiten(l, key, umbruchSet(daten)).length : 1
+  }
   if (key === 'mengengeruest') {
     const sichten = daten.mengen?.sichten ?? []
     if (sichten.length === 0) return 1
@@ -1458,6 +1597,14 @@ export function berichtUmbruchPunkte(daten: BerichtDaten): UmbruchEintrag[] {
       sammle(e.kapitel.label, e.seite,
         anlagekostenSeiten(daten.anlagekosten, gesetzt).map((sp) => sp.flat()))
     }
+    if (e.kapitel.key === 'wirtschaftlichkeit' && daten.wirtschaftlichkeit) {
+      sammle(e.kapitel.label, e.seite,
+        bereichsSeiten(daten.wirtschaftlichkeit, e.kapitel.key, gesetzt))
+    }
+    if (e.kapitel.key === 'anlagekostenlimiten' && daten.limiten) {
+      sammle(e.kapitel.label, e.seite,
+        bereichsSeiten(daten.limiten, e.kapitel.key, gesetzt))
+    }
     if (e.kapitel.key === 'mengengeruest' && daten.mengen) {
       let nr = e.seite
       for (const sicht of daten.mengen.sichten) {
@@ -1514,16 +1661,42 @@ interface Tabelle {
   breiten?: number[]
   /** Bis zu dieser Spalte linksbündig, danach rechtsbündig (Zahlenspalten). */
   linksBis?: number
+  /** Hell hinterlegte Spalte — das Gegenstück zur hellen Zeile. */
+  hellSpalte?: number
+  /** Farbe der hellen Zeile und Spalte; ohne Angabe die zarte Kupferstufe. */
+  hellFarbe?: string
+  /** Farbe der kräftiger hinterlegten Zelle; ohne Angabe die helle Kupferstufe. */
+  dunkelFarbe?: string
+  /**
+   * Zweite Beschriftungszeile, über der Linie — etwa die Abweichung unter den
+   * Beträgen einer Sensitivitätstafel. Sie gehört zum Kopf, nicht zu den
+   * Daten, und trägt deshalb keine eigene Linie.
+   */
+  kopfZusatz?: string[]
+  /**
+   * Spalten, die trotz ihrer Lage links stehen — die Einheiten, die zu der
+   * Zahl links von ihnen gehören. So fluchten die Zahlen rechtsbündig
+   * untereinander und die Einheiten daneben linksbündig.
+   */
+  einheitenSpalten?: number[]
   /** Abstand zwischen den Spalten in mm; enger, wo viele Spalten stehen. */
   spaltenAbstand?: number
 }
+
+/** Steg zwischen einer Zahl und ihrer Einheit, in Millimetern. */
+const EINHEIT_STEG = 1.2
 
 /**
  * Stil einer Tabellenzelle. Der Abstand nach rechts verhindert, dass
  * rechtsbündige Werte an die Nachbarspalte stossen; die letzte Spalte
  * schliesst bündig ab.
  */
-function zellenStil(t: Tabelle, i: number) {
+function zellenStil(t: Tabelle, i: number, dunkelSpalte?: number) {
+  // Trägt die Tabelle eine hinterlegte Spalte, sitzen die senkrechten
+  // Innenabstände auf den Zellen statt auf der Zeile.
+  const polster = t.hellSpalte != null
+    ? { paddingTop: mm(ZEILE.oben), paddingBottom: mm(ZEILE.unten) }
+    : {}
   const anteile = t.breiten ?? t.kopf.map((_, k) => (k === 0 ? 2 : 1))
   // Grundbreite null: die Spaltenanteile sollen die Breite bestimmen, nicht
   // die Länge des Zellinhalts.
@@ -1531,40 +1704,79 @@ function zellenStil(t: Tabelle, i: number) {
     flexGrow: anteile[i] ?? 1,
     flexShrink: 1,
     flexBasis: 0,
-    ...(i > (t.linksBis ?? 0) ? { textAlign: 'right' as const } : {}),
-    ...(i < t.kopf.length - 1 ? { paddingRight: mm(t.spaltenAbstand ?? 3) } : {}),
+    ...polster,
+    ...(i > (t.linksBis ?? 0) && !t.einheitenSpalten?.includes(i)
+      ? { textAlign: 'right' as const } : {}),
+    ...(i === dunkelSpalte
+      ? { backgroundColor: t.dunkelFarbe ?? BERICHT_FARBE.primaerHell }
+      : i === t.hellSpalte
+        ? { backgroundColor: t.hellFarbe ?? BERICHT_FARBE.primaerZart }
+        : {}),
+    // Vor einer Einheitenspalte ein knapper Steg: die Einheit gehört zu der
+    // Zahl links von ihr und soll nicht wie eine eigene Spalte wegstehen.
+    ...(i < t.kopf.length - 1
+      ? {
+        paddingRight: mm(t.einheitenSpalten?.includes(i + 1)
+          ? EINHEIT_STEG
+          : t.spaltenAbstand ?? 3),
+      }
+      : {}),
   }
 }
 
 /** Die Zellen einer Zeile; der Rahmen kommt vom umschliessenden Element. */
-function Zellen({ t, werte }: { t: Tabelle; werte: string[] }) {
-  return <>{werte.map((c, i) => <Text key={i} style={zellenStil(t, i)}>{c}</Text>)}</>
+function Zellen({ t, werte, dunkelSpalte }: {
+  t: Tabelle; werte: string[]; dunkelSpalte?: number
+}) {
+  return (
+    <>
+      {werte.map((c, i) => (
+        <Text key={i} style={zellenStil(t, i, dunkelSpalte)}>
+          {/* Eine leere hinterlegte Zelle hätte keine Höhe und risse ein Loch
+              ins Band der Spalte — ein geschütztes Leerzeichen hält sie auf. */}
+          {c || (i === t.hellSpalte ? '\u00A0' : '')}
+        </Text>
+      ))}
+    </>
+  )
 }
 
 function Kopfzeile({ t }: { t: Tabelle }) {
-  return <View style={s.tabKopf}><Zellen t={t} werte={t.kopf} /></View>
+  if (!t.kopfZusatz) return <View style={s.tabKopf}><Zellen t={t} werte={t.kopf} /></View>
+  // Beide Zeilen in einem Rahmen: die Linie gehört unter den ganzen Kopf.
+  return (
+    <View style={[s.tabKopf, s.tabKopfGestapelt, s.tabKopfDaten]}>
+      <View style={s.tabKopfZeile}><Zellen t={t} werte={t.kopf} /></View>
+      <View style={s.tabKopfZeile}><Zellen t={t} werte={t.kopfZusatz} /></View>
+    </View>
+  )
 }
 
 function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
   return (
     <View style={[
-      s.tabZeile, s.tabLinie,
+      t.hellSpalte != null ? s.tabZeileFlach : s.tabZeile, s.tabLinie,
+      ...(zeile.hell
+        ? [{ backgroundColor: t.hellFarbe ?? BERICHT_FARBE.primaerZart }] : []),
       ...(zeile.total ? [s.tabTotal] : []),
       ...(zeile.total && t.totalFarbe ? [{ backgroundColor: t.totalFarbe }] : []),
       ...(zeile.einzug ? [s.tabEinzug] : []),
     ]}>
-      <Zellen t={t} werte={zeile.zellen} />
+      <Zellen t={t} werte={zeile.zellen} dunkelSpalte={zeile.dunkelSpalte} />
     </View>
   )
 }
 
 /** Einzelne Datentabelle mit Kopfzeile. */
 function Datentabelle({
-  titel, titelFarbe, anschluss, totalFarbe, kopf, zeilen, breiten, linksBis = 0,
-  spaltenAbstand,
+  titel, titelFarbe, anschluss, totalFarbe, kopf, kopfZusatz, zeilen, breiten, linksBis = 0,
+  einheitenSpalten, spaltenAbstand, hellSpalte, hellFarbe, dunkelFarbe,
 }: Tabelle) {
   if (zeilen.length === 0) return null
-  const t: Tabelle = { kopf, zeilen, breiten, linksBis, totalFarbe, spaltenAbstand }
+  const t: Tabelle = {
+    kopf, kopfZusatz, zeilen, breiten, linksBis, einheitenSpalten, totalFarbe, spaltenAbstand,
+    hellSpalte, hellFarbe, dunkelFarbe,
+  }
   return (
     <View style={s.feldBlock}>
       {titel && <Text style={titelStil(titelFarbe, anschluss)}>{titel}</Text>}
@@ -3113,18 +3325,31 @@ interface KennwertBlock {
   sektion: string | null
   titel: string | null
   titelFarbe?: string
+  /**
+   * Bleibt mit dem folgenden Block auf derselben Seite. Die Bezugszeile trägt
+   * die Spaltenbeschriftung für die Blöcke darunter — allein am Seitenfuss
+   * stünde sie ohne die Zahlen, zu denen sie gehört.
+   */
+  mitNaechstem?: boolean
+  /**
+   * Ohne Linie unter der letzten Zeile. Wo der nächste Block dieselbe Tabelle
+   * fortsetzt, schlösse sie etwas ab, das noch weitergeht; nur die letzte
+   * Zeile der ganzen Aufstellung bekommt ihren Strich.
+   */
+  ohneSchlusslinie?: boolean
   kopf: string[]
   breiten: number[]
   zeilen: TabellenZeile[]
 }
 
 /**
- * Spalten der Kostenkennwerte: links die Kostenbasis, daneben je Kennzahl
- * eine Spalte. Die Beträge der Zeile „Anlagekosten" sind achtstellig und
- * brauchen mehr als die Kennwerte daneben.
+ * Spalten der Kostenkennwerte: links die Kostenbasis, daneben je Bezugsgrösse
+ * eine Spalte. Die Beträge der Spalte „Anlagekosten" sind achtstellig, die
+ * Beschriftungen daneben („Gebäudevolumen") breit — beide brauchen mehr als
+ * die Zahlen, die darunter stehen.
  */
 function kostenBreiten(kopf: string[]): number[] {
-  return [2.2, 1.6, ...kopf.slice(2).map(() => 1.2)]
+  return [2.0, 1.4, ...kopf.slice(2).map(() => 1.3)]
 }
 
 /**
@@ -3133,12 +3358,14 @@ function kostenBreiten(kopf: string[]): number[] {
  */
 function kennwertHoehe(b: KennwertBlock, breite: number): number {
   const grad = SCHRIFT.klein / SCHRIFT.grund
+  // Eine Tabelle ohne Beschriftung setzt keine Kopfzeile — siehe KennwertTabelle.
+  const mitKopf = b.kopf.some(Boolean)
   const kopfZeilen = zeilenZahl({ zellen: b.kopf }, b.breiten, 2, breite, 7 / SCHRIFT.grund)
-  // Der Blocktitel ist ein gewöhnlicher Balken — mit knappem Vorabstand, wo
-  // der Sektionsbalken darübersteht. Die Beschriftung darunter trägt keinen.
-  const titel = b.titel ? (b.sektion ? MH.hausTitel : MH.eigTitel) : 0
+  // Der Blocktitel ist ein kompakter Balken wie in der Detailberechnung —
+  // derselbe Grad wie die Zahlen darunter, mit knappem Vorabstand.
+  const titel = b.titel ? MH.titelK : 0
   return (b.sektion ? MH.eigTitel : 0) + titel + MH.blockEndeK
-    + (MH.kopfzeileK - 3) + (kopfZeilen - 1) * MH.zeileK
+    + (mitKopf ? (MH.kopfzeileK - 3) + (kopfZeilen - 1) * MH.zeileK : 0)
     + b.zeilen.reduce((h, z) => h + zeilenZahl(z, b.breiten, 2, breite, grad) * MH.zeileK, 0)
 }
 
@@ -3167,12 +3394,30 @@ function kennwertBloecke(daten: BerichtDaten): KennwertBlock[] {
     erste = false
   }
 
+  // Gibt es nur eine Eigentumsart, nennt der Blocktitel sie in jeder Sicht
+  // gleich — „Genossenschaft" unterscheidet dann nichts und fällt weg. Der
+  // Mehrwertsteuerstand dagegen unterscheidet immer: er trennt die beiden
+  // Blöcke, die sonst gleich aussähen.
+  const eineEigentumsart = sichten.every(
+    (x) => new Set(x.kostenkennwerte.map((k) => k.label)).size <= 1)
+
   erste = true
   for (const x of sichten) {
     for (const k of x.kostenkennwerte) {
+      const sicht = x.gesamt ? 'Gesamtprojekt' : x.titel
+      const mwst = k.mwst === 'bezug' ? null
+        : k.mwst === 'inkl' ? 'inkl. MWST' : 'exkl. MWST'
+      const titel = [
+        ...(mehrere ? [sicht] : []),
+        ...(eineEigentumsart ? [] : [k.label]),
+        ...(mwst ? [mwst] : []),
+      ].join(' · ')
       bloecke.push({
         sektion: erste ? 'Kostenkennwerte' : null,
-        titel: mehrere ? `${x.gesamt ? 'Gesamtprojekt' : x.titel} · ${k.label}` : k.label,
+        titel: titel || null,
+        mitNaechstem: k.mitNaechstem,
+        // Nur der letzte der drei Blöcke schliesst die Aufstellung ab.
+        ohneSchlusslinie: k.mwst !== 'inkl',
         titelFarbe: k.farbe,
         kopf: k.kopf,
         breiten: kostenBreiten(k.kopf),
@@ -3190,16 +3435,22 @@ function kennwertSeiten(daten: BerichtDaten): KennwertBlock[][] {
   const seiten: KennwertBlock[][] = []
   let laufend: KennwertBlock[] = []
   let belegt = MH.h1
-  for (const b of kennwertBloecke(daten)) {
+  const alle = kennwertBloecke(daten)
+  alle.forEach((b, i) => {
     const h = kennwertHoehe(b, breite)
-    if (laufend.length > 0 && belegt + h > hoehe) {
+    // Ein Block, der mit dem nächsten zusammengehört, wandert mit ihm auf die
+    // nächste Seite — die Bezugszeile ist die Beschriftung der Zahlen darunter.
+    const zusammen = b.mitNaechstem && alle[i + 1]
+      ? h + kennwertHoehe(alle[i + 1], breite)
+      : h
+    if (laufend.length > 0 && belegt + zusammen > hoehe) {
       seiten.push(laufend)
       laufend = []
       belegt = 0
     }
     laufend.push(b)
     belegt += h
-  }
+  })
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
 }
@@ -3217,15 +3468,21 @@ const KENNWERT_FORMAT: SeitenFormat = 'a4'
  * Eigentumsarten ein zweites Blatt.
  */
 function KennwertTabelle({
-  kopf, breiten, zeilen,
-}: { kopf: string[]; breiten: number[]; zeilen: TabellenZeile[] }) {
+  kopf, breiten, zeilen, ohneSchlusslinie,
+}: {
+  kopf: string[]; breiten: number[]; zeilen: TabellenZeile[]; ohneSchlusslinie?: boolean
+}) {
   const t: Tabelle = { kopf, zeilen, breiten, linksBis: 0, spaltenAbstand: 2 }
   return (
     <View style={s.kompaktBlock}>
-      <View style={s.kompaktKopfEng}><Zellen t={t} werte={kopf} /></View>
+      {/* Ohne eine einzige Beschriftung bliebe eine leere Zeile stehen. */}
+      {kopf.some(Boolean) && (
+        <View style={s.kompaktKopfEng}><Zellen t={t} werte={kopf} /></View>
+      )}
       {zeilen.map((z, r) => (
         <View key={r} style={[
-          s.kompaktZeile, s.tabLinie,
+          s.kompaktZeile,
+          ...(ohneSchlusslinie && r === zeilen.length - 1 ? [] : [s.tabLinie]),
           ...(z.total ? [s.tabTotal] : []),
           ...(z.einzug ? [s.tabEinzug] : []),
         ]}>
@@ -3260,15 +3517,237 @@ function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
           {bloecke.map((b, i) => (
             <View key={i}>
               {b.sektion && <Text style={s.h2}>{b.sektion}</Text>}
+              {/* Kompakt gesetzt wie die Tabellen darunter: ein Balken im
+                  Grad der Zahlentafel, nicht in dem einer Überschrift. */}
               {b.titel && (
-                <Text style={titelStil(b.titelFarbe ?? BERICHT_FARBE.primaerMittel,
-                  Boolean(b.sektion))}>
+                <Text style={[s.kompaktTitel,
+                  { backgroundColor: b.titelFarbe ?? BERICHT_FARBE.primaerHell }]}>
                   {b.titel}
                 </Text>
               )}
-              <KennwertTabelle kopf={b.kopf} breiten={b.breiten} zeilen={b.zeilen} />
+              <KennwertTabelle kopf={b.kopf} breiten={b.breiten} zeilen={b.zeilen}
+                ohneSchlusslinie={b.ohneSchlusslinie} />
             </View>
           ))}
+        </InhaltsSeite>
+      ))}
+    </>
+  )
+}
+
+// ─── Kapitel aus Bereichen und Tabellen ──────────────────────────────────────
+//
+// „Wirtschaftlichkeit" und „Anlagekostenlimiten" haben denselben Bau: je Sicht
+// mehrere Bereiche, darin Tabellen und ein Satz zur Herkunft der Zahlen.
+// Umbruchrechnung und Satz stehen deshalb nur einmal hier.
+
+/**
+ * A4 hoch: drei bis vier Spalten je Tabelle, davon höchstens zwei mit Text —
+ * das steht auf der schmalen Seite so gut wie auf der breiten, und die Kapitel
+ * gehören zum Fliesstext des Berichts, nicht zu den Beilagen.
+ */
+const BEREICHS_FORMAT: SeitenFormat = 'a4'
+
+type BereichsElement = Umbruchpunkt & (
+  /** Obertitel einer Sicht — nur, wenn mehr als eine gedruckt wird. */
+  | { art: 'sicht'; titel: string }
+  /** Balken über einem Bereich. */
+  | { art: 'bereich'; titel: string; farbe: string; umbruch?: boolean }
+  | {
+    art: 'tabelle'; t: KapitelTabelle
+    titelFarbe: string; totalFarbe: string; zelleFarbe: string
+    /** Die erste Tabelle schliesst an den Bereichsbalken an und hält knapperen
+     *  Vorabstand; die folgenden stehen als eigene Blöcke weiter darunter. */
+    anschluss: boolean
+  }
+  | { art: 'hinweis'; text: string }
+)
+
+function bereichsHoehe(e: BereichsElement, breite: number): number {
+  switch (e.art) {
+    case 'sicht':
+    case 'bereich':
+      return MH.eigTitel
+    // Der erste Tabellentitel schliesst an den Bereichsbalken an (knapper
+    // Vorabstand), die folgenden halten den vollen Blockabstand.
+    case 'tabelle': {
+      const steg = e.t.spaltenAbstand ?? 3
+      return (e.anschluss ? MH.hausTitel : MH.eigTitel)
+        + kopfHoehe(e.t.kopf, e.t.breiten, steg, breite, e.t.kopfZusatz) + MH.blockEnde
+        + zeilenHoehe(e.t.zeilen, e.t.breiten, steg, breite)
+    }
+    case 'hinweis':
+      return textZeilen(e.text, breite - EINZUG, 1) * MH.zeile + MH.blockEnde
+  }
+}
+
+/**
+ * Bausteine des Kapitels in Druckreihenfolge. Der Kapitelschlüssel steckt in
+ * den Umbruchschlüsseln — sonst kämen sich die beiden Kapitel ins Gehege.
+ */
+function bereichsElemente(w: BereichsKapitelDaten, kapitelKey: string): BereichsElement[] {
+  const el: BereichsElement[] = []
+  for (const sicht of w.sichten) {
+    if (w.mehrereSichten) {
+      el.push({
+        art: 'sicht', titel: sicht.titel,
+        key: `${kapitelKey}:sicht:${sicht.titel}`, label: sicht.titel,
+      })
+    }
+    for (const b of sicht.bereiche) {
+      // Ohne Balken beginnt der Bereich mit seiner ersten Tabelle; der Umbruch
+      // davor hängt dann an ihr.
+      if (b.titel) {
+        el.push({
+          art: 'bereich', titel: b.titel, farbe: b.farbe, umbruch: b.neueSeite,
+          key: `${kapitelKey}:bereich:${sicht.titel}:${b.titel}`, label: b.titel,
+        })
+      }
+      b.tabellen.forEach((t, i) => {
+        el.push({
+          art: 'tabelle', t, titelFarbe: b.tabellenFarbe, totalFarbe: b.totalFarbe,
+          zelleFarbe: b.zelleFarbe,
+          // Die erste Tabelle schliesst an den Balken des Bereichs an; ohne
+          // Balken steht sie für sich und hält den vollen Vorabstand.
+          anschluss: Boolean(b.titel) && i === 0,
+          key: `${kapitelKey}:tabelle:${sicht.titel}:${b.titel}:${t.titel}`,
+          label: t.titel,
+        })
+      })
+      if (b.hinweis) {
+        el.push({ art: 'hinweis', text: b.hinweis, key: '', label: 'Hinweis' })
+      }
+    }
+  }
+  return el
+}
+
+/**
+ * Seiten des Kapitels. Eine Tabelle bleibt zusammen, solange sie auf eine
+ * Seite passt; nur wenn sie für sich allein zu hoch ist, wird sie zeilenweise
+ * aufgeteilt und trägt ihren Titel als Fortsetzung weiter.
+ */
+function bereichsSeiten(
+  w: BereichsKapitelDaten, kapitelKey: string, gesetzt: ReadonlySet<string>,
+): BereichsElement[][] {
+  const hoeheJeSeite = seitenHoehe(BEREICHS_FORMAT)
+  const breite = satzBreite(BEREICHS_FORMAT)
+
+  const seiten: BereichsElement[][] = []
+  let laufend: BereichsElement[] = []
+  // Der Kapiteltitel steht über der ersten Seite.
+  let hoehe = MH.h1
+
+  function neueSeite() {
+    if (laufend.length > 0) seiten.push(laufend)
+    laufend = []
+    hoehe = 0
+  }
+  function lege(e: BereichsElement) {
+    const h = bereichsHoehe(e, breite)
+    // Umbruch von Hand, ein Bereich mit eigener Seite oder schlicht kein Platz.
+    const bricht = gesetzt.has(e.key)
+      || (e.art === 'bereich' && e.umbruch)
+      || hoehe + h > hoeheJeSeite
+    if (laufend.length > 0 && bricht) neueSeite()
+    laufend.push(e)
+    hoehe += h
+  }
+
+  for (const e of bereichsElemente(w, kapitelKey)) {
+    if (e.art !== 'tabelle' || bereichsHoehe(e, breite) <= hoeheJeSeite) { lege(e); continue }
+    // Zu hoch für eine ganze Seite: zeilenweise aufteilen.
+    const steg = e.t.spaltenAbstand ?? 3
+    const rahmen = (e.anschluss ? MH.hausTitel : MH.eigTitel)
+      + kopfHoehe(e.t.kopf, e.t.breiten, steg, breite, e.t.kopfZusatz) + MH.blockEnde
+    let rest = e.t.zeilen
+    let erste = true
+    while (rest.length > 0) {
+      const platz = hoeheJeSeite - hoehe - rahmen
+      let passt = 0
+      while (passt < rest.length
+        && zeilenHoehe(rest.slice(0, passt + 1), e.t.breiten, steg, breite) <= platz) {
+        passt++
+      }
+      if (passt < 3 && laufend.length > 0) { neueSeite(); continue }
+      const nimm = Math.min(rest.length, Math.max(passt, 3))
+      lege({
+        ...e,
+        t: {
+          ...e.t,
+          titel: erste ? e.t.titel : `${e.t.titel} (Fortsetzung)`,
+          zeilen: rest.slice(0, nimm),
+        },
+        key: erste ? e.key : '',
+      })
+      rest = rest.slice(nimm)
+      erste = false
+    }
+  }
+  if (laufend.length > 0) seiten.push(laufend)
+  return seiten
+}
+
+function BereichsBausteine({ elemente }: { elemente: BereichsElement[] }) {
+  return (
+    <>
+      {elemente.map((e, i) => {
+        if (e.art === 'sicht') return <Text key={i} style={s.h2}>{e.titel}</Text>
+        if (e.art === 'bereich') {
+          return <Text key={i} style={titelStil(e.farbe)}>{e.titel}</Text>
+        }
+        if (e.art === 'hinweis') {
+          return <Text key={i} style={s.anlageHinweis}>{e.text}</Text>
+        }
+        return (
+          <Datentabelle
+            key={i}
+            titel={e.t.titel}
+            titelFarbe={e.titelFarbe}
+            anschluss={e.anschluss}
+            totalFarbe={e.totalFarbe}
+            kopf={e.t.kopf}
+            kopfZusatz={e.t.kopfZusatz}
+            hellSpalte={e.t.hellSpalte}
+            hellFarbe={e.totalFarbe}
+            dunkelFarbe={e.zelleFarbe}
+            breiten={e.t.breiten}
+            linksBis={e.t.linksBis}
+            einheitenSpalten={e.t.einheitenSpalten}
+            spaltenAbstand={e.t.spaltenAbstand}
+            zeilen={e.t.zeilen}
+          />
+        )
+      })}
+    </>
+  )
+}
+
+/** Ein Kapitel aus Bereichen und Tabellen, Seite für Seite gesetzt. */
+function BereichsKapitel({
+  daten, seite, seitenTotal, nummer, kapitelKey, titel, inhalt, leerText,
+}: Kapitelseite & {
+  kapitelKey: string
+  titel: string
+  inhalt: BereichsKapitelDaten | undefined
+  /** Satz, wenn es nichts zu drucken gibt. */
+  leerText: string
+}) {
+  if (!inhalt) {
+    return (
+      <InhaltsSeite daten={daten} seite={seite} seitenTotal={seitenTotal}>
+        <KapitelTitel nummer={nummer} text={titel} />
+        <Text style={s.hinweis}>{leerText}</Text>
+      </InhaltsSeite>
+    )
+  }
+  return (
+    <>
+      {bereichsSeiten(inhalt, kapitelKey, umbruchSet(daten)).map((elemente, n) => (
+        <InhaltsSeite key={n} format={BEREICHS_FORMAT} daten={daten}
+          seite={seite + n} seitenTotal={seitenTotal}>
+          {n === 0 && <KapitelTitel nummer={nummer} text={titel} />}
+          <BereichsBausteine elemente={elemente} />
         </InhaltsSeite>
       ))}
     </>
@@ -3322,6 +3801,27 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
     case 'anlagekosten':      return <AnlagekostenKapitel {...rest} />
     case 'wohnungsmix':       return <WohnungsmixKapitel {...rest} />
     case 'benchmarks':        return <KennwertKapitel {...rest} />
+    case 'wirtschaftlichkeit':
+      return (
+        <BereichsKapitel
+          {...rest}
+          kapitelKey="wirtschaftlichkeit"
+          titel="Wirtschaftlichkeit"
+          inhalt={rest.daten.wirtschaftlichkeit}
+          leerText="Für diese Variante sind keine Kosten erfasst."
+        />
+      )
+    case 'anlagekostenlimiten':
+      return (
+        <BereichsKapitel
+          {...rest}
+          kapitelKey="anlagekostenlimiten"
+          titel="Anlagekostenlimiten"
+          inhalt={rest.daten.limiten}
+          leerText={'Die Anlagekostenlimiten gelten für den geförderten Wohnungsbau; '
+            + 'in dieser Variante ist keine Genossenschaft erfasst.'}
+        />
+      )
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
@@ -3329,9 +3829,12 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
 /**
  * Der Businessplan-Bericht als PDF-Dokument.
  *
- * Titelblatt und Inhaltsverzeichnis stehen; von den Fachkapiteln ist die
- * Projektübersicht ausgebaut, die übrigen erscheinen als Platzhalter — so
- * bleibt die Gliederung vollständig und man sieht, was noch fehlt.
+ * Titelblatt und Inhaltsverzeichnis stehen; von den Fachkapiteln sind
+ * Projektübersicht, Nutzungsberechnung, Mengen, Wohnungsmix, Anlagekosten,
+ * Kennwerte, Anlagekostenlimiten und Wirtschaftlichkeit ausgebaut. Die
+ * übrigen erscheinen als
+ * Platzhalter — so bleibt die Gliederung vollständig und man sieht, was noch
+ * fehlt.
  */
 export function BerichtDokument({ daten }: { daten: BerichtDaten }) {
   // Hier statt beim Modulimport, damit eine abweichende Asset-Basis vorher

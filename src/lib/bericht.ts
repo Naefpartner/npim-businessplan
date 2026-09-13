@@ -64,6 +64,7 @@ export const BERICHT_KAPITEL: BerichtKapitel[] = [
   { key: 'wohnungsmix',       label: 'Wohnungsmix',               beschrieb: 'Verteilung nach Zimmerzahl und Mietspiegel' },
   { key: 'mengenanalyse',     label: 'Mengen- und Mietzinsanalyse', beschrieb: 'Kennzahlen und Preisanalyse' },
   { key: 'anlagekosten',      label: 'Anlagekosten',              beschrieb: 'Kostenberechnung der gewählten Methode', format: 'a3' },
+  { key: 'anlagekostenlimiten', label: 'Anlagekostenlimiten',  beschrieb: 'Wohnbauförderung WBF und BWO, nur Genossenschaft' },
   // Schlüssel bleibt 'benchmarks': gespeicherte Vorlagen führen ihn.
   { key: 'benchmarks',        label: 'Kennwerte',                 beschrieb: 'Flächen- und Volumenkennwerte, Kostenkennwerte' },
   { key: 'wirtschaftlichkeit', label: 'Wirtschaftlichkeit',       beschrieb: 'Kostenmiete, Rendite, Verkaufsgewinn' },
@@ -241,6 +242,66 @@ export const BERICHT_FARBE = {
   h4: '#95654B',        // Überschrift 4
   linie: '#000000',
 } as const
+
+/**
+ * Spaltenraster einer Herleitung: Bezeichnung, Menge mit Einheit, Ansatz mit
+ * Einheit, Betrag. Die Zahlen stehen rechtsbündig untereinander, ihre Einheit
+ * linksbündig daneben; die Zahlenspalten sind auf ihren längsten Inhalt
+ * bemessen, der Rest gehört der Bezeichnung. Kostenmiete und
+ * Anlagekostenlimiten rechnen im selben Raster — die Tabellen sollen sich
+ * gleich lesen.
+ */
+export const RASTER_HERLEITUNG: {
+  breiten: number[]
+  einheitenSpalten: number[]
+  spaltenAbstand: number
+} = {
+  breiten: [79, 17, 16, 20, 15, 18],
+  einheitenSpalten: [2, 4],
+  /** Engerer Steg als die üblichen 3 mm — sechs Spalten brauchen die Breite. */
+  spaltenAbstand: 2,
+}
+
+/**
+ * Dasselbe Raster mit einer Spalte für Zwischenwerte vor dem Betrag. Wo eine
+ * Herleitung über eine Zwischengrösse läuft — der Gebäudeversicherungswert
+ * etwa —, steht deren Ergebnis dort und nicht in der Betragsspalte, die sonst
+ * Werte und Jahresbeträge vermischte.
+ */
+/** Breite einer Wertspalte der Sensitivitätstafel, in Anteilen. */
+const MATRIX_WERT = 15
+/** Anteile einer ganzen Tafelzeile — Beschriftung und fünf Wertspalten. */
+const MATRIX_TOTAL = 26 + 5 * MATRIX_WERT
+
+/**
+ * Raster einer Sensitivitätstafel: links die Beschriftung der Zeilenachse,
+ * daneben fünf gleich breite Wertspalten.
+ */
+export const RASTER_MATRIX: { breiten: number[]; spaltenAbstand: number } = {
+  breiten: [26, ...Array<number>(5).fill(MATRIX_WERT)],
+  spaltenAbstand: 3,
+}
+
+/**
+ * Raster einer Tabelle, die unter einer Sensitivitätstafel steht: ihre
+ * Zahlenspalten sind so breit wie die der Tafel und stehen mit deren rechten
+ * Spalten auf einer Flucht. Was links übrig bleibt, gehört der Bezeichnung.
+ */
+export function rasterAufMatrix(
+  spalten: number,
+  /**
+   * Zuschlag je Wertspalte, aus der Bezeichnung genommen. Eine breitere Spalte
+   * schiebt nur die Spalten links von ihr nach links; ihr rechter Rand und
+   * alles rechts davon bleibt auf der Flucht. Für Zellen, die Zahl und Einheit
+   * tragen und in der Tafelbreite nicht Platz haben.
+   */
+  zuschlaege: number[] = [],
+): { breiten: number[]; spaltenAbstand: number } {
+  const werte = Array<number>(spalten).fill(MATRIX_WERT)
+    .map((w, i) => w + (zuschlaege[i] ?? 0))
+  const summe = werte.reduce((a, b) => a + b, 0)
+  return { breiten: [MATRIX_TOTAL - summe, ...werte], spaltenAbstand: 3 }
+}
 
 export const FUSSZEILE_FIRMA = 'Naef & Partner Immobilien AG'
 /** Fusszeile des Titelblatts — Firmenadresse statt Dokumentbezug. */

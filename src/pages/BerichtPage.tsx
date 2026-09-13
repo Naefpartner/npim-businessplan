@@ -11,6 +11,8 @@ import { useUebersichtDaten } from '@/components/bericht/uebersichtDaten'
 import { useMengenDaten } from '@/components/bericht/mengenDaten'
 import { useNutzungDaten } from '@/components/bericht/nutzungDaten'
 import { useAnlagekostenDaten } from '@/components/bericht/anlagekostenDaten'
+import { useWirtschaftlichkeitDaten } from '@/components/bericht/wirtschaftlichkeitDaten'
+import { useLimitenDaten } from '@/components/bericht/limitenDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
 import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
 import { fetchVariant } from '@/hooks/useVariants'
@@ -114,6 +116,8 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const mengen = useMengenDaten(variantId, umfang, etappenAuswahl)
   const nutzung = useNutzungDaten(project, parzellen, zonen, zonenplan?.publicUrl ?? null)
   const anlagekosten = useAnlagekostenDaten(variantId, umfang, etappenAuswahl)
+  const wirtschaftlichkeit = useWirtschaftlichkeitDaten(variantId, umfang, etappenAuswahl)
+  const limiten = useLimitenDaten(variantId, umfang, etappenAuswahl)
 
   const uebersicht = useUebersichtDaten(
     project, variant, parzellen, bestand, situationsplan?.publicUrl ?? null)
@@ -145,10 +149,12 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       mengen,
       nutzung,
       anlagekosten,
+      wirtschaftlichkeit,
+      limiten,
       umbrueche,
     }
   }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
-      uebersicht, mengen, nutzung, anlagekosten, umbrueche])
+      uebersicht, mengen, nutzung, anlagekosten, wirtschaftlichkeit, limiten, umbrueche])
 
   // ── Sprungnavigation ───────────────────────────────────────────────────────
   // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.

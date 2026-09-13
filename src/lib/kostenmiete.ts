@@ -252,3 +252,43 @@ export function berechneKostenmiete(
     proM2Jahr, proM2Monat, proWohnungMonat,
   }
 }
+
+// ─── Sensitivität: Kostenmiete über Erstellungskosten und Fläche ─────────────
+
+/** Stufen der Matrix — zwei Schritte zu zehn Prozent in jede Richtung. */
+export const SENS_SCHRITTE = [-0.2, -0.1, 0, 0.1, 0.2]
+
+export interface KostenmieteMatrix {
+  /** Erstellungskosten brutto je Spalte. */
+  kosten: number[]
+  /** Vermietungsfläche Wohnen je Zeile. */
+  flaechen: number[]
+  /** Kostenmiete Wohnen in CHF/m² VMF und Jahr, [Zeile][Spalte]. */
+  zellen: number[][]
+}
+
+/**
+ * Wie die Kostenmiete Wohnen auf die beiden Grössen reagiert, an denen im
+ * Projektverlauf am ehesten etwas kippt: die Erstellungskosten und die
+ * Vermietungsfläche. Alle übrigen Parameter bleiben, wie sie erfasst sind —
+ * die Matrix zeigt eine Abweichung, keine zweite Rechnung.
+ */
+export function kostenmieteMatrix(
+  basis: KostenmieteBasis, p: KostenmieteParams, ertragsNutzungen: ErtragNutzung[],
+  schritte: number[] = SENS_SCHRITTE,
+): KostenmieteMatrix {
+  // Die abweichenden Kostenstände auf zehntausend Franken gerundet: sie sind
+  // Annahmen, und eine frankengenaue Annahme täuscht eine Schärfe vor, die sie
+  // nicht hat. Der Basisfall bleibt auf den Franken genau — er ist gerechnet.
+  const kosten = schritte.map((x) => (x === 0
+    ? basis.erstellungBrutto
+    : Math.round(basis.erstellungBrutto * (1 + x) / 10000) * 10000))
+  // Ebenso die Flächen — auf zehn Quadratmeter gerundet, der Basisfall genau.
+  const flaechen = schritte.map((y) => (y === 0
+    ? basis.wohnenFlaeche
+    : Math.round(basis.wohnenFlaeche * (1 + y) / 10) * 10))
+  const zellen = flaechen.map((wohnenFlaeche) => kosten.map((erstellungBrutto) =>
+    berechneKostenmiete(
+      { ...basis, erstellungBrutto, wohnenFlaeche }, p, ertragsNutzungen).proM2Jahr))
+  return { kosten, flaechen, zellen }
+}
