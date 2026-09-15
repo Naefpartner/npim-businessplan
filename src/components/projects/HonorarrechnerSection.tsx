@@ -98,20 +98,20 @@ export function HonorarrechnerSection({ projectId, variants, initialVariantId }:
   const variantAnlagekosten = useMemo(() => {
     let total = 0, pos010 = 0
     for (const eig of ak.presentEig) {
-      const erg = ak.konsolidiert.get(eig)?.ergebnis
+      const erg = ak.konsolidiertEffektiv.get(eig)
       if (!erg) continue
       total += erg.totalBrutto
       const p = erg.positionen['010']
       pos010 += (p?.betragNetto ?? 0) + (p?.mwstBetrag ?? 0)
     }
     return Math.max(0, total - pos010)
-  }, [ak.konsolidiert, ak.presentEig])
+  }, [ak.konsolidiertEffektiv, ak.presentEig])
   // Anlagekosten der Variante je Hauptgruppe (0–9), brutto, Gruppe 0 exkl. Position 010.
   const variantHg = useMemo(() => {
     const hg: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 }
     let pos010 = 0
     for (const eig of ak.presentEig) {
-      const erg = ak.konsolidiert.get(eig)?.ergebnis
+      const erg = ak.konsolidiertEffektiv.get(eig)
       if (!erg) continue
       for (let g = 0; g <= 9; g++)
         hg[g] += (erg.hauptgruppenSummenNetto[g as BkpHauptgruppe] ?? 0) + (erg.hauptgruppenSummenMwst[g as BkpHauptgruppe] ?? 0)
@@ -292,7 +292,7 @@ export function HonorarrechnerSection({ projectId, variants, initialVariantId }:
     }
     let hg14 = 0
     for (const eig of ak.presentEig) {
-      const erg = ak.konsolidiert.get(eig)?.ergebnis
+      const erg = ak.konsolidiertEffektiv.get(eig)
       if (!erg) continue
       hg14 += (erg.hauptgruppenSummenNetto[1] ?? 0) + (erg.hauptgruppenSummenNetto[2] ?? 0)
             + (erg.hauptgruppenSummenNetto[3] ?? 0) + (erg.hauptgruppenSummenNetto[4] ?? 0)

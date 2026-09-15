@@ -79,8 +79,11 @@ export function BenchmarksSection({ defaultExpanded = false }: { defaultExpanded
 
   // Karten der aktiven Ansicht: Gesamtprojekt + (bei mehreren) je Eigentumsart.
   const blocks = useMemo<BenchBlock[]>(() => {
-    const ergFor = (eig: typeof ak.presentEig[number]) =>
-      isKons ? ak.konsolidiert.get(eig)?.ergebnis : ak.blockErgebnisse.get(`${activeTab}::${eig}`)
+    // Der Stand, auf dem gerechnet wird — also die in den Anlagekosten
+    // gewählte Erfassungsmethode (Detailkatalog, keeValue oder Benchmark).
+    const ergFor = (eig: typeof ak.presentEig[number]) => (isKons
+      ? ak.konsolidiertEffektiv.get(eig)
+      : ak.blockErgebnisseEffektiv.get(`${activeTab}::${eig}`))
     const eigsInView = ak.presentEig.filter((eig) =>
       !!ergFor(eig) || viewBuildings.some((b) => eigentumsartForBuilding(b.use_type) === eig))
 
@@ -110,7 +113,8 @@ export function BenchmarksSection({ defaultExpanded = false }: { defaultExpanded
       }
     }
     return out
-  }, [isKons, activeTab, ak.presentEig, ak.konsolidiert, ak.blockErgebnisse, viewBuildings])
+  }, [isKons, activeTab, ak.presentEig, ak.konsolidiertEffektiv,
+      ak.blockErgebnisseEffektiv, viewBuildings])
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">

@@ -377,8 +377,10 @@ export function useAnlagekosten(
     return map
   }, [keeValueAktiv, benchmarkAktiv, presentEig, konsolidiert, blockList, blockErgebnisseEffektiv])
 
-  // Gesamttotal (inkl. MwSt) über alle Eigentumsarten.
-  const grandTotalBrutto = presentEig.reduce((s, eig) => s + (konsolidiert.get(eig)?.ergebnis.totalBrutto ?? 0), 0)
+  // Gesamttotal (inkl. MwSt) über alle Eigentumsarten — aus dem Stand, auf dem
+  // gerechnet wird, nicht aus dem Detailkatalog allein.
+  const grandTotalBrutto = presentEig.reduce(
+    (s, eig) => s + (konsolidiertEffektiv.get(eig)?.totalBrutto ?? 0), 0)
 
   const loading = loadingMeta || mengen.loading
 

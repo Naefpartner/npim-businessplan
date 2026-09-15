@@ -179,7 +179,7 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
       return out
     }
 
-    const konsRows = buildBase((eig) => ak.konsolidiert.get(eig)?.ergebnis)
+    const konsRows = buildBase((eig) => ak.konsolidiertEffektiv.get(eig))
     const konsScope = `kons|${eigSel}`
 
     if (verteilModus === 'gesamt') {
@@ -189,7 +189,7 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     // Etappen-Modus: je Position eine Kopfzeile + je Etappe eine editierbare Unterzeile.
     const etAmt = new Map<string, Map<string, MfRow>>()
     for (const et of etappen) {
-      const rws = buildBase((eig) => ak.blockErgebnisse.get(`${et.id}::${eig}`))
+      const rws = buildBase((eig) => ak.blockErgebnisseEffektiv.get(`${et.id}::${eig}`))
       etAmt.set(et.id, new Map(rws.map((r) => [r.key, r])))
     }
     const disp: MfDispRow[] = []

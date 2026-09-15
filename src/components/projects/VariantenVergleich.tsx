@@ -91,8 +91,10 @@ function computeMetrics(
   const matchingIds = new Set(ak.etappen.filter((e) => !etSet || etSet.has(e.name)).map((e) => e.id))
   const buildings = allEtappen ? ak.buildings : ak.buildings.filter((b) => b.etappe_id != null && matchingIds.has(b.etappe_id))
   const ergOf = (eig: Eigentumsart): BkpErgebnis | undefined => {
-    if (allEtappen) return ak.konsolidiert.get(eig)?.ergebnis
-    const ergs = [...matchingIds].map((id) => ak.blockErgebnisse.get(`${id}::${eig}`)).filter((x): x is BkpErgebnis => !!x)
+    if (allEtappen) return ak.konsolidiertEffektiv.get(eig)
+    const ergs = [...matchingIds]
+      .map((id) => ak.blockErgebnisseEffektiv.get(`${id}::${eig}`))
+      .filter((x): x is BkpErgebnis => !!x)
     return ergs.length ? sumErgebnisse(ergs) : undefined
   }
 
