@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, AlertCircle, Pencil, Save, Ruler, PieChart, Calculator, Gauge, Coins, Waves, ShieldAlert } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, Pencil, Save, Ruler, PieChart, Calculator, Gauge, Coins, Landmark, Waves, ShieldAlert } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { fetchProject } from '@/hooks/useProjects'
 import { fetchVariant, useVariants } from '@/hooks/useVariants'
@@ -13,6 +13,7 @@ import { AnlagekostenSection } from '@/pages/AnlagekostenPage'
 import { WohnbaufoerderungSection } from '@/components/projects/WohnbaufoerderungSection'
 import { BenchmarksSection } from '@/components/projects/BenchmarksSection'
 import { WirtschaftlichkeitSection } from '@/components/projects/WirtschaftlichkeitSection'
+import { KapitalSteuernSection } from '@/components/projects/KapitalSteuernSection'
 import { MittelflussSection } from '@/components/projects/MittelflussSection'
 import { VariantDataProvider } from '@/contexts/VariantDataContext'
 import { VariantTabContext } from '@/contexts/VariantTabContext'
@@ -51,6 +52,7 @@ const TABS = [
   { key: 'anlagekosten',       label: 'Anlagekosten',              icon: Calculator },
   { key: 'benchmarks',         label: 'Benchmarks',                icon: Gauge },
   { key: 'wirtschaftlichkeit', label: 'Wirtschaftlichkeit',        icon: Coins },
+  { key: 'kapital',            label: 'Kapital und Steuern',       icon: Landmark },
   { key: 'mittelfluss',        label: 'Mittelfluss',               icon: Waves },
   { key: 'pqm',                label: 'PQM',                       icon: ShieldAlert },
 ] as const
@@ -207,6 +209,9 @@ export function VarianteDetailPage() {
         )}
         {activeTab === 'wirtschaftlichkeit' && (
           <WirtschaftlichkeitSection variantId={variant.id} defaultExpanded />
+        )}
+        {activeTab === 'kapital' && (
+          <KapitalSteuernSection variantId={variant.id} defaultExpanded />
         )}
         {/* Mittelfluss — sprengt den max-w-Container und füllt den ganzen Hauptbereich
             (Viewport minus Sidebar w-60/15rem), damit möglichst viele Quartalsspalten sichtbar sind. */}
