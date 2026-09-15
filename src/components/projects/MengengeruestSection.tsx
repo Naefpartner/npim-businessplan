@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, Fragment, type FormEvent, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment, type FormEvent, type DragEvent } from 'react'
 import {
   Loader2, AlertCircle, Plus, Pencil, Trash2, Save, Copy,
   Building, ChevronDown, ChevronRight, Lock, Unlock, CornerDownRight, GripVertical, Layers, Home,
@@ -369,13 +369,30 @@ export function MengengeruestSection({
     await Promise.all([etappenApi.reload(), mengen.reload()])
   }
 
-  // Sicherstellen, dass mindestens eine Etappe existiert (für Zuordnung neuer
-  // Gebäude + BKP-2-Kennwerte). Nur wenn schreibberechtigt.
+  /*
+   * Etappen sind für die Kostenrechnung nötig — jeder Kostenblock hängt an
+   * einer —, sollen den Nutzer aber nicht beschäftigen, solange es nur eine
+   * gibt. Deshalb zwei stille Schritte: eine erste Etappe anlegen, und
+   * Gebäude, die noch keiner zugeordnet sind, in die einzige Etappe nehmen.
+   *
+   * Ohne den zweiten Schritt fielen solche Gebäude aus den Anlagekosten heraus
+   * (der Block entsteht je Etappe) und die Seite meldete eine fehlende
+   * Zuordnung, die gar nicht zu treffen war — es gibt dann keine Etappenreiter.
+   * Bei mehreren Etappen bleibt die Zuordnung offen; sie wäre geraten.
+   */
+  // Einmal je Variante — der Hook liefert bei jedem Rendern ein neues Objekt,
+  // ohne Merker liefe die Reparatur sonst im Kreis.
+  const zuordnungGeprueft = useRef<string | null>(null)
   useEffect(() => {
-    if (canWrite && !etappenApi.loading && etappenApi.etappen.length === 0) {
-      void etappenApi.ensureDefault()
-    }
-  }, [canWrite, etappenApi.loading, etappenApi.etappen.length, etappenApi])
+    if (!canWrite || etappenApi.loading || mengen.loading) return
+    if (etappenApi.etappen.length === 0) { void etappenApi.ensureDefault(); return }
+    if (etappenApi.etappen.length > 1 || zuordnungGeprueft.current === variantId) return
+    const einzige = etappenApi.etappen[0]
+    const ohne = mengen.buildings.filter((b) => b.etappe_id !== einzige.id)
+    if (ohne.length === 0) return
+    zuordnungGeprueft.current = variantId
+    void Promise.all(ohne.map((b) => mengen.updateBuilding(b.id, { etappe_id: einzige.id })))
+  }, [canWrite, variantId, etappenApi, mengen])
 
   // Gebäude nach Etappe gruppieren (in Etappen-Reihenfolge), plus eine
   // „ohne Etappe"-Gruppe, falls Gebäude (noch) keiner Etappe zugeordnet sind.

@@ -275,6 +275,9 @@ export function resolveTyp(
     case 'prozent_von':  return { kind: 'prozent_von_refs', refs: base ?? [] }
     case 'promille_von': return { kind: 'promille_von_refs', refs: base ?? [] }
     case 'ertrag_nutzung': return { kind: 'prozent_von_ertrag', refs: base ?? [] }
+    // Eigene Finanzierungszeile: die Bezugsgrösse steht ganz in der Basis —
+    // anders als bei den Katalogpositionen, die eine Hauptgruppe vorgeben.
+    case 'finanzierung':   return { kind: 'finanzierung', gruppen: [], refs: base ?? [] }
     default:             return catalogTyp
   }
 }

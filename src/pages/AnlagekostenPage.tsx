@@ -811,6 +811,7 @@ const METHOD_LABEL: Record<CalcMethod, string> = {
   promille_von: '‰ von …',
   honorarrechner: 'Honorarrechner',
   ertrag_nutzung: 'Mieterträge nach Nutzung',
+  finanzierung:   'Finanzierung (Zins)',
 }
 
 // Die Methode „Honorarrechner" ist nur für die Honorar-Positionen 690a/690b sinnvoll.
@@ -921,6 +922,8 @@ function PositionRow({
     onUpsert(pos.code, patch, methodScope)
     if ((m === 'prozent_von' || m === 'promille_von') && base.length === 0) setBasisOffen(true)
     if (m === 'ertrag_nutzung' && base.length === 0) setNutzungOffen(true)
+    // Ohne Basis rechnete die Finanzierung auf null — deshalb gleich fragen.
+    if (m === 'finanzierung' && base.length === 0) setBasisOffen(true)
   }
 
   return (
@@ -1022,8 +1025,9 @@ function PositionRow({
       </td>
       {/* Methode */}
       <td className="px-3 py-2 align-top">
-        {finanz ? (
-          // Finanzierung: keine Methode — nur Berechnungsgrundlage (Basis) wählen.
+        {finanz && !isCustom ? (
+          // Katalogposition: der Typ steht fest — nur die Berechnungsgrundlage
+          // (Basis) ist wählbar.
           <button
             type="button"
             onClick={() => setBasisOffen(true)}
@@ -1044,6 +1048,9 @@ function PositionRow({
               {(Object.keys(METHOD_LABEL) as CalcMethod[])
                 .filter((m) => m !== 'honorarrechner' || HONORAR_METHODE_CODES.has(pos.code))
                 .filter((m) => m !== 'ertrag_nutzung' || NUTZUNG_METHODE_CODES.has(pos.code))
+                // Finanzierung nur für eigene Zeilen — die Katalogpositionen
+                // bringen ihren Typ und ihre Bezugsgrösse selbst mit.
+                .filter((m) => m !== 'finanzierung' || isCustom)
                 .map((m) => (
                   <option key={m} value={m}>
                     {m === 'standard' ? `Standard`
@@ -1052,7 +1059,7 @@ function PositionRow({
                   </option>
                 ))}
             </select>
-            {istRefMethode && (
+            {(istRefMethode || finanz) && (
               <button
                 type="button"
                 onClick={() => setBasisOffen(true)}

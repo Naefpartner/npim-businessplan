@@ -495,7 +495,7 @@ export interface PauschalPosten {
 }
 
 // Berechnungsmethode pro Zeile (überschreibt den Katalog-Default).
-export type CalcMethod = 'standard' | 'pauschal' | 'einheit' | 'prozent_von' | 'promille_von' | 'honorarrechner' | 'ertrag_nutzung'
+export type CalcMethod = 'standard' | 'pauschal' | 'einheit' | 'prozent_von' | 'promille_von' | 'honorarrechner' | 'ertrag_nutzung' | 'finanzierung'
 
 // Referenz für die %/‰-Basis: eine Position (Code), eine ganze Hauptgruppe oder
 // eine Nutzungskategorie (dann `ref` = Nutzungsname, `prozent` = Anteil des
