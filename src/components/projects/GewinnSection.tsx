@@ -117,6 +117,31 @@ function UnterKapitel({
 }
 
 /**
+ * Gemeinsames Spaltenraster der drei Tabellen. Ohne es bemisst jede Tabelle
+ * ihre Spalten nach dem eigenen Inhalt, und die Beträge stünden von Tabelle zu
+ * Tabelle versetzt — Grobkosten, Erlöse und Gewinn sind aber dieselbe
+ * Rechnung und sollen untereinander zu lesen sein.
+ *
+ * Die Tabellen tragen dazu `table-fixed`: im automatischen Satz sind die
+ * Spaltenbreiten bloss ein Vorschlag, den der Browser je nach Inhalt der
+ * Tabelle anders verteilt — genau das liess die Beträge auseinanderlaufen.
+ */
+function GewinnCols() {
+  return (
+    <colgroup>
+      {/* BKP-Nummer */}
+      <col style={{ width: '3.5rem' }} />
+      {/* Bezeichnung */}
+      <col />
+      {/* Betrag: exkl. MwSt. · Verkaufserlös · Gewinn */}
+      <col style={{ width: '11rem' }} />
+      {/* Zweite Zahl: inkl. MwSt. · Anteil · Marge */}
+      <col style={{ width: '11rem' }} />
+    </colgroup>
+  )
+}
+
+/**
  * Gegenüberstellung von Anlagekosten und Verkaufserlösen der Verkaufsobjekte.
  *
  * Die Kosten stammen aus der in den Anlagekosten gewählten Erfassungsmethode —
@@ -168,7 +193,8 @@ function VerkaufsgewinnTabelle({ etappeId }: { etappeId: string | null }) {
       <div>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Grobkosten</h4>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-sm">
+          <table className="w-full min-w-[520px] table-fixed text-sm">
+            <GewinnCols />
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2 pr-3 font-medium">BKP</th>
@@ -210,10 +236,11 @@ function VerkaufsgewinnTabelle({ etappeId }: { etappeId: string | null }) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-sm">
+            <table className="w-full min-w-[520px] table-fixed text-sm">
+              <GewinnCols />
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="py-2 pr-3 font-medium">Nutzung</th>
+                  <th className="py-2 pr-3 font-medium" colSpan={2}>Nutzung</th>
                   <th className="py-2 pr-3 text-right font-medium">Verkaufserlös</th>
                   <th className="py-2 text-right font-medium">Anteil</th>
                 </tr>
@@ -221,7 +248,7 @@ function VerkaufsgewinnTabelle({ etappeId }: { etappeId: string | null }) {
               <tbody>
                 {erloese.map((e) => (
                   <tr key={e.nutzung} className="border-b border-slate-50">
-                    <td className="py-1.5 pr-3 text-slate-800">{e.nutzung}</td>
+                    <td className="py-1.5 pr-3 text-slate-800" colSpan={2}>{e.nutzung}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(e.betrag))}</td>
                     <td className="py-1.5 text-right tabular-nums text-slate-500">
                       {erloesTotal > 0 ? `${((e.betrag / erloesTotal) * 100).toFixed(1)} %` : '—'}
@@ -229,7 +256,7 @@ function VerkaufsgewinnTabelle({ etappeId }: { etappeId: string | null }) {
                   </tr>
                 ))}
                 <tr className="border-t-2 border-slate-300 font-semibold" style={{ backgroundColor: TOTALFLAECHE }}>
-                  <td className="py-2 pr-3">Verkaufserlös total</td>
+                  <td className="py-2 pr-3" colSpan={2}>Verkaufserlös total</td>
                   <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(Math.round(erloesTotal))}</td>
                   <td className="py-2 text-right tabular-nums">100.0 %</td>
                 </tr>
@@ -242,28 +269,36 @@ function VerkaufsgewinnTabelle({ etappeId }: { etappeId: string | null }) {
       {/* ── Verkaufsgewinn ──────────────────────────────────────────────── */}
       <div>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Verkaufsgewinn</h4>
-        <table className="w-full min-w-[520px] text-sm">
+        <table className="w-full min-w-[520px] table-fixed text-sm">
+          <GewinnCols />
           <tbody>
             <tr className="border-b border-slate-50">
-              <td className="py-1.5 pr-3 text-slate-800">Verkaufserlös total</td>
-              <td className="py-1.5 text-right tabular-nums">{formatNumber(Math.round(erloesTotal))}</td>
+              <td className="py-1.5 pr-3 text-slate-800" colSpan={2}>Verkaufserlös total</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(erloesTotal))}</td>
+              <td />
             </tr>
             <tr className="border-b border-slate-50">
-              <td className="py-1.5 pr-3 text-slate-800">abzüglich Anlagekosten BKP 0–9 (inkl. MwSt.)</td>
-              <td className="py-1.5 text-right tabular-nums">−{formatNumber(Math.round(kosten.total.brutto))}</td>
+              <td className="py-1.5 pr-3 text-slate-800" colSpan={2}>abzüglich Anlagekosten BKP 0–9 (inkl. MwSt.)</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">−{formatNumber(Math.round(kosten.total.brutto))}</td>
+              <td />
             </tr>
             <tr className="border-t-2 border-slate-300 text-base font-bold" style={{ backgroundColor: TOTALFLAECHE }}>
-              <td className="py-2.5 pr-3">Verkaufsgewinn</td>
-              <td className={cn('py-2.5 text-right tabular-nums', gewinn < 0 && 'text-red-700')}>
+              <td className="py-2.5 pr-3" colSpan={2}>Verkaufsgewinn</td>
+              <td className={cn('py-2.5 pr-3 text-right tabular-nums', gewinn < 0 && 'text-red-700')}>
                 {formatNumber(Math.round(gewinn))}
               </td>
+              <td />
             </tr>
+            {/* Die Margen sind Prozentwerte und stehen deshalb in der Spalte
+                der Anteile, nicht unter den Beträgen. */}
             <tr className="text-xs text-slate-500">
-              <td className="pt-1.5 pr-3">Marge auf dem Verkaufserlös</td>
+              <td className="pt-1.5 pr-3" colSpan={2}>Marge auf dem Verkaufserlös</td>
+              <td />
               <td className="pt-1.5 text-right tabular-nums">{(marge * 100).toFixed(1)} %</td>
             </tr>
             <tr className="text-xs text-slate-500">
-              <td className="pr-3">Marge auf den Anlagekosten</td>
+              <td className="pr-3" colSpan={2}>Marge auf den Anlagekosten</td>
+              <td />
               <td className="text-right tabular-nums">{(kostenmarge * 100).toFixed(1)} %</td>
             </tr>
           </tbody>
