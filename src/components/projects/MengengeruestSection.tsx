@@ -493,7 +493,7 @@ export function MengengeruestSection({
                       title={
                         lvl === 1 ? 'Nur Gebäude'
                         : lvl === 2 ? 'Bis und mit Geschoss'
-                        : 'Inkl. Mieteinheiten'
+                        : 'Inkl. Einheiten je Fläche'
                       }
                     >
                       {lvl}
@@ -1262,7 +1262,9 @@ function MieteinheitenHeaderRow({
       style={{ gridTemplateColumns: cols, minWidth: minW }}
     >
       <span />
-      <span className="col-span-2 pl-2 font-semibold text-slate-600">Mieteinheiten</span>
+      <span className="col-span-2 pl-2 font-semibold text-slate-600">
+        {isVerkauf ? 'Verkaufseinheiten' : 'Mieteinheiten'}
+      </span>
       <span /><span /><span /><span />
       <span className="text-right pr-[13px]">{flaechenKurz} (m²)</span>
       <span className="text-right pr-[13px]">Stk</span>
@@ -1573,6 +1575,10 @@ function MietflaecheRow({
   onDrop?: () => void
   onDragEnd?: () => void
 }) {
+  // Bei Verkaufsobjekten sind die Einheiten Verkaufs-, nicht Mietobjekte.
+  const einheitWort = isVerkauf ? 'Verkaufseinheit' : 'Mieteinheit'
+  const einheitenWort = `${einheitWort}en`
+
   // Wenn Detail-Einheiten existieren: VMF + Mietzinsen sind aus Units summiert
   // (read-only). GF, Höhe, Volumen und Faktor bleiben weiterhin direkt
   // pflegbar — der Faktor wird dann mit konstanter VMF angepasst.
@@ -1694,13 +1700,13 @@ function MietflaecheRow({
               <button
                 type="button"
                 onClick={() => api.createMieteinheit(row.id)}
-                aria-label="Mieteinheit erfassen"
+                aria-label={`${einheitWort} erfassen`}
                 className="rounded p-0.5 text-[#8B6956] hover:bg-slate-200"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
               <span className="pointer-events-none absolute left-0 top-full z-50 mt-1 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-100 group-hover/addunit:opacity-100">
-                Mieteinheit erfassen
+                {einheitWort} erfassen
               </span>
             </span>
           )}
@@ -1709,7 +1715,9 @@ function MietflaecheRow({
               <button
                 type="button"
                 onClick={onToggleUnits}
-                aria-label={unitsCollapsed ? 'Erfasste Mieteinheiten anzeigen' : 'Mieteinheiten zuklappen'}
+                aria-label={unitsCollapsed
+                  ? `Erfasste ${einheitenWort} anzeigen`
+                  : `${einheitenWort} zuklappen`}
                 className="rounded p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
               >
                 {unitsCollapsed
@@ -1717,7 +1725,9 @@ function MietflaecheRow({
                   : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
               <span className="pointer-events-none absolute left-0 top-full z-50 mt-1 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-100 group-hover/units:opacity-100">
-                {unitsCollapsed ? 'Erfasste Mieteinheiten anzeigen' : 'Mieteinheiten zuklappen'}
+                {unitsCollapsed
+                  ? `Erfasste ${einheitenWort} anzeigen`
+                  : `${einheitenWort} zuklappen`}
               </span>
             </span>
           ) : (
@@ -1931,7 +1941,7 @@ function MieteinheitRow({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             className="shrink-0 cursor-grab text-slate-300 hover:text-slate-600 active:cursor-grabbing"
-            title="Mieteinheit verschieben"
+            title={`${isVerkauf ? 'Verkaufseinheit' : 'Mieteinheit'} verschieben`}
           >
             <GripVertical className="h-3.5 w-3.5" />
           </span>
