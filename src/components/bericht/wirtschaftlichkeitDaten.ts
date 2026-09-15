@@ -18,7 +18,8 @@ import {
 import { eigentumsartForBuilding } from '@/types'
 import { formatNumber } from '@/lib/utils'
 import {
-  BERICHT_FARBE, RASTER_MATRIX, rasterAufMatrix, type EtappenUmfang,
+  BERICHT_FARBE, RASTER_HERLEITUNG_ANTEIL, RASTER_MATRIX, rasterAufMatrix,
+  type EtappenUmfang,
 } from '@/lib/bericht'
 import type {
   BereichsKapitelDaten, KapitelBereich, KapitelTabelle, TabellenZeile,
@@ -505,16 +506,17 @@ export function useWirtschaftlichkeitDaten(
         const p = `${Math.abs(wert / erloesTotal * 100).toFixed(1)} %`
         return negativ ? `− ${p}` : p
       }
-      // Die Ansatzspalte etwas breiter: „50'000 CHF/Stk" misst 25 mm und fände
-      // in der Tafelbreite keinen Platz. Die Spalten rechts davon bleiben auf
-      // der Flucht, nur die Mengenspalte rückt nach links.
-      const raster = { ...rasterAufMatrix(4, [0, 3]), linksBis: 0 }
+      // Hier steht keine Sensitivitätstafel, an deren Breite sich die Tabellen
+      // halten müssten — dafür tragen Mengen und Ansätze verschieden breite
+      // Einheiten („m² VKF" neben „Stk"). Sie bekommen deshalb eigene
+      // Spalten, damit die Zahlen untereinander fluchten.
+      const raster = { ...RASTER_HERLEITUNG_ANTEIL, linksBis: 0 }
 
       const tabellen: KapitelTabelle[] = []
       if (erloese.length > 0) {
         tabellen.push({
           titel: 'Verkaufserlöse nach Nutzung',
-          kopf: ['Nutzung', 'Menge', 'Ansatz', 'CHF', '% von Erlös'],
+          kopf: ['Nutzung', 'Menge', '', 'Ansatz', '', 'CHF', '% von Erlös'],
           ...raster,
           zeilen: [
             ...erloese.map((e) => {
@@ -527,8 +529,8 @@ export function useWirtschaftlichkeitDaten(
               return {
                 zellen: [
                   e.nutzung,
-                  menge > 0 ? mitEinheit(formatNumber(menge), flaeche ? 'm² VKF' : 'Stk') : '',
-                  menge > 0 ? mitEinheit(chf(ansatz), flaeche ? 'CHF/m²' : 'CHF/Stk') : '',
+                  menge > 0 ? formatNumber(menge) : '', flaeche ? 'm² VKF' : 'Stk',
+                  menge > 0 ? chf(ansatz) : '', flaeche ? 'CHF/m²' : 'CHF/Stk',
                   chf(e.betrag),
                   anteil(e.betrag),
                 ],
@@ -536,34 +538,40 @@ export function useWirtschaftlichkeitDaten(
             }),
             {
               total: true,
-              zellen: ['Verkaufserlös total', '', '', chf(erloesTotal), anteil(erloesTotal)],
+              zellen: ['Verkaufserlös total', '', '', '', '',
+                chf(erloesTotal), anteil(erloesTotal)],
             },
           ],
         })
       }
 
+      /** Zeile dieser Tabelle — Bezeichnung, Betrag und Anteil, dazwischen nichts. */
+      const gewinnZeile = (label: string, betrag: string, prozent: string): string[] =>
+        [label, '', '', '', '', betrag, prozent]
       tabellen.push({
         titel: 'Verkaufsgewinn',
-        kopf: ['Position', 'Menge / CHF', 'Ansatz', 'CHF', '% von Erlös'],
+        // Menge und Ansatz bleiben hier leer — die Spalten stehen trotzdem, so
+        // fluchten Betrag und Anteil mit der Tabelle darüber.
+        kopf: ['Position', '', '', '', '', 'CHF', '% von Erlös'],
         ...raster,
         zeilen: [
-          { zellen: ['Verkaufserlös total', '', '', chf(erloesTotal), anteil(erloesTotal)] },
+          { zellen: gewinnZeile('Verkaufserlös total', chf(erloesTotal), anteil(erloesTotal)) },
           {
-            zellen: ['Anlagekosten BKP 0–9 inkl. MWST', '', '',
-              abzug(investition), anteil(investition, true)],
+            zellen: gewinnZeile('Anlagekosten BKP 0–9 inkl. MWST',
+              abzug(investition), anteil(investition, true)),
           },
           {
             einzug: true,
-            zellen: ['davon Erstellung BKP 1–9', '', '', chf(erstellung), anteil(erstellung)],
+            zellen: gewinnZeile('davon Erstellung BKP 1–9', chf(erstellung), anteil(erstellung)),
           },
           {
             total: true,
-            zellen: ['Verkaufsgewinn', '', '', chf(resultat), anteil(resultat)],
+            zellen: gewinnZeile('Verkaufsgewinn', chf(resultat), anteil(resultat)),
           },
           {
             einzug: true,
-            zellen: ['Marge auf den Anlagekosten', '', '', '',
-              investition > 0 ? pct(resultat / investition) : '—'],
+            zellen: gewinnZeile('Marge auf den Anlagekosten', '',
+              investition > 0 ? pct(resultat / investition) : '—'),
           },
         ],
       })

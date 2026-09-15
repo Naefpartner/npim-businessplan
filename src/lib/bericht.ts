@@ -268,6 +268,23 @@ export const RASTER_HERLEITUNG: {
  * etwa —, steht deren Ergebnis dort und nicht in der Betragsspalte, die sonst
  * Werte und Jahresbeträge vermischte.
  */
+/**
+ * Herleitung mit eigener Anteilsspalte hinter dem Betrag:
+ * `Position | Menge | Einheit | Ansatz | Einheit | Betrag | Anteil`.
+ * Zahl und Einheit stehen getrennt, damit die Zahlen einer Spalte
+ * untereinander fluchten, auch wo die Einheiten verschieden breit sind
+ * („m² VKF" neben „Stk", „CHF/m²" neben „CHF/Stk").
+ */
+export const RASTER_HERLEITUNG_ANTEIL: {
+  breiten: number[]
+  einheitenSpalten: number[]
+  spaltenAbstand: number
+} = {
+  breiten: [70, 14, 16, 16, 16, 19, 17],
+  einheitenSpalten: [2, 4],
+  spaltenAbstand: 2,
+}
+
 /** Breite einer Wertspalte der Sensitivitätstafel, in Anteilen. */
 const MATRIX_WERT = 15
 /** Anteile einer ganzen Tafelzeile — Beschriftung und fünf Wertspalten. */
