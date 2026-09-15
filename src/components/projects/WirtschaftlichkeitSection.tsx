@@ -7,14 +7,22 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { KOSTEN_METHODE_LABEL } from '@/types'
 
 // Hauptkapitel „Wirtschaftlichkeit" (Kupfer-Header) — bündelt Kostenmiete-,
-// Rendite- und Gewinnberechnung. Die Unterkapitel tragen ihre Eigentumsart-Farbe
-// und sind standardmässig zugeklappt.
+// Rendite- und Gewinnberechnung. Die Unterkapitel tragen ihre
+// Eigentumsart-Farbe; zugeklappt beginnen sie nur, wo mehrere Nutzungsarten
+// nebeneinander stehen.
 export function WirtschaftlichkeitSection({ variantId, defaultExpanded = false }: {
   variantId: string
   defaultExpanded?: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
-  const { kostenMethode, keeValueAktiv, kostenModus } = useAnlagekostenShared()
+  const ak = useAnlagekostenShared()
+  const { kostenMethode, keeValueAktiv, kostenModus } = ak
+  /*
+   * Kommt nur eine Nutzungsart vor, gibt es hier genau eine Berechnung — sie
+   * zugeklappt zu zeigen kostete bloss einen Klick. Bei mehreren bleiben sie
+   * geschlossen, sonst wächst der Reiter über den Bildschirm hinaus.
+   */
+  const nurEineNutzungsart = ak.presentEig.length === 1
   const tiefe = kostenModus === 'total'
     ? 'gesamthaft für die Variante erfasst; Etappenwerte sind nach VMF-Anteil abgeleitet'
     : 'je Etappe und Nutzungsart erfasst'
@@ -49,9 +57,9 @@ export function WirtschaftlichkeitSection({ variantId, defaultExpanded = false }
             )}
           </div>
 
-          <KostenmieteSection variantId={variantId} />
-          <RenditeSection variantId={variantId} />
-          <GewinnSection />
+          <KostenmieteSection variantId={variantId} defaultExpanded={nurEineNutzungsart} />
+          <RenditeSection variantId={variantId} defaultExpanded={nurEineNutzungsart} />
+          <GewinnSection defaultExpanded={nurEineNutzungsart} />
         </div>
       )}
     </section>

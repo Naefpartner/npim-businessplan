@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAufklappbar } from '@/hooks/useAufklappbar'
 import { ChevronDown, ChevronRight, ExternalLink, Landmark, Loader2, Calculator, Grid3x3, Home, SlidersHorizontal, Lock, Unlock, RotateCcw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
@@ -87,7 +88,7 @@ function sensCell(
 
 export function KostenmieteSection({ variantId, defaultExpanded = false }: { variantId: string; defaultExpanded?: boolean }) {
   const { canWrite } = useAuth()
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, umschalten] = useAufklappbar(defaultExpanded)
   const ak = useAnlagekostenShared()
   const { params, setParams: setParamsRaw, sens, setSens: setSensRaw, loading: paramsLoading } = useKostenmiete(variantId)
   const setParams = useUndoableSetter(params, setParamsRaw, 'Kostenmiete', `kostenmiete:${variantId}`)
@@ -183,7 +184,7 @@ export function KostenmieteSection({ variantId, defaultExpanded = false }: { var
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={umschalten}
         style={{ backgroundColor: EIGENTUMSART_COLOR.genossenschaft }}
         className="flex w-full items-center gap-2 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:brightness-95"
       >

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useAufklappbar } from '@/hooks/useAufklappbar'
 import { ChevronDown, ChevronRight, TrendingUp } from 'lucide-react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { EIGENTUMSART_COLOR } from '@/lib/kategorieFarben'
@@ -15,7 +16,7 @@ const EIG: 'renditeobjekt' = 'renditeobjekt'
 // Nur sichtbar, wenn in der Mengenerfassung Renditeobjekte vorhanden sind.
 export function RenditeSection({ variantId, defaultExpanded = false }: { variantId: string; defaultExpanded?: boolean }) {
   const ak = useAnlagekostenShared()
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, umschalten] = useAufklappbar(defaultExpanded)
   // Die Wahl gehört zur Variante, nicht zur Sitzung: der Bericht zeigt danach
   // entweder die Renditeberechnung oder den Residualwert.
   const { modus: mode, setModus: setMode } = useRenditeModus(variantId)
@@ -36,7 +37,7 @@ export function RenditeSection({ variantId, defaultExpanded = false }: { variant
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={umschalten}
         style={{ backgroundColor: EIGENTUMSART_COLOR.renditeobjekt }}
         className="flex w-full items-center gap-2 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:brightness-95"
       >
