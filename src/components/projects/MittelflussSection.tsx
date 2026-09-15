@@ -4,18 +4,24 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useUndoableState } from '@/contexts/UndoContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useMittelfluss } from '@/hooks/useMittelfluss'
+import { useKapitalSteuern } from '@/hooks/useKapitalSteuern'
+import { kapitalSteuernErgebnis, positionsBetraegeAus } from '@/lib/kapitalSteuern'
 import { useHonorar } from '@/hooks/useHonorar'
 import { posSortKey } from '@/hooks/useAnlagekosten'
 import { berechneHonorare, type HonorarInput } from '@/lib/honorar'
-import { EIGENTUMSART_LABEL, type Eigentumsart } from '@/types'
+import { EIGENTUMSART_LABEL, eigentumsartForBuilding, type Eigentumsart } from '@/types'
 import { HAUPTGRUPPEN, type BkpPosition } from '@/lib/bkpKatalog'
 import type { BkpErgebnis } from '@/lib/bkpBerechnung'
 import { formatNumber } from '@/lib/utils'
+import { ertragProNutzung } from '@/lib/bkpBlocks'
+import { buildUnits } from '@/lib/mengenAnalyse'
+import { analysiereReihe, eigenkapitalReihe, type ReihenKennzahlen } from '@/lib/irr'
 import { CI } from '@/lib/ci'
 import {
+  verkaufsVerteilung, type MfVerkauf, type VerkaufModell, type VerteilEbene,
   type MittelflussDoc, type MfPhase, type MfQuartal,
   defaultMittelflussDoc, quartaleZwischen,
-  monatDiff, monatAdd, honorarPhasenGewichte, resolvePhasen,
+  monatDiff, monatAdd, honorarPhasenGewichte, resolvePhasen, projektEnde,
 } from '@/lib/mittelfluss'
 
 const EMPTY_HON: HonorarInput = { anlagekosten: {}, factors: {}, pauschal: {} }
@@ -78,6 +84,13 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
   const [expanded, setExpanded] = useState(defaultExpanded)
   const ak = useAnlagekostenShared()
 
+  /*
+   * Der Landanteil am Verkaufserlös steht in „Kapital und Steuern" — hier wird
+   * er nur gelesen, um ihn auf die Wohnungen zu verteilen.
+   */
+  const { loaded: ksDoc } = useKapitalSteuern(variantId)
+  const landerloes = ksDoc?.landprovider.ertrag ?? 0
+
   // ── Persistenz (JSONB pro Variante) + globales Undo/Redo, robuster Save ──────
   const { loaded, loading, save } = useMittelfluss(variantId)
   const [doc, setDoc, setDocSilent] = useUndoableState<MittelflussDoc>(defaultMittelflussDoc, 'Mittelfluss')
@@ -136,8 +149,56 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     const sumAb51 = honGewichte.filter((g) => g.group === 'ab51').reduce((s, g) => s + g.weight, 0)
     const bkp2Label = `2 · ${HAUPTGRUPPEN.find((h) => h.code === 2)?.label ?? 'Gebäude'} (BKP 2 gesamt)`
 
-    // Basiszeilen (Positionen/Honorarphasen/BKP2/Finanzierung) für einen Kosten-Scope.
+    /**
+     * Basiszeilen für einen Kosten-Scope.
+     *
+     * Welche Zeilen es gibt, hängt an der Erfassungsmethode: der Detailkatalog
+     * liefert einzelne Positionen, Benchmark und keeValue rechnen dagegen auf
+     * Hauptgruppen — dort führen ihre Ergebnisse nur Land und Reserve als
+     * Position, und die Tabelle bliebe fast leer. In diesem Fall sind die
+     * Hauptgruppen selbst die Zeilen.
+     */
+    // Benchmark und keeValue kennen keine Positionen; sonst entscheidet die
+    // gewählte Ebene.
+    const aufHauptgruppen = ak.benchmarkAktiv || ak.keeValueAktiv
+      || doc.verteilEbene === 'hauptgruppe'
     const buildBase = (ergFor: (eig: Eigentumsart) => BkpErgebnis | undefined): MfRow[] => {
+      if (aufHauptgruppen) {
+        const netto = Array<number>(10).fill(0)
+        const mwst = Array<number>(10).fill(0)
+        for (const eig of eigsInScope) {
+          const erg = ergFor(eig)
+          if (!erg) continue
+          for (let c = 0; c <= 9; c++) {
+            const k = c as keyof BkpErgebnis['hauptgruppenSummenNetto']
+            netto[c] += erg.hauptgruppenSummenNetto[k] ?? 0
+            mwst[c] += erg.hauptgruppenSummenMwst[k] ?? 0
+          }
+          /*
+           * Die Finanzierungspositionen stecken in ihrer Hauptgruppe (940/950/960
+           * in den Eigentümerkosten) — hier gehören sie heraus: die Zeile trägt
+           * „exkl. Finanzierung", und der Zinsaufwand steht unten für sich, auf
+           * dem Kapitalbedarf, den diese Kosten erst ergeben.
+           */
+          for (const [code, p] of Object.entries(erg.positionen)) {
+            if (ak.typForByEig.get(eig)?.(code)?.kind !== 'finanzierung') continue
+            const hg = posMeta.get(code)?.hauptgruppe ?? (Number(code[0]) || 9)
+            netto[hg] -= p.betragNetto ?? 0
+            mwst[hg] -= p.mwstBetrag ?? 0
+          }
+        }
+        return HAUPTGRUPPEN
+          .filter((h) => Math.abs(netto[h.code] + mwst[h.code]) >= 0.5)
+          .map((h) => ({
+            key: `hg${h.code}`,
+            label: `${h.code} · ${h.label}`,
+            hauptgruppe: h.code,
+            netto: netto[h.code],
+            mwst: mwst[h.code],
+            brutto: netto[h.code] + mwst[h.code],
+            kind: 'normal' as const,
+          }))
+      }
       const acc = new Map<string, { netto: number; mwst: number; brutto: number; kennwert: number | null; kennwert2: number | null }>()
       for (const eig of eigsInScope) {
         const erg = ergFor(eig)
@@ -202,10 +263,20 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
       }
     }
     return disp
-  }, [ak, eigsInScope, verteilModus, eigSel, etappen, honGewichte])
+  }, [ak, eigsInScope, verteilModus, eigSel, etappen, honGewichte, doc.verteilEbene])
 
   // ── Zeitachse (Quartale + Monatsgeometrie je Quartal) ────────────────────────
-  const quartale = useMemo<MfQuartal[]>(() => quartaleZwischen(doc.startMonat, doc.endMonat), [doc.startMonat, doc.endMonat])
+  /*
+   * Das Ende folgt dem Terminplan: zwei Quartale nach dem letzten Eintrag.
+   * Von Hand gesetzt, blieb es beim Verschieben einer Phase stehen — und die
+   * Zahlungsreihe brach ab, bevor das Geld zurückkam. Ohne Termineintrag gilt
+   * weiter das gespeicherte Ende.
+   */
+  const endMonat = useMemo(
+    () => projektEnde(doc.phasen) ?? doc.endMonat,
+    [doc.phasen, doc.endMonat],
+  )
+  const quartale = useMemo<MfQuartal[]>(() => quartaleZwischen(doc.startMonat, endMonat), [doc.startMonat, endMonat])
   const quartalGeo = useMemo<QGeo[]>(() => {
     const geo: QGeo[] = []
     let acc = 0
@@ -281,6 +352,133 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     return { qKeys, cells, totNetto, totNettoAK, totMwst, totBrutto }
   }, [rows, doc.verteilung, quartale])
 
+  // ── Verkaufserlöse je Quartal ────────────────────────────────────────────────
+  // Nur Verkaufsobjekte bringen Einnahmen während der Projektdauer; Rendite-
+  // und Genossenschaftsbauten bleiben im Bestand. Der Betrag kommt aus dem
+  // Mengengerüst, die zeitliche Verteilung aus dem gewählten Verkaufsmodell.
+  const erloesScope = `erloes|${eigSel}`
+  const erloesTotal = useMemo(() => {
+    if (!eigsInScope.includes('verkaufsobjekt')) return 0
+    const gebaeude = ak.buildings.filter(
+      (b) => eigentumsartForBuilding(b.use_type) === 'verkaufsobjekt')
+    return Object.values(ertragProNutzung(gebaeude)).reduce((s, v) => s + v, 0)
+  }, [ak.buildings, eigsInScope])
+
+  const verkaufPct = useMemo(
+    () => verkaufsVerteilung(
+      { ...doc, endMonat }, quartale, doc.verteilung[erloesScope]?.['erloes'] ?? {}),
+    [doc, endMonat, quartale, erloesScope],
+  )
+  /**
+   * Die einzelnen Verkaufsobjekte — Wohnungen, Parkplätze, was im Mengengerüst
+   * als Verkaufseinheit steht. Wer den Verkaufsplan Objekt für Objekt kennt,
+   * verteilt hier statt am Gesamterlös.
+   */
+  const verkaufsObjekte = useMemo(() => {
+    if (erloesTotal <= 0) return []
+    return buildUnits(ak.buildings, ak.etappen)
+      .filter((u) => u.eig === 'verkaufsobjekt' && u.mietePa * u.anzahl > 0)
+      .map((u) => ({
+        id: u.id,
+        label: [u.haus, u.geschoss !== '–' ? u.geschoss : null,
+          u.wohnungsnummer || u.bezeichnung || u.zimmerLabel || u.nutzung]
+          .filter(Boolean).join(' · '),
+        betrag: u.mietePa * u.anzahl,
+        /** Verkaufsfläche — nur Einheiten mit Fläche tragen Land. */
+        vkf: u.vmf * u.anzahl,
+      }))
+  }, [ak.buildings, ak.etappen, erloesTotal])
+
+  /*
+   * Je Wohnung zwei Zeilen: der Landanteil und der Werkanteil. Der
+   * Verkaufserlös des Grundstücks verteilt sich im Verhältnis der
+   * Verkaufspreise auf die Einheiten; was übrig bleibt, ist der Werkanteil.
+   * Beide Teile fliessen zu verschiedenen Zeiten — Land beim Abschluss, Werk
+   * nach Baufortschritt —, deshalb je eine eigene Zeile.
+   */
+  const objektReihen = useMemo(() => {
+    // Land tragen nur Einheiten mit Verkaufsfläche — ein Parkplatz oder ein
+    // Kellerabteil hat keinen Landanteil, sein Preis ist ganz Werk.
+    const mitFlaeche = verkaufsObjekte.filter((o) => o.vkf > 0)
+    const summe = mitFlaeche.reduce((s, o) => s + o.betrag, 0)
+    const reihe = (id: string, label: string, betrag: number) => {
+      const pct = quartale.map((q) => doc.verteilung[erloesScope]?.[`obj:${id}`]?.[q.key] ?? 0)
+      return { id, label, betrag, pct, betraege: pct.map((p) => (p / 100) * betrag) }
+    }
+    return verkaufsObjekte.flatMap((o) => {
+      const land = o.vkf > 0 && summe > 0 ? landerloes * (o.betrag / summe) : 0
+      // Ohne Landanteil bleibt es bei einer Zeile — eine Nullzeile sagte nichts.
+      if (land <= 0) return [reihe(`${o.id}:werk`, o.label, o.betrag)]
+      return [
+        reihe(`${o.id}:land`, `${o.label} · Landanteil`, land),
+        reihe(`${o.id}:werk`, `${o.label} · Werkanteil`, o.betrag - land),
+      ]
+    })
+  }, [verkaufsObjekte, quartale, doc.verteilung, erloesScope, landerloes])
+
+  const erloese = useMemo(() => {
+    if (doc.verkauf.modell === 'objekte') {
+      return quartale.map((_, i) => objektReihen.reduce((s, o) => s + (o.betraege[i] ?? 0), 0))
+    }
+    return verkaufPct.map((p) => (p / 100) * erloesTotal)
+  }, [doc.verkauf.modell, objektReihen, quartale, verkaufPct, erloesTotal])
+
+  /*
+   * Die beiden Gewinnsteuern stehen in „Kapital und Steuern"; hier fliessen sie
+   * als Zahlungen ein. Ihre Höhe wird dort gerechnet, ihre Fälligkeit hier
+   * verteilt — sie fallen meist erst nach dem Verkauf an.
+   */
+  const steuerScope = `steuer|${eigSel}`
+  const steuern = useMemo(() => {
+    if (!ksDoc) return { grundstueckgewinn: 0, gewinnTu: 0 }
+    const erg = ak.konsolidiertEffektiv.get('verkaufsobjekt')
+    const betraege = positionsBetraegeAus(erg, ak.benchmarkAktiv || ak.keeValueAktiv)
+    const p010 = erg?.positionen['010']
+    const landpreis = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
+    const r = kapitalSteuernErgebnis(ksDoc, betraege, landpreis, erloesTotal)
+    return { grundstueckgewinn: r.lp.steuern, gewinnTu: r.tu.steuern }
+  }, [ksDoc, ak.konsolidiertEffektiv, ak.benchmarkAktiv, ak.keeValueAktiv, erloesTotal])
+
+  const steuerReihen = useMemo(() => {
+    const reihe = (key: string, label: string, betrag: number) => {
+      const pct = quartale.map((q) => doc.verteilung[steuerScope]?.[key]?.[q.key] ?? 0)
+      return { key, label, betrag, pct, betraege: pct.map((p) => (p / 100) * betrag) }
+    }
+    return [
+      reihe('ggst', 'Grundstückgewinnsteuer', steuern.grundstueckgewinn),
+      reihe('gewinnsteuer_tu', 'Gewinnsteuer Totalunternehmer', steuern.gewinnTu),
+    ]
+  }, [steuern, quartale, doc.verteilung, steuerScope])
+
+  /** Steuerzahlungen je Quartal — sie mindern den Mittelfluss wie Kosten. */
+  const steuerJeQuartal = useMemo(
+    () => quartale.map((_, i) => steuerReihen.reduce((s, r) => s + (r.betraege[i] ?? 0), 0)),
+    [steuerReihen, quartale],
+  )
+
+  // ── Zahlungsreihen und interner Zinsfuss ─────────────────────────────────────
+  const irr = useMemo(() => {
+    const ek = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['eigenkapital']?.[qk] ?? 0)
+    const tranche = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['tranche']?.[qk] ?? 0)
+    // Zins auf dem ausstehenden Fremdkapital, Jahreszins zu einem Viertel.
+    const zins: number[] = []
+    { let stand = 0; for (const t of tranche) { stand += t; zins.push(stand * (doc.fremdZinssatz / 100) / 4) } }
+    // Projektsicht: Einnahmen minus Ausgaben, ohne Rücksicht auf die Herkunft
+    // des Kapitals. Die Kosten stehen im Mittelfluss positiv, hier kehren sie
+    // das Vorzeichen — die Reihe steht aus Sicht des Investors.
+    const projekt = erloese.map(
+      (e, i) => e - (calc.totBrutto[i] ?? 0) - (steuerJeQuartal[i] ?? 0))
+    const eigen = eigenkapitalReihe(projekt, ek, tranche, zins)
+    return {
+      ek,
+      zins,
+      projektReihe: projekt,
+      projekt: analysiereReihe(projekt),
+      eigen,
+      eigenKennzahlen: analysiereReihe(eigen.reihe),
+    }
+  }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, steuerJeQuartal])
+
   // ── Setter ───────────────────────────────────────────────────────────────────
   const setPct = (scope: string, posKey: string, qKey: string, val: number) => setDoc((d) => {
     const sc = d.verteilung[scope] ?? {}
@@ -290,6 +488,11 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
 
   const setRange = (patch: Partial<Pick<MittelflussDoc, 'startMonat' | 'endMonat'>>) =>
     setDoc((d) => ({ ...d, ...patch }), { label: 'Zeitfenster', coalesceKey: 'mf:range' })
+  const setEbene = (e: VerteilEbene) =>
+    setDoc((d) => ({ ...d, verteilEbene: e }), { label: 'Verteilungsebene' })
+  const setVerkauf = (patch: Partial<MfVerkauf>) =>
+    setDoc((d) => ({ ...d, verkauf: { ...d.verkauf, ...patch } }),
+      { label: 'Verkaufserlöse', coalesceKey: 'mf:verkauf' })
   const setFremdZins = (v: number) =>
     setDoc((d) => ({ ...d, fremdZinssatz: v }), { label: 'Zinssatz Fremdfinanzierung', coalesceKey: 'mf:zins' })
   const setPhase = (id: string, patch: Partial<MfPhase>) =>
@@ -338,12 +541,15 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 onChange={(e) => setRange({ startMonat: e.target.value })}
                 className="rounded-md border border-slate-200 px-2 py-1 text-sm" />
             </label>
-            <label className="text-xs text-slate-600">
+            <div className="text-xs text-slate-600">
               <div className="mb-0.5">Projektende</div>
-              <input type="month" value={doc.endMonat} disabled={!canWrite}
-                onChange={(e) => setRange({ endMonat: e.target.value })}
-                className="rounded-md border border-slate-200 px-2 py-1 text-sm" />
-            </label>
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-500">
+                {endMonat}
+              </div>
+              <div className="mt-0.5 text-[10px] text-slate-400">
+                zwei Quartale nach dem Terminplan
+              </div>
+            </div>
             <div className="text-xs text-slate-400">{N} Quartale · {monthCount} Monate</div>
           </div>
 
@@ -354,6 +560,26 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
               <TabButton active={verteilModus === 'gesamt'} onClick={() => setVerteilModus('gesamt')}>Gesamt</TabButton>
               <TabButton active={verteilModus === 'etappe'} onClick={() => setVerteilModus('etappe')}>nach Etappe</TabButton>
               {verteilModus === 'etappe' && etappen.length === 0 && <span className="text-[11px] text-amber-600">(keine Etappen erfasst)</span>}
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-400">Ebene:</span>
+              <TabButton
+                active={doc.verteilEbene === 'position' && !ak.benchmarkAktiv && !ak.keeValueAktiv}
+                onClick={() => setEbene('position')}
+              >
+                Positionen
+              </TabButton>
+              <TabButton
+                active={doc.verteilEbene === 'hauptgruppe' || ak.benchmarkAktiv || ak.keeValueAktiv}
+                onClick={() => setEbene('hauptgruppe')}
+              >
+                Hauptgruppen
+              </TabButton>
+              {(ak.benchmarkAktiv || ak.keeValueAktiv) && (
+                <span className="text-[11px] text-slate-400">
+                  (die gewählte Erfassungsmethode rechnet auf Hauptgruppen)
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-400">Eigentumsart:</span>
@@ -387,12 +613,109 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 ekVert={doc.verteilung[fremdScope]?.['eigenkapital'] ?? {}}
                 trancheVert={doc.verteilung[fremdScope]?.['tranche'] ?? {}}
                 fremdZinssatz={doc.fremdZinssatz} onSetFremdZins={setFremdZins}
+                erloesScope={erloesScope} erloesTotal={erloesTotal}
+                erloese={erloese} verkaufPct={verkaufPct} objektReihen={objektReihen}
+                steuerScope={steuerScope} steuerReihen={steuerReihen}
+                steuerJeQuartal={steuerJeQuartal}
+                verkauf={doc.verkauf} onSetVerkauf={setVerkauf}
+                ekCf={irr.eigen.reihe}
               />
             </div>
           </div>
+
+          <IrrKennzahlen
+            quartale={quartale}
+            erloesTotal={erloesTotal}
+            projekt={irr.projekt}
+            eigen={irr.eigenKennzahlen}
+            unterdeckung={irr.eigen.unterdeckung}
+            restschuld={irr.eigen.restschuld}
+            eingelegt={irr.ek.reduce((a, v) => a + v, 0)}
+          />
         </div>
       ))}
     </section>
+  )
+}
+
+/**
+ * Kennzahlen der Zahlungsreihe. Der interne Zinsfuss steht zweimal da: einmal
+ * für das ganze Projekt, einmal aus Sicht des Eigenkapitals — der Unterschied
+ * ist der Hebel der Fremdfinanzierung.
+ */
+function IrrKennzahlen({
+  quartale, erloesTotal, projekt, eigen, unterdeckung, restschuld, eingelegt,
+}: {
+  quartale: MfQuartal[]
+  erloesTotal: number
+  projekt: ReihenKennzahlen
+  eigen: ReihenKennzahlen
+  unterdeckung: boolean
+  restschuld: number
+  eingelegt: number
+}) {
+  if (erloesTotal <= 0) {
+    return (
+      <p className="text-xs text-slate-400">
+        Für den internen Zinsfuss braucht es Einnahmen: in „Mengen und Erträge" Verkaufspreise
+        bei den Verkaufsobjekten erfassen. Rendite- und Genossenschaftsbauten bleiben im
+        Bestand und haben während der Projektdauer keine Verkaufserlöse.
+      </p>
+    )
+  }
+  const pct = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
+  const quartalLabel = (i: number | null) =>
+    (i == null || !quartale[i] ? '—' : `${quartale[i].jahr} Q${quartale[i].q}`)
+
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Kennzahl label="IRR Projekt" wert={pct(projekt.irrJahr)} hinweis="p. a., auf dem Gesamtkapital" />
+        <Kennzahl label="IRR Eigenkapital" wert={pct(eigen.irrJahr)}
+          hinweis={eingelegt > 0 ? `auf ${formatNumber(eingelegt)} CHF Einlagen` : 'keine Einlagen erfasst'} />
+        <Kennzahl label="Kapitalbindung" wert={formatNumber(projekt.kapitalbindung)}
+          hinweis="grösster Mittelbedarf, CHF" />
+        <Kennzahl label="Break-even" wert={quartalLabel(projekt.breakEven)}
+          hinweis="Quartal, in dem die Reihe dreht" />
+        <Kennzahl label="Projektgewinn" wert={formatNumber(projekt.summe)}
+          hinweis="Summe der Zahlungsreihe, CHF" />
+      </div>
+
+      {projekt.irrJahr == null && (
+        <p className="text-xs text-slate-500">
+          Kein interner Zinsfuss: die Reihe wechselt das Vorzeichen nicht — entweder fehlt die
+          zeitliche Verteilung der Kosten, oder die Erlöse decken sie nie.
+        </p>
+      )}
+      {projekt.vorzeichenwechsel > 1 && (
+        <p className="text-xs text-amber-700">
+          Die Reihe wechselt {projekt.vorzeichenwechsel}-mal das Vorzeichen; der interne Zinsfuss
+          ist dann rechnerisch mehrdeutig und mit Vorsicht zu lesen.
+        </p>
+      )}
+      {unterdeckung && (
+        <p className="text-xs text-amber-700">
+          Eigenkapital und Finanzierungstranchen decken den Mittelbedarf zeitweise nicht — der
+          IRR auf dem Eigenkapital unterstellt, dass die Lücke trotzdem finanziert wird.
+        </p>
+      )}
+      {restschuld > 0.5 && (
+        <p className="text-xs text-amber-700">
+          Am Ende stehen noch {formatNumber(restschuld)} CHF Fremdkapital offen; sie mindern den
+          Rückfluss an das Eigenkapital nicht, weil die Tilgung offen bleibt.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function Kennzahl({ label, wert, hinweis }: { label: string; wert: string; hinweis: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{wert}</div>
+      <div className="text-[10px] text-slate-400">{hinweis}</div>
+    </div>
   )
 }
 
@@ -534,7 +857,7 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
 }
 
 // ── Kostentabelle (Positionen × Quartale), gleiche Geometrie wie der Terminplan ──
-function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins }: {
+function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, steuerJeQuartal, verkauf, onSetVerkauf }: {
   rows: MfDispRow[]
   quartale: MfQuartal[]
   calc: { qKeys: string[]; cells: Record<string, QCell[]>; totNetto: number[]; totNettoAK: number[]; totMwst: number[]; totBrutto: number[] }
@@ -547,26 +870,62 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   trancheVert: Record<string, number>
   fremdZinssatz: number
   onSetFremdZins: (v: number) => void
+  erloesScope: string
+  erloesTotal: number
+  erloese: number[]
+  verkaufPct: number[]
+  objektReihen: { id: string; label: string; betrag: number; pct: number[]; betraege: number[] }[]
+  steuerScope: string
+  steuerReihen: { key: string; label: string; betrag: number; pct: number[]; betraege: number[] }[]
+  steuerJeQuartal: number[]
+  verkauf: MfVerkauf
+  onSetVerkauf: (patch: Partial<MfVerkauf>) => void
+  ekCf: number[]
 }) {
   const anzWarn = rows.filter((r) => {
     if (!r.editable) return false
     const sum = (calc.cells[r.key] ?? []).reduce((s, c) => s + c.brutto, 0)
     return Math.abs(sum - r.brutto) > Math.max(1, Math.abs(r.brutto) * 0.001)
   }).length
+  // Die BKP-Zeilen lassen sich zuklappen — die Kopfzeile darüber führt das
+  // Total, und wer die Zahlungsreihe liest, braucht die Positionen nicht.
+  const [kostenZu, setKostenZu] = useState(false)
+  const [erloesZu, setErloesZu] = useState(false)
   const sumTotNettoAK = calc.totNettoAK.reduce((s, v) => s + v, 0)
   const sumTotMwst = calc.totMwst.reduce((s, v) => s + v, 0)
-  // Anlagekosten inkl. MWST, aber ohne Finanzierung (= netto AK + MwSt).
-  const totAKInkl = calc.totNettoAK.map((n, i) => n + calc.totMwst[i])
-  const sumTotAKInkl = sumTotNettoAK + sumTotMwst
-  // Saldo = kumulierter Mittelbedarf (laufende Summe des Brutto-Finanzbedarfs).
+  /*
+   * Kopfzeile: BKP 0–9 mit Mehrwertsteuer, dazu die beiden Gewinnsteuern.
+   * Draussen bleibt allein die Finanzierung — sie läuft unten für sich, auf
+   * dem Kapitalbedarf, den diese Zeile erst ergibt.
+   */
+  const totAKInkl = calc.qKeys.map(
+    (_, i) => (calc.totNettoAK[i] ?? 0) + (calc.totMwst[i] ?? 0) + (steuerJeQuartal[i] ?? 0))
+  const sumTotAKInkl = totAKInkl.reduce((s, v) => s + v, 0)
+  /*
+   * Saldo = laufende Summe aus Verkaufserlösen abzüglich der Anlagekosten
+   * inklusive Mehrwertsteuer und Gewinnsteuern — also die Differenz der beiden
+   * Kopfzeilen darüber. Positiv heisst: das Projekt hat mehr eingenommen als
+   * ausgegeben.
+   */
   const saldo: number[] = []
-  { let run = 0; for (const v of calc.totBrutto) { run += v; saldo.push(run) } }
+  {
+    let run = 0
+    totAKInkl.forEach((kosten, i) => {
+      run += (erloese[i] ?? 0) - kosten
+      saldo.push(run)
+    })
+  }
+  /*
+   * Als Mittelbedarf gelesen — solange der Saldo im Minus ist, muss das Geld
+   * von irgendwoher kommen. Die Zeilen darunter rechnen damit.
+   */
+  const bedarf = saldo.map((v) => -v)
   // Eingebrachtes Eigenkapital je Quartal (Eingabe, CHF) + kumuliert.
   const ek = calc.qKeys.map((qk) => ekVert[qk] ?? 0)
   const cumEK: number[] = []; { let r = 0; for (const v of ek) { r += v; cumEK.push(r) } }
   const sumEK = ek.reduce((s, v) => s + v, 0)
-  // Benötigtes Fremdkapital (Stock) = kumulierter Saldo − kumuliertes Eigenkapital.
-  const fremdKapital = saldo.map((s, i) => s - cumEK[i])
+  // Benötigtes Fremdkapital (Stock) = Mittelbedarf − kumuliertes Eigenkapital.
+  const fremdKapital = bedarf.map((b, i) => b - cumEK[i])
   // Finanzierungstranchen je Quartal (Eingabe, CHF) + kumuliert (= ausstehendes FK).
   const tranche = calc.qKeys.map((qk) => trancheVert[qk] ?? 0)
   const cumTranche: number[] = []; { let r = 0; for (const v of tranche) { r += v; cumTranche.push(r) } }
@@ -574,6 +933,23 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   // Zinsaufwand des Quartals auf die kumulierten Tranchen (Jahreszins/4).
   const zins = cumTranche.map((c) => c * (fremdZinssatz / 100) / 4)
   const sumZins = zins.reduce((s, v) => s + v, 0)
+  // Saldo abzüglich des aufgenommenen Fremdkapitals und der Zinsen.
+  const beanspruchtesEk: number[] = []
+  {
+    let kumZins = 0
+    zins.forEach((z, i) => {
+      kumZins += z
+      beanspruchtesEk.push((bedarf[i] ?? 0) - (cumTranche[i] ?? 0) - kumZins)
+    })
+  }
+  // Reserve = eingebrachtes Eigenkapital abzüglich des beanspruchten.
+  const ekReserve = beanspruchtesEk.map((b, i) => (cumEK[i] ?? 0) - b)
+  /*
+   * Zahlungsfluss = Veränderung des beanspruchten Eigenkapitals je Quartal,
+   * aus Sicht des Investors: wächst die Beanspruchung, fliesst Geld ab — das
+   * steht negativ; kommt es zurück, positiv.
+   */
+  const ekFluss = beanspruchtesEk.map((b, i) => (beanspruchtesEk[i - 1] ?? 0) - b)
 
   return (
     <div>
@@ -589,8 +965,16 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         <div className="px-2 py-2 text-right text-[11px] font-medium">Σ Quartale</div>
       </div>
 
+      {/* Anlagekosten als Kopfzeile über ihren Positionen — zuklappbar */}
+      <KopfZeile
+        label="Anlagekosten inkl. MWST exkl. Finanzierung"
+        values={totAKInkl} total={sumTotAKInkl} cols={cols}
+        quartalMonthColors={quartalMonthColors}
+        zu={kostenZu} onToggle={() => setKostenZu((z) => !z)}
+      />
+
       {/* Zeilen */}
-      {rows.map((r) => {
+      {!kostenZu && rows.map((r) => {
         const rc = calc.cells[r.key] ?? []
         const sumPct = rc.reduce((s, c) => s + c.pct, 0)
         const sumBrutto = rc.reduce((s, c) => s + c.brutto, 0)
@@ -615,10 +999,9 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
                 ) : (
                   <>
                     <div className="flex items-center justify-end gap-0.5 rounded px-0.5" style={{ background: segBackground(quartalMonthColors[i], '40') ?? '#f1f5f9' }}>
-                      <input type="number" min={0} max={100}
-                        value={c.pct} disabled={!canWrite}
-                        onChange={(e) => onSetPct(r.scope, r.posKey, calc.qKeys[i], Math.max(0, Number(e.target.value) || 0))}
-                        className="min-w-0 flex-1 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74] [appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                      <NumFeld value={c.pct} disabled={!canWrite} negativ
+                        onChange={(v) => onSetPct(r.scope, r.posKey, calc.qKeys[i], v)}
+                        className="min-w-0 flex-1 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
                       <span className="text-[9px] text-slate-500">%</span>
                     </div>
                     <span className="mt-0.5 text-right text-[9px] tabular-nums text-slate-400">{formatNumber(c.brutto)}</span>
@@ -636,13 +1019,66 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
           </div>
         )
       })}
-      {rows.length === 0 && <div className="px-3 py-4 text-center text-xs text-slate-400">Keine Kostenpositionen in dieser Ansicht.</div>}
+      {!kostenZu && rows.length === 0 && <div className="px-3 py-4 text-center text-xs text-slate-400">Keine Kostenpositionen in dieser Ansicht.</div>}
 
-      {/* Abschluss: Netto / MwSt / Brutto je Quartal */}
-      <FootRow label="Anlagekosten exkl. MWST exkl. Finanzierung" values={calc.totNettoAK} total={sumTotNettoAK} cols={cols} quartalMonthColors={quartalMonthColors} />
-      <FootRow label="MwSt" values={calc.totMwst} total={sumTotMwst} cols={cols} quartalMonthColors={quartalMonthColors} />
-      <FootRow label="Anlagekosten inkl. MWST exkl. Finanzierung" values={totAKInkl} total={sumTotAKInkl} cols={cols} quartalMonthColors={quartalMonthColors} />
-      <FootRow label="Saldo (kumulierter Mittelbedarf)" values={saldo} total={saldo[saldo.length - 1] ?? 0} cols={cols} quartalMonthColors={quartalMonthColors} strong />
+      {/* Aufschlüsselung der Kopfzeile — sie klappt mit ihr zu */}
+      {!kostenZu && (
+        <>
+          <FootRow label="Anlagekosten exkl. MWST exkl. Finanzierung" values={calc.totNettoAK} total={sumTotNettoAK} cols={cols} quartalMonthColors={quartalMonthColors} wieZeile />
+          <FootRow label="Mehrwertsteuer" values={calc.totMwst} total={sumTotMwst} cols={cols} quartalMonthColors={quartalMonthColors} wieZeile />
+        </>
+      )}
+      {/* ── Gewinnsteuern ──────────────────────────────────────────────────── */}
+      {/* Höhe aus „Kapital und Steuern", Fälligkeit hier verteilt — sie fallen
+          meist erst nach dem Verkauf an. */}
+      {!kostenZu && steuerReihen.some((r) => Math.abs(r.betrag) >= 0.5) && steuerReihen.map((r) => (
+        <PctInputRow key={r.key} label={r.label} scope={steuerScope} posKey={r.key}
+          werte={r.pct} betraege={r.betraege} total={r.betrag}
+          qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors}
+          canWrite={canWrite} onSet={onSetPct} />
+      ))}
+
+      {/* ── Verkaufserlöse ─────────────────────────────────────────────────── */}
+      {/* Sie stehen direkt unter den Anlagekosten: Einnahmen und Ausgaben
+          gehören nebeneinander, die Finanzierung folgt darunter. */}
+      {erloesTotal > 0 && (
+        <>
+          {/* Luft zwischen Ausgaben und Einnahmen — die beiden Blöcke sollen
+              sich nicht wie eine fortlaufende Liste lesen. */}
+          <div className="h-[25px] bg-white" />
+          <KopfZeile
+            label="Verkaufserlöse total"
+            values={erloese}
+            total={verkauf.modell === 'objekte'
+              ? objektReihen.reduce((sum, o) => sum + o.betrag, 0)
+              : erloesTotal}
+            cols={cols} quartalMonthColors={quartalMonthColors}
+            zu={erloesZu} onToggle={() => setErloesZu((z) => !z)}
+          />
+          {!erloesZu && (
+            <>
+              <VerkaufSteuerung verkauf={verkauf} canWrite={canWrite} onSet={onSetVerkauf} cols={cols} />
+              {verkauf.modell === 'frei' && (
+                <PctInputRow label="Verkaufserlöse" scope={erloesScope} posKey="erloes"
+                  werte={verkaufPct} betraege={erloese} total={erloesTotal}
+                  qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors}
+                  canWrite={canWrite} onSet={onSetPct} />
+              )}
+              {/* Je Objekt eine Zeile: der Verkaufsplan, Wohnung für Wohnung. */}
+              {verkauf.modell === 'objekte' && objektReihen.map((o) => (
+                <PctInputRow key={o.id} label={o.label} scope={erloesScope} posKey={`obj:${o.id}`}
+                  werte={o.pct} betraege={o.betraege} total={o.betrag} einzug
+                  qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors}
+                  canWrite={canWrite} onSet={onSetPct} />
+              ))}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Luft vor der Finanzierung — sie ist der dritte Block der Tabelle. */}
+      <div className="h-[25px] bg-white" />
+      <FootRow label="Saldo" values={saldo} total={saldo[saldo.length - 1] ?? 0} cols={cols} quartalMonthColors={quartalMonthColors} strong />
 
       {/* Eingebrachtes Eigenkapital (Eingabe, CHF je Quartal) */}
       <ChfInputRow label="Eingebrachtes Eigenkapital" scope={fremdScope} posKey="eigenkapital" values={ek} total={sumEK}
@@ -655,14 +1091,19 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
       <ChfInputRow label="Finanzierungstranchen" scope={fremdScope} posKey="tranche" values={tranche} total={sumTranche}
         qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors} canWrite={canWrite} onSet={onSetPct} />
 
+      {/* Stand des aufgenommenen Fremdkapitals — Bezugsgrösse des Zinses darunter */}
+      <FootRow label="Saldo Fremdkapital" values={cumTranche}
+        total={cumTranche[cumTranche.length - 1] ?? 0}
+        cols={cols} quartalMonthColors={quartalMonthColors} />
+
       {/* Zinsaufwand auf die kumulierten Tranchen — Zinssatz vorne, Gesamtsumme in der Gesamt-Spalte */}
       <div className="grid items-stretch border-t border-slate-100 text-xs" style={{ gridTemplateColumns: cols }}>
         <div style={stickyLeft} className="flex items-center gap-2 bg-white px-3 py-1.5 text-slate-700">
           <span className="font-medium">Zinsaufwand</span>
           <div className="flex items-center gap-0.5 rounded bg-slate-100 px-1">
-            <input type="number" min={0} step={0.1} value={fremdZinssatz} disabled={!canWrite}
-              onChange={(e) => onSetFremdZins(Math.max(0, Number(e.target.value) || 0))}
-              className="w-12 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74] [appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+            {/* Hundertstel zulassen — Zinssätze wie 1.81 % sind der Regelfall. */}
+            <NumFeld value={fremdZinssatz} disabled={!canWrite} onChange={onSetFremdZins}
+              className="w-14 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
             <span className="text-[9px] text-slate-500">% p.a.</span>
           </div>
         </div>
@@ -675,6 +1116,23 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         <div className="bg-white px-2 py-1.5 text-right tabular-nums font-medium text-slate-700">{formatNumber(sumZins)}</div>
       </div>
 
+      {/* Was nach Fremdkapital und Zins vom Mittelbedarf bleibt — der Teil,
+          den das Eigenkapital trägt. */}
+      <FootRow label="Beanspruchtes Eigenkapital" values={beanspruchtesEk}
+        total={beanspruchtesEk[beanspruchtesEk.length - 1] ?? 0}
+        cols={cols} quartalMonthColors={quartalMonthColors} />
+
+      {/* Was vom eingebrachten Eigenkapital noch nicht gebunden ist. */}
+      <FootRow label="Eigenkapitalreserve" values={ekReserve}
+        total={ekReserve[ekReserve.length - 1] ?? 0}
+        cols={cols} quartalMonthColors={quartalMonthColors} />
+
+      {/* Bewegung des beanspruchten Eigenkapitals von Quartal zu Quartal:
+          Einlage negativ, Rückfluss positiv. */}
+      <FootRow label="Zahlungsfluss Eigenkapital" values={ekFluss}
+        total={-(beanspruchtesEk[beanspruchtesEk.length - 1] ?? 0)}
+        cols={cols} quartalMonthColors={quartalMonthColors} strong />
+
       {anzWarn > 0 && (
         <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -685,7 +1143,183 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   )
 }
 
-function FootRow({ label, values, total, cols, quartalMonthColors, muted, strong, gesamt }: {
+/**
+ * Steuerzeile der Verkaufserlöse: Modell und, wo es darauf ankommt, Absatzdauer
+ * und Anzahlung. Sie steht über der Erlöszeile, weil sie deren Verteilung
+ * bestimmt.
+ */
+function VerkaufSteuerung({ verkauf, canWrite, onSet, cols }: {
+  verkauf: MfVerkauf
+  canWrite: boolean
+  onSet: (patch: Partial<MfVerkauf>) => void
+  cols: string
+}) {
+  return (
+    <div className="grid items-stretch border-t border-slate-200 bg-slate-50/60 text-xs"
+      style={{ gridTemplateColumns: cols }}>
+      <div style={stickyLeft} className="flex flex-wrap items-center gap-2 bg-slate-50 px-3 py-1.5">
+        <span className="font-medium text-slate-700">Verkauf</span>
+        <select value={verkauf.modell} disabled={!canWrite}
+          onChange={(e) => onSet({ modell: e.target.value as VerkaufModell })}
+          className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]">
+          <option value="uebergabe">Zahlung bei Übergabe</option>
+          <option value="baufortschritt">Anzahlung und Baufortschritt</option>
+          <option value="frei">Gesamterlös frei verteilen</option>
+          <option value="objekte">Je Verkaufsobjekt verteilen</option>
+        </select>
+        {verkauf.modell === 'baufortschritt' && (
+          <>
+            <label className="flex items-center gap-1 text-[11px] text-slate-500">
+              Anzahlung
+              <NumFeld value={verkauf.anzahlungPct} disabled={!canWrite}
+                onChange={(v) => onSet({ anzahlungPct: Math.min(100, v) })}
+                className="w-12 rounded border border-slate-300 bg-white px-1 py-0.5 text-right tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
+              %
+            </label>
+            <label className="flex items-center gap-1 text-[11px] text-slate-500">
+              über
+              <NumFeld value={verkauf.dauerQuartale} disabled={!canWrite}
+                onChange={(v) => onSet({ dauerQuartale: Math.max(1, Math.round(v)) })}
+                className="w-10 rounded border border-slate-300 bg-white px-1 py-0.5 text-right tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
+              Quartale
+            </label>
+          </>
+        )}
+      </div>
+      <div className="bg-slate-50" />
+      <div className="col-span-full" style={{ gridColumn: '3 / -1' }} />
+    </div>
+  )
+}
+
+/**
+ * Erlöszeile mit Prozenteingabe je Quartal — dieselbe Mechanik wie bei den
+ * Kosten, nur zeigt sie unter dem Feld den Betrag, den der Anteil ergibt.
+ */
+function PctInputRow({ label, scope, posKey, werte, betraege, total, einzug, qKeys, cols, quartalMonthColors, canWrite, onSet }: {
+  label: string
+  scope: string
+  posKey: string
+  werte: number[]
+  betraege: number[]
+  total: number
+  /** Untergeordnete Zeile — ein einzelnes Objekt unter seiner Summe. */
+  einzug?: boolean
+  qKeys: string[]
+  cols: string
+  quartalMonthColors: (string | undefined)[][]
+  canWrite: boolean
+  onSet: (scope: string, posKey: string, qKey: string, val: number) => void
+}) {
+  const verteilt = werte.reduce((s, v) => s + v, 0)
+  return (
+    <div className="grid items-stretch border-t border-slate-100 text-xs" style={{ gridTemplateColumns: cols }}>
+      <div style={stickyLeft}
+        className={`flex items-center bg-white py-1.5 ${einzug ? 'pl-6 pr-3 text-slate-600' : 'px-3 font-medium text-slate-700'}`}>
+        {label}
+      </div>
+      <div className="bg-white px-2 py-1.5 text-right tabular-nums text-slate-500">{formatNumber(total)}</div>
+      {werte.map((v, i) => (
+        <div key={i} className="flex flex-col gap-0.5 border-l border-slate-100 px-1 py-1"
+          style={{ background: segBackground(quartalMonthColors[i], '14') }}>
+          <div className="flex w-full items-center rounded px-0.5"
+            style={{ background: segBackground(quartalMonthColors[i], '40') ?? '#f1f5f9' }}>
+            <NumFeld value={v} disabled={!canWrite} placeholder="0" negativ
+              onChange={(neu) => onSet(scope, posKey, qKeys[i], neu)}
+              className="w-full min-w-0 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
+          </div>
+          <div className="px-0.5 text-right text-[10px] tabular-nums text-slate-400">
+            {betraege[i] ? formatNumber(betraege[i]) : ''}
+          </div>
+        </div>
+      ))}
+      <div className="bg-white px-2 py-1.5 text-right text-[10px] tabular-nums text-slate-400">
+        {formatNumber(100 - verteilt, 1)} %
+      </div>
+      <div className="bg-white px-2 py-1.5 text-right tabular-nums font-medium text-slate-700">
+        {formatNumber(betraege.reduce((s, v) => s + v, 0))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Zahlenfeld, das den Zwischenstand als Text hält. Ein `type="number"` meldet
+ * bei „1." einen leeren Wert — daraus würde beim Tippen eine 0, und das Komma
+ * liesse sich gar nicht setzen. Übernommen wird beim Verlassen des Felds;
+ * Komma und Punkt gelten beide als Dezimaltrennzeichen.
+ */
+function NumFeld({ value, disabled, placeholder, className, negativ, onChange }: {
+  value: number
+  disabled?: boolean
+  placeholder?: string
+  className: string
+  /** Lässt negative Beträge zu — etwa die Rückzahlung einer Tranche. */
+  negativ?: boolean
+  onChange: (v: number) => void
+}) {
+  const [roh, setRoh] = useState<string | null>(null)
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={roh ?? (value || value === 0 ? String(value) : '')}
+      disabled={disabled}
+      placeholder={placeholder}
+      onFocus={() => setRoh(String(value))}
+      onChange={(e) => setRoh(e.target.value)}
+      onBlur={() => {
+        const n = parseFloat((roh ?? '').replace(/['’\s]/g, '').replace(',', '.'))
+        onChange(Number.isFinite(n) ? (negativ ? n : Math.max(0, n)) : 0)
+        setRoh(null)
+      }}
+      className={className}
+    />
+  )
+}
+
+/**
+ * Zuklappbare Kopfzeile über einem Block: sie trägt das Total je Quartal und
+ * blendet auf Klick alles aus, was darin steckt.
+ */
+function KopfZeile({ label, values, total, cols, quartalMonthColors, zu, onToggle }: {
+  label: string
+  values: number[]
+  total: number
+  cols: string
+  quartalMonthColors: (string | undefined)[][]
+  zu: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="grid items-stretch border-t border-slate-300" style={{ gridTemplateColumns: cols }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{ ...stickyLeft, backgroundColor: '#FAEFE9' }}
+        className="flex items-center gap-1 px-3 py-1.5 text-left font-semibold text-slate-800"
+      >
+        {zu
+          ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+          : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+        {label}
+      </button>
+      <div className="px-2 py-1.5" style={{ backgroundColor: '#FAEFE9' }} />
+      {values.map((v, i) => (
+        <div key={i} className="border-l border-slate-100 px-1 py-1.5 text-right text-[11px] font-semibold tabular-nums text-slate-800"
+          style={{ background: segBackground(quartalMonthColors[i], '20') ?? '#FAEFE9' }}>
+          {v ? formatNumber(v) : ''}
+        </div>
+      ))}
+      <div style={{ backgroundColor: '#FAEFE9' }} />
+      <div className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-800" style={{ backgroundColor: '#FAEFE9' }}>
+        {formatNumber(total)}
+      </div>
+    </div>
+  )
+}
+
+function FootRow({ label, values, total, cols, quartalMonthColors, muted, strong, wieZeile, gesamt }: {
   label: string
   values: number[]
   total: number
@@ -693,12 +1327,17 @@ function FootRow({ label, values, total, cols, quartalMonthColors, muted, strong
   quartalMonthColors: (string | undefined)[][]
   muted?: boolean
   strong?: boolean
+  /** Im Grad der Positionszeilen gesetzt, nur fett — eine Zwischensumme, die
+   *  zu den Zeilen darüber gehört und nicht über ihnen stehen soll. */
+  wieZeile?: boolean
   gesamt?: number
 }) {
   const bg = strong ? '#FAEFE9' : muted ? 'rgb(248 250 252 / 0.6)' : 'rgb(248 250 252 / 0.6)'
-  const txt = strong ? 'font-semibold text-slate-800' : muted ? 'text-slate-400' : 'text-slate-700'
+  const txt = strong || wieZeile
+    ? 'font-semibold text-slate-800'
+    : muted ? 'text-slate-400' : 'text-slate-700'
   return (
-    <div className={`grid items-stretch ${strong ? 'border-t border-slate-300' : 'border-t border-slate-200'}`} style={{ gridTemplateColumns: cols }}>
+    <div className={`grid items-stretch ${wieZeile ? 'text-xs ' : ''}${strong ? 'border-t border-slate-300' : 'border-t border-slate-200'}`} style={{ gridTemplateColumns: cols }}>
       <div style={{ ...stickyLeft, backgroundColor: bg }} className={`px-3 py-1.5 text-left ${txt}`}>{label}</div>
       <div className="px-2 py-1.5 text-right tabular-nums text-slate-400" style={{ backgroundColor: bg }}>{gesamt != null ? formatNumber(gesamt) : ''}</div>
       {values.map((v, i) => (
@@ -730,9 +1369,10 @@ function ChfInputRow({ label, scope, posKey, values, total, qKeys, cols, quartal
       {values.map((v, i) => (
         <div key={i} className="flex items-center border-l border-slate-100 px-1 py-1" style={{ background: segBackground(quartalMonthColors[i], '14') }}>
           <div className="flex w-full items-center rounded px-0.5" style={{ background: segBackground(quartalMonthColors[i], '40') ?? '#f1f5f9' }}>
-            <input type="number" min={0} value={v || ''} disabled={!canWrite} placeholder="0"
-              onChange={(e) => onSet(scope, posKey, qKeys[i], Math.max(0, Number(e.target.value) || 0))}
-              className="w-full min-w-0 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74] [appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+            {/* Beträge dürfen ins Minus — eine zurückgezahlte Tranche etwa. */}
+            <NumFeld value={v} disabled={!canWrite} placeholder="0" negativ
+              onChange={(neu) => onSet(scope, posKey, qKeys[i], neu)}
+              className="w-full min-w-0 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
           </div>
         </div>
       ))}

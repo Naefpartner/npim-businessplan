@@ -38,7 +38,63 @@ export function resolvePhasen(phasen: MfPhase[]): MfPhase[] {
   return out
 }
 
+/**
+ * Ende des Zeitfensters: zwei Quartale nach dem letzten Eintrag im Terminplan,
+ * aufgerundet auf das Quartalsende. Die Luft danach braucht es für Verkauf,
+ * Abrechnung und Rückflüsse — ohne sie bräche die Zahlungsreihe genau dort ab,
+ * wo das Geld zurückkommt.
+ *
+ * `null`, solange kein Termineintrag steht; dann bleibt es beim gespeicherten
+ * Ende.
+ */
+export function projektEnde(phasen: MfPhase[]): string | null {
+  const aufgeloest = resolvePhasen(phasen)
+  if (aufgeloest.length === 0) return null
+  let letzter = ''
+  for (const p of aufgeloest) {
+    const ende = monatAdd(p.startMonat, Math.max(1, p.dauerMonate) - 1)
+    if (!letzter || monatDiff(letzter, ende) > 0) letzter = ende
+  }
+  const { jahr, monat } = parseMonat(monatAdd(letzter, 6))
+  return formatMonat(jahr, quartalVonMonat(monat) * 3)
+}
+
+// ── Verkaufserlöse: zeitliche Verteilung ────────────────────────────────────
+/**
+ * Wie die Verkaufserlöse über die Quartale fallen. Zwei Modelle decken den
+ * Regelfall ab; wer es genauer weiss, verteilt selbst — entweder den
+ * Gesamterlös (`frei`) oder jedes Verkaufsobjekt für sich (`objekte`), was
+ * einem Verkaufsplan gleichkommt.
+ */
+export type VerkaufModell = 'uebergabe' | 'baufortschritt' | 'frei' | 'objekte'
+
+export interface MfVerkauf {
+  modell: VerkaufModell
+  /** Erstes Quartal mit Verkäufen ('YYYY-MM' des Quartalsbeginns); leer = Beginn der Bauphase. */
+  startMonat: string
+  /** Über wie viele Quartale verkauft wird (Absatzdauer). */
+  dauerQuartale: number
+  /** Anzahlung bei Vertragsabschluss, in % des Kaufpreises (Modell Baufortschritt). */
+  anzahlungPct: number
+}
+
+export const MF_VERKAUF_DEFAULT: MfVerkauf = {
+  modell: 'uebergabe',
+  startMonat: '',
+  dauerQuartale: 4,
+  anzahlungPct: 20,
+}
+
 // ── Persistiertes Doc ───────────────────────────────────────────────────────
+/**
+ * Auf welcher Ebene die Kosten über die Quartale verteilt werden: Position für
+ * Position oder gebündelt je BKP-Hauptgruppe. Die Hauptgruppen genügen für
+ * einen Terminplan meist und halten die Tabelle kurz; die Positionen braucht,
+ * wer einzelne Zahlungen datiert. Beide Verteilungen bleiben gespeichert —
+ * umschalten wirft nichts weg.
+ */
+export type VerteilEbene = 'position' | 'hauptgruppe'
+
 export interface MittelflussDoc {
   startMonat: string   // 'YYYY-MM' — Beginn des Zeitfensters
   endMonat: string     // 'YYYY-MM' — Ende des Zeitfensters (inkl.)
@@ -48,6 +104,10 @@ export interface MittelflussDoc {
   verteilung: Record<string, Record<string, Record<string, number>>>
   // Jahreszinssatz (%) auf die Fremdfinanzierung; Zins fällt jeweils im Folgejahr an.
   fremdZinssatz: number
+  /** Zeitliche Verteilung der Verkaufserlöse (nur Verkaufsobjekte). */
+  verkauf: MfVerkauf
+  /** Ebene der Kostenverteilung — Positionen oder Hauptgruppen. */
+  verteilEbene: VerteilEbene
 }
 
 // Standard-Projektphasen gemäss SIA (Reihenfolge + sinnvolle Default-Dauer in Monaten).
@@ -174,6 +234,8 @@ export function defaultMittelflussDoc(startJahr?: number): MittelflussDoc {
     phasen,
     verteilung: {},
     fremdZinssatz: 0,
+    verkauf: { ...MF_VERKAUF_DEFAULT },
+    verteilEbene: 'position',
   }
 }
 
@@ -186,5 +248,77 @@ export function normalizeMittelflussDoc(raw: Partial<MittelflussDoc> | null | un
     phasen: Array.isArray(raw.phasen) ? raw.phasen : def.phasen,
     verteilung: raw.verteilung && typeof raw.verteilung === 'object' ? raw.verteilung : {},
     fremdZinssatz: typeof raw.fremdZinssatz === 'number' ? raw.fremdZinssatz : 0,
+    verkauf: { ...MF_VERKAUF_DEFAULT, ...(raw.verkauf ?? {}) },
+    verteilEbene: raw.verteilEbene === 'hauptgruppe' ? 'hauptgruppe' : 'position',
   }
+}
+
+// ── Verkaufserlöse über die Quartale ────────────────────────────────────────
+
+/**
+ * Die Bauphase des Terminplans — an ihr hängen beide Verkaufsmodelle: die
+ * Übergabe liegt an ihrem Ende, die Raten nach Baufortschritt laufen über sie.
+ * Erkannt an der Bezeichnung, sonst die längste Phase.
+ */
+export function bauPhase(phasen: MfPhase[]): MfPhase | null {
+  const aufgeloest = resolvePhasen(phasen)
+  if (aufgeloest.length === 0) return null
+  return aufgeloest.find((p) => /ausf[üu]hrung|bau(?!projekt)/i.test(p.label))
+    ?? aufgeloest.reduce((a, b) => (b.dauerMonate > a.dauerMonate ? b : a))
+}
+
+/** Index des Quartals, in dem ein Monat liegt; −1 ausserhalb des Fensters. */
+function quartalIndex(quartale: MfQuartal[], monat: string): number {
+  const { jahr, monat: m } = parseMonat(monat)
+  return quartale.findIndex((q) => q.jahr === jahr && q.q === quartalVonMonat(m))
+}
+
+/**
+ * Anteil der Verkaufserlöse je Quartal (Summe 100), aus dem gewählten Modell:
+ *
+ * - `uebergabe`: alles im Quartal, in dem die Bauphase endet — der Regelfall
+ *   beim Verkauf ab Plan mit Zahlung bei Übergabe.
+ * - `baufortschritt`: die Anzahlungen fallen über die Absatzdauer an, der Rest
+ *   läuft gleichmässig über die Bauphase.
+ * - `frei`: die von Hand gesetzten Prozente.
+ */
+export function verkaufsVerteilung(
+  doc: MittelflussDoc, quartale: MfQuartal[], frei: Record<string, number>,
+): number[] {
+  const leer = quartale.map(() => 0)
+  if (quartale.length === 0) return leer
+  // Beide Handverteilungen rechnet der Aufrufer selbst: bei `objekte` steht je
+  // Objekt eine eigene Reihe, hier gäbe es nichts zu verteilen.
+  if (doc.verkauf.modell === 'objekte') return leer
+  if (doc.verkauf.modell === 'frei') return quartale.map((q) => frei[q.key] ?? 0)
+
+  const bau = bauPhase(doc.phasen)
+  const bauStart = bau?.startMonat ?? doc.startMonat
+  const bauEnde = bau ? monatAdd(bau.startMonat, bau.dauerMonate - 1) : doc.endMonat
+
+  if (doc.verkauf.modell === 'uebergabe') {
+    const out = [...leer]
+    const i = quartalIndex(quartale, bauEnde)
+    out[i >= 0 ? i : quartale.length - 1] = 100
+    return out
+  }
+
+  // Baufortschritt: Anzahlungen über die Absatzdauer, Raten über die Bauphase.
+  const out = [...leer]
+  const anzahlung = Math.min(100, Math.max(0, doc.verkauf.anzahlungPct))
+  const startMonat = doc.verkauf.startMonat || bauStart
+  const von = Math.max(0, quartalIndex(quartale, startMonat))
+  const dauer = Math.max(1, doc.verkauf.dauerQuartale)
+  for (let k = 0; k < dauer; k++) {
+    const i = Math.min(quartale.length - 1, von + k)
+    out[i] += anzahlung / dauer
+  }
+
+  const bauVon = Math.max(0, quartalIndex(quartale, bauStart))
+  const bauBis = Math.max(bauVon, quartalIndex(quartale, bauEnde) >= 0
+    ? quartalIndex(quartale, bauEnde)
+    : quartale.length - 1)
+  const zahl = bauBis - bauVon + 1
+  for (let i = bauVon; i <= bauBis; i++) out[i] += (100 - anzahlung) / zahl
+  return out
 }

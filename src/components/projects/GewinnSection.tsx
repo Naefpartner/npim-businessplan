@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useAufklappbar } from '@/hooks/useAufklappbar'
 import { ChevronDown, ChevronRight, Percent, Coins } from 'lucide-react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
@@ -19,7 +20,7 @@ const TOTALFLAECHE = USE_TYPE_COLOR_3.verkaufsobjekt // kräftiger für die Tota
  */
 export function GewinnSection({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const ak = useAnlagekostenShared()
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, umschalten] = useAufklappbar(defaultExpanded)
   const [activeTab, setActiveTab] = useState('konsolidiert')
 
   const hasStockwerkeigentum = ak.buildings.some((b) => eigentumsartForBuilding(b.use_type) === EIG)
@@ -38,7 +39,7 @@ export function GewinnSection({ defaultExpanded = false }: { defaultExpanded?: b
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={umschalten}
         style={{ backgroundColor: EIGENTUMSART_COLOR.verkaufsobjekt }}
         className="flex w-full items-center gap-2 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:brightness-95"
       >
@@ -73,10 +74,14 @@ export function GewinnSection({ defaultExpanded = false }: { defaultExpanded?: b
             <VerkaufsgewinnTabelle etappeId={etappeId} />
           </UnterKapitel>
 
-          <UnterKapitel titel="IRR-Berechnung" badge="in Vorbereitung">
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-              IRR-Berechnung – Inhalt folgt.
-            </div>
+          <UnterKapitel titel="IRR-Berechnung">
+            <p className="text-sm text-slate-600">
+              Der interne Zinsfuss braucht eine Zahlungsreihe über die Zeit — Kosten und
+              Verkaufserlöse je Quartal. Er steht deshalb in der{' '}
+              <strong>Mittelflussrechnung</strong>, unter der Quartalstabelle: einmal für das
+              Projekt und einmal aus Sicht des Eigenkapitals, dazu Kapitalbindung und
+              Break-even.
+            </p>
           </UnterKapitel>
         </div>
       )}
