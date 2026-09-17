@@ -133,7 +133,7 @@ function Frame({ titel, lead, children }: {
             alt=""
             className="h-[40vh] w-full object-cover sm:h-[48vh] lg:h-[58vh]"
           />
-          <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:-bottom-8 lg:right-0 lg:mt-0 lg:w-auto lg:max-w-none lg:px-0 lg:pb-0 lg:pl-[2.93vw] lg:pt-[2.64vw]">
+          <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:bottom-0 lg:right-0 lg:mt-0 lg:w-auto lg:max-w-none lg:px-0 lg:pb-0 lg:pl-[2.93vw] lg:pt-[2.64vw]">
             {/*
               Der Kasten legt sich um seinen Inhalt (`w-auto`), damit seine
               linke Kante denselben Abstand zum Titel hält wie seine obere.
