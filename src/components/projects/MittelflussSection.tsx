@@ -1111,7 +1111,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
 
       {/* Was nach Fremdkapital und Zins vom Mittelbedarf bleibt — der Teil,
           den das Eigenkapital trägt. */}
-      <FootRow label="Beanspruchtes Eigenkapital" values={fin.beanspruchtesEk}
+      <FootRow label="Beanspruchtes Eigenkapital (Saldo − Fremdkapital − Zins)" values={fin.beanspruchtesEk}
         total={fin.beanspruchtesEk[fin.beanspruchtesEk.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
@@ -1120,8 +1120,9 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         total={fin.reserve[fin.reserve.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
-      {/* Bewegung des beanspruchten Eigenkapitals von Quartal zu Quartal:
-          Einlage negativ, Rückfluss positiv. */}
+      {/* Delta des beanspruchten Eigenkapitals von Quartal zu Quartal:
+          wächst die Beanspruchung, fliesst Geld ab — Einlage negativ,
+          Rückfluss positiv. Diese Reihe trägt den Eigenkapital-Zinsfuss. */}
       <FootRow label="Zahlungsfluss Eigenkapital" values={fin.ekFluss}
         total={fin.ekFluss.reduce((s, v) => s + v, 0)}
         cols={cols} quartalMonthColors={quartalMonthColors} strong />

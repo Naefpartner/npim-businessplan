@@ -134,9 +134,9 @@ export interface FinanzierungsReihe {
   /** Kumulierter Mittelbedarf einschliesslich aufgelaufener Zinsen. */
   benoetigt: number[]
   /**
-   * Was das Eigenkapital trägt: Mittelbedarf abzüglich des aufgenommenen
-   * Fremdkapitals. Negativ heisst, dass mehr zurückgeflossen ist als
-   * eingeschossen wurde — der Gewinn des Eigenkapitals.
+   * Was das Eigenkapital trägt: Saldo abzüglich Fremdkapitalsaldo und Zins.
+   * Negativ heisst, dass mehr zurückgeflossen ist als eingeschossen wurde —
+   * der Gewinn des Eigenkapitals.
    */
   beanspruchtesEk: number[]
   /** Eingelegtes, aber noch nicht beanspruchtes Eigenkapital. */
@@ -146,9 +146,10 @@ export interface FinanzierungsReihe {
   /** Bedarf, den weder Einlagen noch Tranchen decken. */
   deckungsluecke: number[]
   /**
-   * Zahlungsreihe des Eigenkapitals: die Veränderung des beanspruchten
-   * Eigenkapitals mit umgekehrtem Vorzeichen — wächst die Beanspruchung,
-   * fliesst Geld ab. Dieselbe Reihe trägt die Tabelle und der interne Zinsfuss.
+   * Zahlungsreihe des Eigenkapitals: das Delta des beanspruchten Eigenkapitals
+   * von Quartal zu Quartal mit umgekehrtem Vorzeichen — wächst die
+   * Beanspruchung, fliesst Geld ab. Dieselbe Reihe trägt die Tabelle und der
+   * interne Zinsfuss.
    */
   ekFluss: number[]
 }
@@ -187,27 +188,30 @@ export function finanzierungsreihe(
 
   let schuldStand = 0
   let kumBedarf = 0
+  let kumZins = 0
   let kumEk = 0
 
   for (let t = 0; t < bedarf.length; t++) {
     schuldStand += tranchen[t] ?? 0
     const z = schuldStand * (zinssatzPct / 100) / 4
-    kumBedarf += (bedarf[t] ?? 0) + z
+    kumZins += z
+    kumBedarf += bedarf[t] ?? 0
     kumEk += einlagen[t] ?? 0
 
     /*
-     * Beansprucht ist, was nach dem aufgenommenen Fremdkapital vom Bedarf
-     * übrig bleibt — ohne Untergrenze: dreht der Bedarf ins Minus, hat das
-     * Eigenkapital mehr zurückerhalten als eingeschossen. Genau dieser
-     * Überschuss macht den internen Zinsfuss überhaupt erst rechenbar.
+     * Das Eigenkapital eines Quartals: Saldo abzüglich des aufgenommenen
+     * Fremdkapitals und der aufgelaufenen Zinsen — dieselbe Rechnung, die in
+     * der Tabelle Zeile für Zeile übereinander steht. Ohne Untergrenze: dreht
+     * der Saldo ins Plus, steht hier der Rückfluss an das Eigenkapital, und
+     * erst dieser Vorzeichenwechsel macht den internen Zinsfuss rechenbar.
      */
-    const ek = kumBedarf - schuldStand
+    const ek = kumBedarf - schuldStand - kumZins
     // Eigenkapital zuerst: Fremdkapital wird erst nötig, wenn die Einlagen aufgebraucht sind.
     const fk = Math.max(0, kumBedarf - kumEk)
 
     zins.push(z)
     schuld.push(schuldStand)
-    benoetigt.push(kumBedarf)
+    benoetigt.push(kumBedarf + kumZins)
     beanspruchtesEk.push(ek)
     reserve.push(kumEk - ek)
     benoetigtesFk.push(fk)
