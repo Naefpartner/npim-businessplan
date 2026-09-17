@@ -14,16 +14,19 @@ export function barwert(zins: number, reihe: number[]): number {
 }
 
 /**
- * Barwert auf der Kalenderachse: jede Zahlung wird über ihre tatsächliche
- * Anzahl Tage abgezinst, 365 Tage je Jahr — die Konvention von XINTZINSFUSS
- * (XIRR). Der gesuchte Satz ist damit direkt ein Jahressatz.
+ * Barwert jeder einzelnen Zahlung auf der Kalenderachse: abgezinst über ihre
+ * tatsächliche Anzahl Tage, 365 Tage je Jahr — die Konvention von XINTZINSFUSS
+ * (XIRR). Der Satz ist damit ein Jahressatz.
  */
+export function barwerteKalender(
+  jahresZins: number, reihe: number[], tage: number[],
+): number[] {
+  return reihe.map((v, t) => v / (1 + jahresZins) ** ((tage[t] - tage[0]) / 365))
+}
+
+/** Summe der Barwerte — beim internen Zinsfuss ist sie null. */
 export function barwertKalender(jahresZins: number, reihe: number[], tage: number[]): number {
-  let bw = 0
-  for (let t = 0; t < reihe.length; t++) {
-    bw += reihe[t] / (1 + jahresZins) ** ((tage[t] - tage[0]) / 365)
-  }
-  return bw
+  return barwerteKalender(jahresZins, reihe, tage).reduce((s, v) => s + v, 0)
 }
 
 /**

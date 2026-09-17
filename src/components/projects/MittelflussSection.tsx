@@ -16,7 +16,7 @@ import { formatNumber } from '@/lib/utils'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { buildUnits } from '@/lib/mengenAnalyse'
 import {
-  analysiereReihe, finanzierungsreihe,
+  analysiereReihe, barwerteKalender, finanzierungsreihe,
   type FinanzierungsReihe, type ReihenKennzahlen,
 } from '@/lib/irr'
 import { CI } from '@/lib/ci'
@@ -509,6 +509,21 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     }
   }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, kostenJeQuartal, zahlungsTage])
 
+  /*
+   * Probe zum ausgewiesenen Zinsfuss: die Barwerte der Eigenkapitalreihe. Ihre
+   * Summe muss null sein — genau das definiert den internen Zinsfuss. Die
+   * Zeile steht in der Tabelle unter dem Zahlungsfluss, damit die Rechnung
+   * nachvollziehbar ist, ohne sie im Excel nachzubauen.
+   */
+  const barwertProbe = useMemo(() => {
+    const satz = irr.eigenKennzahlen.xirrJahr ?? irr.eigenKennzahlen.irrJahr
+    if (satz == null) return null
+    const werte = barwerteKalender(satz, irr.fin.ekFluss, zahlungsTage)
+    const summe = werte.reduce((s, v) => s + v, 0)
+    // Restbeträge aus der Näherung sind kein Befund — als null zeigen.
+    return { satz, werte, summe: Math.abs(summe) < 0.5 ? 0 : summe }
+  }, [irr, zahlungsTage])
+
   // ── Setter ───────────────────────────────────────────────────────────────────
   const setPct = (scope: string, posKey: string, qKey: string, val: number) => setDoc((d) => {
     const sc = d.verteilung[scope] ?? {}
@@ -646,6 +661,7 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 erloesScope={erloesScope} erloesTotal={erloesTotal}
                 erloese={erloese} verkaufPct={verkaufPct} objektReihen={objektReihen}
                 steuerScope={steuerScope} steuerReihen={steuerReihen} fin={irr.fin}
+                barwertProbe={barwertProbe}
                 kostenJeQuartal={kostenJeQuartal}
                 verkauf={doc.verkauf} onSetVerkauf={setVerkauf}
               />
@@ -934,7 +950,7 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
 }
 
 // ── Kostentabelle (Positionen × Quartale), gleiche Geometrie wie der Terminplan ──
-function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, kostenJeQuartal }: {
+function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, kostenJeQuartal, barwertProbe }: {
   rows: MfDispRow[]
   quartale: MfQuartal[]
   calc: { qKeys: string[]; cells: Record<string, QCell[]>; totNetto: number[]; totNettoAK: number[]; totMwst: number[]; totBrutto: number[] }
@@ -958,6 +974,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   onSetVerkauf: (patch: Partial<MfVerkauf>) => void
   fin: FinanzierungsReihe
   kostenJeQuartal: number[]
+  barwertProbe: { satz: number; werte: number[]; summe: number } | null
 }) {
   const anzWarn = rows.filter((r) => {
     if (!r.editable) return false
@@ -1186,6 +1203,15 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
       <FootRow label="Zahlungsfluss Eigenkapital" values={fin.ekFluss}
         total={fin.ekFluss.reduce((s, v) => s + v, 0)}
         cols={cols} quartalMonthColors={quartalMonthColors} strong />
+
+      {/* Probe: die Barwerte zum ausgewiesenen Zinsfuss. Ihre Summe ist null —
+          steht sie hinten nicht auf null, passt der Satz nicht zur Reihe. */}
+      {barwertProbe && (
+        <FootRow
+          label={`Barwert je Quartal bei ${(barwertProbe.satz * 100).toFixed(2)} % p. a. (Kontrollsumme hinten)`}
+          values={barwertProbe.werte} total={barwertProbe.summe}
+          cols={cols} quartalMonthColors={quartalMonthColors} muted />
+      )}
 
       {anzWarn > 0 && (
         <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
