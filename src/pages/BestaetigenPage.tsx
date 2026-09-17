@@ -4,7 +4,6 @@ import { Loader2, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { NAEF_LOGO_SCHRIFT } from '@/assets/naef-logo-schrift'
-import { LOGIN_BG } from '@/assets/login-bg'
 
 // Diese Seite ist Ziel des Links in Invite-/Recovery-Mails. Sie ruft den
 // One-Time-Token NICHT automatisch ab, sondern erst nach Klick auf den Button.
@@ -84,7 +83,8 @@ export function BestaetigenPage() {
   return (
     <div className="flex min-h-screen">
       <div className="hidden lg:block lg:w-1/2 relative">
-        <img src={LOGIN_BG} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        {/* Dasselbe Bild wie auf der Anmeldeseite, aus public/. */}
+        <img src="/anmeldung-bild.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center bg-white px-10 py-16">
         <div className="w-full max-w-sm space-y-10">

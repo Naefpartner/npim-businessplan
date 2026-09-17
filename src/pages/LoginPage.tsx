@@ -3,7 +3,6 @@ import { Navigate } from 'react-router-dom'
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { LOGIN_BG } from '@/assets/login-bg'
 
 type Mode =
   | { kind: 'login' }
@@ -79,7 +78,7 @@ export function LoginPage() {
   }
 
   return (
-    <Frame titel="Anmelden" lead="Projektbusinesspläne für Immobilienprojekte.">
+    <Frame titel="Projektbusinessplan">
       <SignInForm signIn={signIn} initialError={mode.kind === 'error' ? mode.message : null} />
     </Frame>
   )
@@ -104,41 +103,50 @@ function Frame({ titel, lead, children }: {
   children: React.ReactNode
 }) {
   return (
-    <div className="schrift-naef flex min-h-screen flex-col bg-white text-black lg:justify-center">
-      <div className="mx-auto w-full max-w-[1180px] px-6 pb-12 pt-10 sm:px-10 lg:py-10">
-        {/* Wortmarke — als Schrift, damit sie in jeder Breite scharf bleibt. */}
-        {/* Auf schmalen Schirmen darf sie umbrechen: als eine Zeile zog sie die
-            Seite in die Breite. */}
+    <div className="schrift-naef flex min-h-screen flex-col bg-white text-black">
+      {/* Randmass der Website: gut vier Prozent der Schirmbreite, kein
+          Satzspiegel in der Mitte — die Titelseite läuft fast über die ganze
+          Breite. */}
+      <div className="w-full px-[4.4vw] pb-10 pt-[3.5vh]">
+        {/*
+          Die Wortmarke steht randgenau über dem Bild: am gerenderten Satz
+          gemessen ist die Tinte des Schriftzugs 6.891 Geviert breit und beginnt
+          0.079 Geviert rechts vom Ursprung. Bei einer Satzbreite von 91.2 vw
+          (100 − zweimal 4.4) ergibt 91.2/6.891 = 13.24 vw den Schriftgrad, der
+          genau von Rand zu Rand reicht; der negative linke Rand holt die
+          Seitenlast heraus, damit die Tinte auf der Bildkante sitzt.
+        */}
         <h1
-          className="font-bold leading-[0.88] tracking-[-0.035em]"
-          style={{ fontSize: 'clamp(2.25rem, 9.1vw, 7.6rem)' }}
+          className="font-bold leading-[0.82] whitespace-nowrap"
+          style={{ fontSize: '13.24vw', marginLeft: '-0.079em' }}
         >
           Naef &amp; Partner
         </h1>
 
-        <div className="mt-4 border-t border-black/15 pt-3">
-          <span className="text-sm font-bold sm:text-base">Businessplan</span>
-        </div>
-
-        {/* Bild und Kasten: auf breiten Schirmen überlappt der Kasten die
-            untere rechte Ecke, auf schmalen steht er darunter. */}
-        <div className="relative mt-6">
+        {/* Bild und Kasten: das Bild fast über die ganze Breite, darüber oben
+            rechts die weisse Stufe der Website, unten rechts der Kasten mit dem
+            Formular. */}
+        <div className="relative mt-[3vh]">
+          {/* Aus public/ statt als Base64-Modul: das Bild gehört nicht ins
+              JavaScript-Paket, und der Browser kann es zwischenspeichern. */}
           <img
-            src={LOGIN_BG}
+            src="/anmeldung-bild.jpg"
             alt=""
-            className="h-[38vh] w-full object-cover sm:h-[46vh] lg:h-[54vh] lg:min-h-[400px]"
+            className="h-[40vh] w-full object-cover sm:h-[48vh] lg:h-[58vh]"
           />
-          {/* Auf breiten Schirmen hängt der Kasten wie auf der Website über die
-              untere rechte Ecke des Bildes hinaus. */}
-          <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:-bottom-10 lg:right-0 lg:mt-0">
+          {/* Die Stufe oben rechts — auf der Website ergibt sie sich aus zwei
+              versetzten Bildern; hier deckt eine weisse Fläche dasselbe Mass ab. */}
+          <div className="absolute right-0 top-0 hidden h-[6vh] w-[38%] bg-white lg:block" />
+
+          <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:-bottom-8 lg:right-0 lg:mt-0 lg:w-[46%] lg:max-w-none lg:px-0 lg:pb-0 lg:pl-[3.2vw] lg:pt-[3.2vh]">
             <h2
-              className="font-bold leading-[1.05] tracking-[-0.02em]"
-              style={{ fontSize: 'clamp(1.6rem, 3.2vw, 2.4rem)' }}
+              className="font-bold leading-[1.02] tracking-[-0.03em]"
+              style={{ fontSize: 'clamp(1.7rem, 3.4vw, 3.4rem)' }}
             >
               {titel}
             </h2>
-            {lead && <p className="mt-2 text-sm text-black/60">{lead}</p>}
-            <div className="mt-6">{children}</div>
+            {lead && <p className="mt-2 text-sm text-black/60 lg:text-base">{lead}</p>}
+            <div className="mt-6 max-w-[26rem]">{children}</div>
           </div>
         </div>
       </div>
