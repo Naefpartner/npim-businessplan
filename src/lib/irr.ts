@@ -249,17 +249,14 @@ export function analysiereReihe(
 // ─── Finanzierung aus den erfassten Einlagen und Tranchen ────────────────────
 
 export interface FinanzierungsReihe {
-  /** Zinsaufwand je Quartal auf dem ausstehenden Fremdkapital. */
-  zins: number[]
   /** Ausstehendes Fremdkapital (Stand der aufgenommenen Tranchen). */
   schuld: number[]
-  /** Kumulierter Mittelbedarf einschliesslich aufgelaufener Zinsen. */
+  /** Kumulierter Mittelbedarf. */
   benoetigt: number[]
   /**
-   * Was das Eigenkapital trägt: Saldo abzüglich Fremdkapitalsaldo, zuzüglich
-   * des bezahlten Zinses.
-   * Negativ heisst, dass mehr zurückgeflossen ist als eingeschossen wurde —
-   * der Gewinn des Eigenkapitals.
+   * Was das Eigenkapital trägt: Mittelbedarf abzüglich des aufgenommenen
+   * Fremdkapitals. Negativ heisst, dass mehr zurückgeflossen ist als
+   * eingeschossen wurde — der Gewinn des Eigenkapitals.
    */
   beanspruchtesEk: number[]
   /** Eingelegtes, aber noch nicht beanspruchtes Eigenkapital. */
@@ -285,11 +282,9 @@ export interface FinanzierungsReihe {
  * standen die Zeilen der Mittelflussrechnung und ein eigenes Wasserfallmodell
  * nebeneinander und konnten sich widersprechen.
  *
- * Der Mittelbedarf wächst um die Ausgaben und die Zinsen und schrumpft mit den
- * Einnahmen. Getragen wird er zuerst vom eingelegten Eigenkapital; was darüber
- * hinausgeht, ist Fremdkapitalbedarf. Zinsen laufen auf den tatsächlich
- * aufgenommenen Tranchen — nicht auf dem Bedarf, denn Geld kostet erst, wenn
- * es geholt ist.
+ * Der Zinsaufwand steckt im Bedarf: die Bauzinsen stehen als Positionen in den
+ * Eigentümerkosten (BKP 9) und damit in den Anlagekosten. Hier noch einmal zu
+ * verzinsen hiesse, sie doppelt zu zählen.
  */
 export function finanzierungsreihe(
   /** Auszahlungen abzüglich Einzahlungen je Quartal (positiv = Bedarf). */
@@ -298,10 +293,7 @@ export function finanzierungsreihe(
   einlagen: number[],
   /** Aufgenommene Fremdkapitaltranchen je Quartal. */
   tranchen: number[],
-  /** Jahreszinssatz in Prozent. */
-  zinssatzPct: number,
 ): FinanzierungsReihe {
-  const zins: number[] = []
   const schuld: number[] = []
   const benoetigt: number[] = []
   const beanspruchtesEk: number[] = []
@@ -311,32 +303,25 @@ export function finanzierungsreihe(
 
   let schuldStand = 0
   let kumBedarf = 0
-  let kumZins = 0
   let kumEk = 0
 
   for (let t = 0; t < bedarf.length; t++) {
     schuldStand += tranchen[t] ?? 0
-    const z = schuldStand * (zinssatzPct / 100) / 4
-    kumZins += z
     kumBedarf += bedarf[t] ?? 0
     kumEk += einlagen[t] ?? 0
 
     /*
-     * Das Eigenkapital eines Quartals: Saldo abzüglich des aufgenommenen
-     * Fremdkapitals, zuzüglich der aufgelaufenen Zinsen — dieselbe Rechnung,
-     * die in der Tabelle Zeile für Zeile übereinander steht. Der Zins ist
-     * bezahlt und nicht im Saldo enthalten; er belastet also das Eigenkapital
-     * und mindert es nicht. Ohne Untergrenze: dreht der Saldo ins Plus, steht
-     * hier der Rückfluss an das Eigenkapital, und erst dieser
-     * Vorzeichenwechsel macht den internen Zinsfuss rechenbar.
+     * Beansprucht ist, was nach dem aufgenommenen Fremdkapital vom Bedarf
+     * übrig bleibt — ohne Untergrenze: dreht der Bedarf ins Minus, hat das
+     * Eigenkapital mehr zurückerhalten als eingeschossen. Genau dieser
+     * Überschuss macht den internen Zinsfuss überhaupt erst rechenbar.
      */
-    const ek = kumBedarf - schuldStand + kumZins
+    const ek = kumBedarf - schuldStand
     // Eigenkapital zuerst: Fremdkapital wird erst nötig, wenn die Einlagen aufgebraucht sind.
     const fk = Math.max(0, kumBedarf - kumEk)
 
-    zins.push(z)
     schuld.push(schuldStand)
-    benoetigt.push(kumBedarf + kumZins)
+    benoetigt.push(kumBedarf)
     beanspruchtesEk.push(ek)
     reserve.push(kumEk - ek)
     benoetigtesFk.push(fk)
@@ -345,6 +330,6 @@ export function finanzierungsreihe(
 
   const ekFluss = beanspruchtesEk.map((v, i) => (beanspruchtesEk[i - 1] ?? 0) - v)
   return {
-    zins, schuld, benoetigt, beanspruchtesEk, reserve, benoetigtesFk, deckungsluecke, ekFluss,
+    schuld, benoetigt, beanspruchtesEk, reserve, benoetigtesFk, deckungsluecke, ekFluss,
   }
 }

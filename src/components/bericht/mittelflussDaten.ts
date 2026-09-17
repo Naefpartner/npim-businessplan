@@ -110,13 +110,13 @@ export function useMittelflussDaten(
     const gewinnsteuerTu = steuerReihe('gewinnsteuer_tu', steuern.gewinnTu)
 
     // ── Finanzierung und Zinsfuss ───────────────────────────────────────────
-    const kosten = qKeys.map((_, i) => (calc.totNettoAK[i] ?? 0) + (calc.totMwst[i] ?? 0)
+    // Die Bauzinsen stecken in den Eigentümerkosten und damit in totNetto.
+    const kosten = qKeys.map((_, i) => (calc.totNetto[i] ?? 0) + (calc.totMwst[i] ?? 0)
       + (ggst[i] ?? 0) + (gewinnsteuerTu[i] ?? 0))
     const projektReihe = erloese.map((e, i) => e - (kosten[i] ?? 0))
     const ek = qKeys.map((qk) => doc.verteilung['fremd|gesamt']?.['eigenkapital']?.[qk] ?? 0)
     const tranchen = qKeys.map((qk) => doc.verteilung['fremd|gesamt']?.['tranche']?.[qk] ?? 0)
-    const fin = finanzierungsreihe(
-      projektReihe.map((v) => -v), ek, tranchen, doc.fremdZinssatz)
+    const fin = finanzierungsreihe(projektReihe.map((v) => -v), ek, tranchen)
     /*
      * Zahlungstag ist das Quartalsende, auf einer fortlaufenden Tagesachse —
      * derselbe kalendergenaue Zinsfuss wie im Reiter (Konvention XINTZINSFUSS).
@@ -136,7 +136,7 @@ export function useMittelflussDaten(
       fremdZinssatz: doc.fremdZinssatz,
       verkaufModell: doc.verkauf.modell,
       aufHauptgruppen,
-      nettoAK: calc.totNettoAK,
+      nettoAK: calc.totNetto,
       mwst: calc.totMwst,
       ggst,
       gewinnsteuerTu,

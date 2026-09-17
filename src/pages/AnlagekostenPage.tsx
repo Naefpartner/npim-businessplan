@@ -9,7 +9,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGsfAllocation } from '@/hooks/useGsfAllocation'
 import { useBkpKosten, type BkpPatch, type BkpScope } from '@/hooks/useBkpKosten'
 import { useBkpCustomPositions } from '@/hooks/useBkpCustomPositions'
-import { posSortKey } from '@/hooks/useAnlagekosten'
 import { KostenMethodeKacheln } from '@/components/projects/KostenMethodeKacheln'
 import { KeeValueSection } from '@/components/projects/KeeValueSection'
 import { BenchmarkKostenSection } from '@/components/projects/BenchmarkKostenSection'
@@ -17,7 +16,7 @@ import { VariantDataProvider, useAnlagekostenShared } from '@/contexts/VariantDa
 import { fetchAnlagekostenVergleich, type VergleichWert } from '@/lib/anlagekostenVergleich'
 import { Info } from 'lucide-react'
 import {
-  HAUPTGRUPPEN, BKP_POSITIONEN,
+  posSortKey, HAUPTGRUPPEN, BKP_POSITIONEN,
   type BkpPosition, type Status, type BerechnungsTyp,
 } from '@/lib/bkpKatalog'
 import { type BkpErgebnis } from '@/lib/bkpBerechnung'

@@ -16,7 +16,7 @@ import type {
  * Millionenbeträge, und getrennt gesetzt liessen sich die Reihen nicht Zeile
  * für Zeile gegeneinander lesen.
  */
-const RASTER_REIHE = { breiten: [22, ...Array<number>(10).fill(21)], spaltenAbstand: 2 }
+const RASTER_REIHE = { breiten: [24, ...Array<number>(9).fill(23)], spaltenAbstand: 2 }
 
 /** Raster der Jahresübersicht: Position, je Jahr eine Spalte, rechts der Abschluss. */
 function rasterJahre(anzahl: number): { breiten: number[]; spaltenAbstand: number } {
@@ -77,7 +77,7 @@ export interface MfKapitelZahlen {
   fremdZinssatz: number
   verkaufModell: MfVerkauf['modell']
   aufHauptgruppen: boolean
-  /** Anlagekosten netto ohne Finanzierung, je Quartal. */
+  /** Anlagekosten netto je Quartal, Bauzinsen eingeschlossen. */
   nettoAK: number[]
   mwst: number[]
   ggst: number[]
@@ -114,7 +114,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
     zelleFarbe: BERICHT_FARBE.primaerHell,
   }
   const bereiche: KapitelBereich[] = []
-  const zinsTotal = z.fin.zins.reduce((s, v) => s + v, 0)
 
   // ── Terminplan und Annahmen ───────────────────────────────────────────────
   const tabellen: KapitelTabelle[] = []
@@ -145,7 +144,10 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         zellen: ['Betrachtungsende',
           `${monatText(z.endMonat)} — zwei Quartale nach dem letzten Termineintrag`],
       },
-      { zellen: ['Zinssatz Fremdkapital', `${z.fremdZinssatz.toFixed(2)} % pro Jahr`] },
+      {
+        zellen: ['Finanzierungssatz',
+          `${z.fremdZinssatz.toFixed(2)} % pro Jahr — Bezug des modifizierten Zinsfusses`],
+      },
       {
         zellen: ['Ebene der Kostenverteilung',
           z.aufHauptgruppen ? 'BKP-Hauptgruppen' : 'einzelne Kostenpositionen'],
@@ -196,7 +198,7 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
       ...rasterJahre(jahre.length),
       linksBis: 0,
       zeilen: [
-        jahrZeile('Anlagekosten exkl. MWST exkl. Finanzierung', z.nettoAK, 'summe'),
+        jahrZeile('Anlagekosten exkl. MWST', z.nettoAK, 'summe'),
         jahrZeile('Mehrwertsteuer', z.mwst, 'summe'),
         jahrZeile('Grundstückgewinnsteuer', z.ggst, 'summe'),
         jahrZeile('Gewinnsteuer Totalunternehmer', z.gewinnsteuerTu, 'summe'),
@@ -206,7 +208,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         jahrZeile('Eingebrachtes Eigenkapital', z.ek, 'summe'),
         jahrZeile('Finanzierungstranchen', z.tranchen, 'summe'),
         jahrZeile('Saldo Fremdkapital, Stand am Jahresende', z.fin.schuld, 'stand'),
-        jahrZeile('Zinsaufwand', z.fin.zins, 'summe'),
         jahrZeile('Beanspruchtes Eigenkapital, Stand am Jahresende',
           z.fin.beanspruchtesEk, 'stand'),
         jahrZeile('Zahlungsfluss Eigenkapital', z.fin.ekFluss, 'summe', true),
@@ -227,7 +228,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
       chf(z.ek[i] ?? 0),
       chf(z.tranchen[i] ?? 0),
       chf(z.fin.schuld[i] ?? 0),
-      chf(z.fin.zins[i] ?? 0),
       chf(z.fin.beanspruchtesEk[i] ?? 0),
       chf(z.fin.ekFluss[i] ?? 0),
       z.barwerte ? chf(z.barwerte[i] ?? 0) : '—',
@@ -242,7 +242,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
       chf0(z.ek.reduce((s, v) => s + v, 0)),
       chf0(z.tranchen.reduce((s, v) => s + v, 0)),
       chf0(z.fin.schuld[z.fin.schuld.length - 1] ?? 0),
-      chf0(zinsTotal),
       chf0(z.fin.beanspruchtesEk[z.fin.beanspruchtesEk.length - 1] ?? 0),
       chf0(z.fin.ekFluss.reduce((s, v) => s + v, 0)),
       z.barwerte ? chf0(z.barwerte.reduce((s, v) => s + v, 0)) : '—',
@@ -256,15 +255,15 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
       titel: 'Zahlungsreihe je Quartal, in CHF',
       kopf: ['Quartal', 'Anlagekosten inkl. MWST', 'Verkaufserlöse', 'Saldo kumuliert',
         'Eingebrachtes Eigenkapital', 'Tranchen Fremdkapital', 'Saldo Fremdkapital',
-        'Zinsaufwand', 'Beanspruchtes Eigenkapital', 'Zahlungsfluss Eigenkapital',
-        'Barwert'],
+        'Beanspruchtes Eigenkapital', 'Zahlungsfluss Eigenkapital', 'Barwert'],
       ...RASTER_REIHE,
       linksBis: 0,
       zeilen,
     }],
     hinweis: 'Saldo kumuliert = Verkaufserlöse abzüglich Anlagekosten inklusive '
-      + 'Mehrwertsteuer und Gewinnsteuern, aufgelaufen. Beanspruchtes Eigenkapital = '
-      + 'Saldo abzüglich Fremdkapitalsaldo zuzüglich aufgelaufener Zinsen; der '
+      + 'Mehrwertsteuer und Gewinnsteuern, aufgelaufen; die Bauzinsen stehen als '
+      + 'Positionen in den Eigentümerkosten und sind darin enthalten. '
+      + 'Beanspruchtes Eigenkapital = Saldo abzüglich Fremdkapitalsaldo; der '
       + 'Zahlungsfluss Eigenkapital ist dessen Veränderung von Quartal zu Quartal — '
       + 'wächst die Beanspruchung, fliesst Geld ab. '
       + (z.barwerte
@@ -296,7 +295,8 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
       linksBis: 1,
       zeilen: [
         {
-          zellen: ['Interner Zinsfuss Projekt', 'auf dem Gesamtkapital, ohne Finanzierung',
+          zellen: ['Interner Zinsfuss Projekt',
+            'auf dem Gesamtkapital, Bauzinsen in den Anlagekosten enthalten',
             zinsfuss(z.kProjekt)],
           total: true,
         },
@@ -323,11 +323,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
             'Verkaufserlöse abzüglich Anlagekosten und Gewinnsteuern, CHF',
             chf0(z.kProjekt.summe)],
           total: true,
-        },
-        {
-          zellen: ['Zinsaufwand total',
-            `${z.fremdZinssatz.toFixed(2)} % p. a. auf den aufgenommenen Tranchen, CHF`,
-            chf0(zinsTotal)],
         },
         {
           zellen: ['Eingebrachtes Eigenkapital', 'erfasste Einlagen, CHF',

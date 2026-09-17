@@ -5,7 +5,7 @@ import { useVariantEtappen } from '@/hooks/useVariantEtappen'
 import { useGsfAllocation } from '@/hooks/useGsfAllocation'
 import { useBkpKosten, type BkpScope } from '@/hooks/useBkpKosten'
 import { useBkpCustomPositions } from '@/hooks/useBkpCustomPositions'
-import { BKP_POSITIONEN, type BkpPosition } from '@/lib/bkpKatalog'
+import { BKP_POSITIONEN, posSortKey, type BkpPosition } from '@/lib/bkpKatalog'
 import { berechneAnlagekosten, type BkpErgebnis } from '@/lib/bkpBerechnung'
 import { aggregateBkp2, EIGENTUMSART_ORDER } from '@/lib/bkp2'
 import {
@@ -30,12 +30,6 @@ import {
 import { benchmarkZeilen, benchmarkAlsBkpErgebnis } from '@/lib/benchmark'
 import { useBenchmarkKosten } from '@/hooks/useBenchmarkKosten'
 import { GESAMT_KEY } from '@/hooks/useKeeValueImport'
-
-// Sortierschlüssel aus der Positionsnummer (führende Ziffern); ohne Nummer ans Ende.
-export function posSortKey(p: BkpPosition): number {
-  const m = (p.displayCode ?? p.code).match(/^\d+/)
-  return m ? Number(m[0]) : Number.POSITIVE_INFINITY
-}
 
 /**
  * Zentrale Anlagekosten-Berechnung für eine Variante. Liefert die Block- und

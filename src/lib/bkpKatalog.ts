@@ -11,6 +11,15 @@ export interface BkpHauptgruppeMeta {
   label: string
 }
 
+/**
+ * Sortierschlüssel aus der Positionsnummer (führende Ziffern); ohne Nummer ans
+ * Ende. Eigene Zeilen führen ihre Id als Code, deshalb über den displayCode.
+ */
+export function posSortKey(p: BkpPosition): number {
+  const m = (p.displayCode ?? p.code ?? '').match(/^\d+/)
+  return m ? Number(m[0]) : Number.POSITIVE_INFINITY
+}
+
 export const HAUPTGRUPPEN: BkpHauptgruppeMeta[] = [
   { code: 0, label: 'Grundstück' },
   { code: 1, label: 'Vorbereitungsarbeiten' },

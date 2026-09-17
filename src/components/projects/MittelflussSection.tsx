@@ -7,7 +7,7 @@ import { useMittelfluss } from '@/hooks/useMittelfluss'
 import { useKapitalSteuern } from '@/hooks/useKapitalSteuern'
 import {
   gewinnsteuern, mittelflussCalc, mittelflussZeilen, objektErloesReihen,
-  type MfDispRow, type MfRow, type QCell,
+  type MfCalc, type MfDispRow, type MfRow,
 } from '@/lib/mittelflussRechnung'
 import { useHonorar } from '@/hooks/useHonorar'
 import { berechneHonorare, type HonorarInput } from '@/lib/honorar'
@@ -314,12 +314,14 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
    * trägt die Zeile „Zahlungsfluss Eigenkapital" beides.
    */
   /**
-   * Anlagekosten inklusive Mehrwertsteuer und Gewinnsteuern, ohne Finanzierung
-   * — die Kopfzeile der Tabelle und zugleich die Kostenseite der Zahlungsreihe.
+   * Anlagekosten inklusive Mehrwertsteuer und Gewinnsteuern — die Kopfzeile der
+   * Tabelle und zugleich die Kostenseite der Zahlungsreihe. Die Bauzinsen sind
+   * darin enthalten: sie stehen als Positionen in den Eigentümerkosten, und
+   * zwei Zahlen für dieselbe Sache gaben nur Verwirrung.
    */
   const kostenJeQuartal = useMemo(
     () => calc.qKeys.map(
-      (_, i) => (calc.totNettoAK[i] ?? 0) + (calc.totMwst[i] ?? 0) + (steuerJeQuartal[i] ?? 0)),
+      (_, i) => (calc.totNetto[i] ?? 0) + (calc.totMwst[i] ?? 0) + (steuerJeQuartal[i] ?? 0)),
     [calc, steuerJeQuartal],
   )
 
@@ -339,8 +341,8 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     const tranche = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['tranche']?.[qk] ?? 0)
     // Einnahmen abzüglich Ausgaben — die Sicht des Projekts.
     const projekt = erloese.map((e, i) => e - (kostenJeQuartal[i] ?? 0))
-    const fin = finanzierungsreihe(projekt.map((v) => -v), ek, tranche, doc.fremdZinssatz)
-    // Satz für den modifizierten Zinsfuss: derselbe, zu dem hier finanziert wird.
+    const fin = finanzierungsreihe(projekt.map((v) => -v), ek, tranche)
+    // Satz für den modifizierten Zinsfuss: der erfasste Finanzierungssatz.
     const satzProQuartal = doc.fremdZinssatz / 100 / 4
     return {
       ek,
@@ -477,6 +479,23 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 <TabButton key={eig} active={eigSel === eig} onClick={() => setEigSel(eig)}>{EIGENTUMSART_LABEL[eig]}</TabButton>
               ))}
             </div>
+            {/*
+              Der Finanzierungssatz steht nicht mehr in der Tabelle: die
+              Bauzinsen stehen als Positionen in den Eigentümerkosten. Hier
+              dient er allein dem modifizierten Zinsfuss — Fehlbeträge und
+              Überschüsse werden zu diesem Satz verzinst.
+            */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400">
+                Finanzierungssatz:
+              </span>
+              <div className="flex items-center gap-0.5 rounded bg-slate-100 px-1">
+                <NumFeld value={doc.fremdZinssatz} disabled={!canWrite} onChange={setFremdZins}
+                  className="w-14 border-0 bg-transparent py-0.5 text-right text-xs tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
+                <span className="text-[10px] text-slate-500">% p. a.</span>
+              </div>
+              <span className="text-[11px] text-slate-400">(für den modifizierten Zinsfuss)</span>
+            </div>
           </div>
 
           {canWrite && (
@@ -501,7 +520,6 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 fremdScope={fremdScope}
                 ekVert={doc.verteilung[fremdScope]?.['eigenkapital'] ?? {}}
                 trancheVert={doc.verteilung[fremdScope]?.['tranche'] ?? {}}
-                fremdZinssatz={doc.fremdZinssatz} onSetFremdZins={setFremdZins}
                 erloesScope={erloesScope} erloesTotal={erloesTotal}
                 erloese={erloese} verkaufPct={verkaufPct} objektReihen={objektReihen}
                 steuerScope={steuerScope} steuerReihen={steuerReihen} fin={irr.fin}
@@ -571,7 +589,7 @@ function IrrKennzahlen({
         ? { wert: pct(k.mirrJahr), hinweis: `mod. Zinsfuss p. a., ${bezug}` }
         : { wert: '—', hinweis: bezug }
   )
-  const zfProjekt = zinsfuss(projekt, 'auf dem Gesamtkapital')
+  const zfProjekt = zinsfuss(projekt, 'auf dem Gesamtkapital, Bauzinsen in den Kosten')
   const zfEigen = zinsfuss(eigen, `auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`)
   const mehrdeutig = projekt.irrMehrdeutig || eigen.irrMehrdeutig
   const ersetzt = (projekt.xirrJahr == null && projekt.irrJahr == null && projekt.mirrJahr != null)
@@ -794,10 +812,10 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
 }
 
 // ── Kostentabelle (Positionen × Quartale), gleiche Geometrie wie der Terminplan ──
-function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, kostenJeQuartal, barwertProbe }: {
+function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, kostenJeQuartal, barwertProbe }: {
   rows: MfDispRow[]
   quartale: MfQuartal[]
-  calc: { qKeys: string[]; cells: Record<string, QCell[]>; totNetto: number[]; totNettoAK: number[]; totMwst: number[]; totBrutto: number[] }
+  calc: MfCalc
   quartalMonthColors: (string | undefined)[][]
   cols: string
   canWrite: boolean
@@ -805,8 +823,6 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   fremdScope: string
   ekVert: Record<string, number>
   trancheVert: Record<string, number>
-  fremdZinssatz: number
-  onSetFremdZins: (v: number) => void
   erloesScope: string
   erloesTotal: number
   erloese: number[]
@@ -829,7 +845,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   // Total, und wer die Zahlungsreihe liest, braucht die Positionen nicht.
   const [kostenZu, setKostenZu] = useState(false)
   const [erloesZu, setErloesZu] = useState(false)
-  const sumTotNettoAK = calc.totNettoAK.reduce((s, v) => s + v, 0)
+  const sumTotNetto = calc.totNetto.reduce((s, v) => s + v, 0)
   const sumTotMwst = calc.totMwst.reduce((s, v) => s + v, 0)
   /*
    * Kopfzeile: BKP 0–9 mit Mehrwertsteuer, dazu die beiden Gewinnsteuern —
@@ -859,11 +875,10 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   const tranche = calc.qKeys.map((qk) => trancheVert[qk] ?? 0)
   const sumTranche = tranche.reduce((s, v) => s + v, 0)
   /*
-   * Alles Abgeleitete — Zins, Schuldstand, beanspruchtes Eigenkapital und
-   * dessen Zahlungsfluss — kommt aus `finanzierungsreihe` in der Sektion.
-   * Damit rechnet der Eigenkapital-IRR auf genau den Zahlen, die hier stehen.
+   * Alles Abgeleitete — Schuldstand, beanspruchtes Eigenkapital und dessen
+   * Zahlungsfluss — kommt aus `finanzierungsreihe` in der Sektion. Damit
+   * rechnet der Eigenkapital-IRR auf genau den Zahlen, die hier stehen.
    */
-  const sumZins = fin.zins.reduce((s, v) => s + v, 0)
 
   return (
     <div>
@@ -881,7 +896,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
 
       {/* Anlagekosten als Kopfzeile über ihren Positionen — zuklappbar */}
       <KopfZeile
-        label="Anlagekosten inkl. MWST exkl. Finanzierung"
+        label="Anlagekosten inkl. MWST"
         values={totAKInkl} total={sumTotAKInkl} cols={cols}
         quartalMonthColors={quartalMonthColors}
         zu={kostenZu} onToggle={() => setKostenZu((z) => !z)}
@@ -938,7 +953,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
       {/* Aufschlüsselung der Kopfzeile — sie klappt mit ihr zu */}
       {!kostenZu && (
         <>
-          <FootRow label="Anlagekosten exkl. MWST exkl. Finanzierung" values={calc.totNettoAK} total={sumTotNettoAK} cols={cols} quartalMonthColors={quartalMonthColors} wieZeile />
+          <FootRow label="Anlagekosten exkl. MWST" values={calc.totNetto} total={sumTotNetto} cols={cols} quartalMonthColors={quartalMonthColors} wieZeile />
           <FootRow label="Mehrwertsteuer" values={calc.totMwst} total={sumTotMwst} cols={cols} quartalMonthColors={quartalMonthColors} wieZeile />
         </>
       )}
@@ -1010,29 +1025,10 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         total={fin.schuld[fin.schuld.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
-      {/* Zinsaufwand auf die kumulierten Tranchen — Zinssatz vorne, Gesamtsumme in der Gesamt-Spalte */}
-      <div className="grid items-stretch border-t border-slate-100 text-xs" style={{ gridTemplateColumns: cols }}>
-        <div style={stickyLeft} className="flex items-center gap-2 bg-white px-3 py-1.5 text-slate-700">
-          <span className="font-medium">Zinsaufwand</span>
-          <div className="flex items-center gap-0.5 rounded bg-slate-100 px-1">
-            {/* Hundertstel zulassen — Zinssätze wie 1.81 % sind der Regelfall. */}
-            <NumFeld value={fremdZinssatz} disabled={!canWrite} onChange={onSetFremdZins}
-              className="w-14 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
-            <span className="text-[9px] text-slate-500">% p.a.</span>
-          </div>
-        </div>
-        <div className="bg-white px-2 py-1.5 text-right tabular-nums font-semibold text-slate-800">{formatNumber(sumZins)}</div>
-        {fin.zins.map((v, i) => (
-          <div key={i} className="border-l border-slate-100 px-1 py-1.5 text-right text-[11px] tabular-nums text-slate-700"
-            style={{ background: segBackground(quartalMonthColors[i], '10') }}>{v ? formatNumber(v) : ''}</div>
-        ))}
-        <div className="bg-white" />
-        <div className="bg-white px-2 py-1.5 text-right tabular-nums font-medium text-slate-700">{formatNumber(sumZins)}</div>
-      </div>
-
-      {/* Was nach Fremdkapital und Zins vom Mittelbedarf bleibt — der Teil,
-          den das Eigenkapital trägt. */}
-      <FootRow label="Beanspruchtes Eigenkapital (Saldo − Fremdkapital + Zins)" values={fin.beanspruchtesEk}
+      {/* Was nach dem Fremdkapital vom Mittelbedarf bleibt — der Teil, den das
+          Eigenkapital trägt. Der Zins steckt im Saldo, er steht in den
+          Anlagekosten. */}
+      <FootRow label="Beanspruchtes Eigenkapital (Saldo − Fremdkapital)" values={fin.beanspruchtesEk}
         total={fin.beanspruchtesEk[fin.beanspruchtesEk.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 

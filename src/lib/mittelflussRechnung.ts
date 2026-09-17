@@ -7,9 +7,8 @@
 // auseinanderlaufen, steht die Rechnung hier und nicht in der Sektion.
 // =============================================================================
 
-import { HAUPTGRUPPEN, type BkpPosition } from '@/lib/bkpKatalog'
+import { HAUPTGRUPPEN, posSortKey, type BkpPosition } from '@/lib/bkpKatalog'
 import type { BkpErgebnis } from '@/lib/bkpBerechnung'
-import { posSortKey } from '@/hooks/useAnlagekosten'
 import {
   kapitalSteuernErgebnis, positionsBetraegeAus, type KapitalSteuernDoc,
 } from '@/lib/kapitalSteuern'
@@ -49,9 +48,8 @@ export interface QCell { pct: number; netto: number; mwst: number; brutto: numbe
 export interface MfCalc {
   qKeys: string[]
   cells: Record<string, QCell[]>
+  /** Anlagekosten netto, Finanzierungspositionen eingeschlossen. */
   totNetto: number[]
-  /** Anlagekosten netto ohne Finanzierung. */
-  totNettoAK: number[]
   totMwst: number[]
   totBrutto: number[]
 }
@@ -105,17 +103,12 @@ export function mittelflussZeilen(q: MfZeilenQuellen): MfRow[] {
         mwst[c] += erg.hauptgruppenSummenMwst[k] ?? 0
       }
       /*
-       * Die Finanzierungspositionen stecken in ihrer Hauptgruppe (940/950/960
-       * in den Eigentümerkosten) — hier gehören sie heraus: die Zeile trägt
-       * „exkl. Finanzierung", und der Zinsaufwand steht unten für sich, auf
-       * dem Kapitalbedarf, den diese Kosten erst ergeben.
+       * Die Finanzierungspositionen (940/950/960 in den Eigentümerkosten)
+       * bleiben in ihrer Hauptgruppe: die Anlagekosten der Mittelflussrechnung
+       * sollen dieselbe Summe zeigen wie die Anlagekostenberechnung. Sie
+       * getrennt zu führen und den Zins unten neu zu rechnen, gab zwei Zahlen
+       * für dieselbe Sache.
        */
-      for (const [code, p] of Object.entries(erg.positionen)) {
-        if (q.typForByEig.get(eig)?.(code)?.kind !== 'finanzierung') continue
-        const hg = posMeta.get(code)?.hauptgruppe ?? (Number(code[0]) || 9)
-        netto[hg] -= p.betragNetto ?? 0
-        mwst[hg] -= p.mwstBetrag ?? 0
-      }
     }
     return HAUPTGRUPPEN
       .filter((h) => Math.abs(netto[h.code] + mwst[h.code]) >= 0.5)
@@ -241,13 +234,27 @@ export function mittelflussCalc(
   const cum: number[] = []
   let run = 0
   for (let i = 0; i < qKeys.length; i++) { run += cumBase[i]; cum.push(run) }
-  // Finanzierung: abgeleitet aus dem kumulierten Bedarf.
+  /*
+   * Finanzierung: die zeitliche Form kommt aus dem kumulierten Bedarf — Zins
+   * fällt an, solange Geld draussen ist —, der Betrag aber aus der
+   * Anlagekostenberechnung. Die Reihe wird deshalb auf den Betrag der Position
+   * skaliert; sonst stünden zwei Zahlen für dieselbe Position, und die
+   * Anlagekosten der Mittelflussrechnung wichen von denen der Kostenberechnung
+   * ab. Ohne Zinssatz gibt der Bedarf allein die Form.
+   */
   for (const r of rows) {
     if (r.kind !== 'finanzierung') continue
-    cells[r.key] = qKeys.map((_, i) => {
-      const zins = cum[i] * (r.rate ?? 0) * (r.share ?? 0.5) / 4
-      return { pct: 0, netto: zins, mwst: 0, brutto: zins }
-    })
+    const ramp = qKeys.map((_, i) => cum[i] * (r.rate ?? 0) * (r.share ?? 0.5) / 4)
+    const summeRamp = ramp.reduce((s, v) => s + v, 0)
+    const summeCum = cum.reduce((s, v) => s + v, 0)
+    const gewicht = Math.abs(summeRamp) > 0.5
+      ? ramp.map((v) => v / summeRamp)
+      : Math.abs(summeCum) > 0.5
+        ? cum.map((v) => v / summeCum)
+        : qKeys.map(() => 0)
+    cells[r.key] = gewicht.map((g) => ({
+      pct: 0, netto: g * r.netto, mwst: g * r.mwst, brutto: g * r.brutto,
+    }))
   }
   // Kopfzeilen (Etappen-Modus): Summe ihrer Etappen-Kinder.
   for (const r of rows) {
@@ -267,11 +274,9 @@ export function mittelflussCalc(
   const summe = (waehle: (r: MfDispRow) => boolean, feld: 'netto' | 'mwst') => qKeys.map(
     (_, i) => rows.reduce((s, r) => s + (waehle(r) ? (cells[r.key]?.[i]?.[feld] ?? 0) : 0), 0))
   const totNetto = summe(contrib, 'netto')
-  // Anlagekosten netto OHNE Finanzierung (Zinsen fliessen nur ins Brutto-Total).
-  const totNettoAK = summe((r) => r.editable, 'netto')
   const totMwst = summe(contrib, 'mwst')
   return {
-    qKeys, cells, totNetto, totNettoAK, totMwst,
+    qKeys, cells, totNetto, totMwst,
     totBrutto: totNetto.map((n, i) => n + totMwst[i]),
   }
 }

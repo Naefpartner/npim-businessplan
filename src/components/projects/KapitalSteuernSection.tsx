@@ -12,8 +12,7 @@ import {
   type KapitalSteuernDoc, type KsGesellschaft, type KsKostenZeile,
 } from '@/lib/kapitalSteuern'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
-import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
-import { posSortKey } from '@/hooks/useAnlagekosten'
+import { HAUPTGRUPPEN, posSortKey } from '@/lib/bkpKatalog'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
 import { eigentumsartForBuilding } from '@/types'
 import { cn, formatNumber } from '@/lib/utils'
