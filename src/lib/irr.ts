@@ -14,35 +14,64 @@ export function barwert(zins: number, reihe: number[]): number {
 }
 
 /**
- * Interner Zinsfuss je Periode — über Bisektion statt Newton: die Reihen sind
- * hier oft flach, und ein Verfahren, das immer konvergiert, ist mehr wert als
- * eines, das schneller ist.
+ * Alle internen Zinsfüsse einer Reihe im lesbaren Bereich (−99 % bis +1000 %
+ * je Periode).
  *
- * `null`, wo es keinen gibt: ohne Vorzeichenwechsel hat die Reihe keine
- * Nullstelle, und ausserhalb des Suchbereichs (−99 % bis +1000 % je Quartal)
- * wäre eine Zahl ohnehin nicht mehr zu lesen.
+ * Gesucht wird auf einem Gitter: überall dort, wo der Barwert das Vorzeichen
+ * wechselt, liegt eine Nullstelle, die anschliessend über Bisektion eingeengt
+ * wird. Eine Reihe mit mehreren Vorzeichenwechseln — bei Projekten der
+ * Normalfall, sobald Tranchen gezogen und zurückbezahlt werden — hat mehrere
+ * solche Nullstellen; ein Verfahren, das nur die Randpunkte prüft, findet
+ * dann gar keine.
+ */
+export function irrWurzeln(reihe: number[]): number[] {
+  if (reihe.length < 2) return []
+  if (!reihe.some((v) => v > 0) || !reihe.some((v) => v < 0)) return []
+
+  // Feines Gitter um die lesbaren Sätze, grobes darüber.
+  const gitter: number[] = []
+  for (let r = -0.99; r < 1; r += 0.0025) gitter.push(r)
+  for (let r = 1; r <= 10; r += 0.05) gitter.push(r)
+
+  const wurzeln: number[] = []
+  let voriges = gitter[0]
+  let bwVor = barwert(voriges, reihe)
+  for (let i = 1; i < gitter.length; i++) {
+    const jetzt = gitter[i]
+    const bw = barwert(jetzt, reihe)
+    if (bw === 0) { wurzeln.push(jetzt); voriges = jetzt; bwVor = bw; continue }
+    if (bwVor * bw < 0) {
+      // Bisektion im gefundenen Intervall.
+      let lo = voriges
+      let hi = jetzt
+      let bwLo = bwVor
+      for (let k = 0; k < 100 && hi - lo > 1e-10; k++) {
+        const mitte = (lo + hi) / 2
+        const bwM = barwert(mitte, reihe)
+        if (bwM === 0) { lo = mitte; hi = mitte; break }
+        if (bwM * bwLo < 0) hi = mitte
+        else { lo = mitte; bwLo = bwM }
+      }
+      wurzeln.push((lo + hi) / 2)
+    }
+    voriges = jetzt
+    bwVor = bw
+  }
+  return wurzeln
+}
+
+/**
+ * Interner Zinsfuss je Periode — die Nullstelle, die am ehesten zu lesen ist:
+ * von mehreren die betragsmässig kleinste, also die dem Nullsatz nächste.
+ *
+ * `null`, wo es keine gibt: ohne Vorzeichenwechsel hat die Reihe keine
+ * Nullstelle, und ausserhalb des Suchbereichs wäre eine Zahl ohnehin nicht
+ * mehr zu lesen. Dann trägt der modifizierte Zinsfuss die Aussage.
  */
 export function irrProPeriode(reihe: number[]): number | null {
-  if (reihe.length < 2) return null
-  const hatPlus = reihe.some((v) => v > 0)
-  const hatMinus = reihe.some((v) => v < 0)
-  if (!hatPlus || !hatMinus) return null
-
-  let lo = -0.9999
-  let hi = 10
-  let bwLo = barwert(lo, reihe)
-  let bwHi = barwert(hi, reihe)
-  if (bwLo === 0) return lo
-  if (bwHi === 0) return hi
-  if (bwLo * bwHi > 0) return null
-
-  for (let i = 0; i < 200; i++) {
-    const mitte = (lo + hi) / 2
-    const bw = barwert(mitte, reihe)
-    if (bw === 0 || hi - lo < 1e-9) return mitte
-    if (bw * bwLo < 0) { hi = mitte; bwHi = bw } else { lo = mitte; bwLo = bw }
-  }
-  return (lo + hi) / 2
+  const w = irrWurzeln(reihe)
+  if (w.length === 0) return null
+  return w.reduce((a, b) => (Math.abs(b) < Math.abs(a) ? b : a))
 }
 
 /** Periodenzins auf Jahreszins hochrechnen (Quartale: vier Perioden). */
@@ -89,12 +118,25 @@ export interface ReihenKennzahlen {
   irrProQuartal: number | null
   /** Auf ein Jahr hochgerechnet. */
   irrJahr: number | null
+  /** Mehr als eine Nullstelle — der interne Zinsfuss ist dann nicht eindeutig. */
+  irrMehrdeutig: boolean
+  /**
+   * Modifizierter interner Zinsfuss p. a. — eindeutig, auch wo der interne
+   * Zinsfuss keine oder mehrere Lösungen hat. `null` ohne Finanzierungssatz.
+   */
+  mirrJahr: number | null
   /** Summe der Reihe — beim Projekt der Gewinn, beim Eigenkapital der Rückfluss. */
   summe: number
 }
 
-/** Kennzahlen einer Zahlungsreihe in einem Durchgang. */
-export function analysiereReihe(netto: number[]): ReihenKennzahlen {
+/**
+ * Kennzahlen einer Zahlungsreihe in einem Durchgang.
+ *
+ * `satzProQuartal` ist der Satz, zu dem Fehlbeträge finanziert und Überschüsse
+ * angelegt werden — daraus entsteht der modifizierte Zinsfuss. Ohne ihn bleibt
+ * dieser leer.
+ */
+export function analysiereReihe(netto: number[], satzProQuartal?: number): ReihenKennzahlen {
   const kumuliert: number[] = []
   let lauf = 0
   for (const v of netto) { lauf += v; kumuliert.push(lauf) }
@@ -111,7 +153,13 @@ export function analysiereReihe(netto: number[]): ReihenKennzahlen {
     letztes = vorzeichen
   }
 
-  const irrQ = irrProPeriode(netto)
+  const wurzeln = irrWurzeln(netto)
+  const irrQ = wurzeln.length === 0
+    ? null
+    : wurzeln.reduce((a, b) => (Math.abs(b) < Math.abs(a) ? b : a))
+  const mirrQ = satzProQuartal == null
+    ? null
+    : mirrProPeriode(netto, satzProQuartal, satzProQuartal)
   return {
     netto,
     kumuliert,
@@ -120,6 +168,8 @@ export function analysiereReihe(netto: number[]): ReihenKennzahlen {
     vorzeichenwechsel: wechsel,
     irrProQuartal: irrQ,
     irrJahr: irrQ == null ? null : aufJahr(irrQ),
+    irrMehrdeutig: wurzeln.length > 1,
+    mirrJahr: mirrQ == null ? null : aufJahr(mirrQ),
     summe: lauf,
   }
 }

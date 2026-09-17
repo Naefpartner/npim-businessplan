@@ -485,12 +485,14 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     // Einnahmen abzüglich Ausgaben — die Sicht des Projekts.
     const projekt = erloese.map((e, i) => e - (kostenJeQuartal[i] ?? 0))
     const fin = finanzierungsreihe(projekt.map((v) => -v), ek, tranche, doc.fremdZinssatz)
+    // Satz für den modifizierten Zinsfuss: derselbe, zu dem hier finanziert wird.
+    const satzProQuartal = doc.fremdZinssatz / 100 / 4
     return {
       ek,
       fin,
       projektReihe: projekt,
-      projekt: analysiereReihe(projekt),
-      eigenKennzahlen: analysiereReihe(fin.ekFluss),
+      projekt: analysiereReihe(projekt, satzProQuartal),
+      eigenKennzahlen: analysiereReihe(fin.ekFluss, satzProQuartal),
       // Spitze der Beanspruchung — die Bezugsgrösse des Eigenkapital-Zinsfusses.
       spitzeEk: fin.beanspruchtesEk.reduce((m, v) => Math.max(m, v), 0),
     }
@@ -682,13 +684,31 @@ function IrrKennzahlen({
   const pct = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
   const quartalLabel = (i: number | null) =>
     (i == null || !quartale[i] ? '—' : `${quartale[i].jahr} Q${quartale[i].q}`)
+  /*
+   * Welche Zahl in der Kachel steht: der interne Zinsfuss, solange er eindeutig
+   * ist. Sobald die Reihe mehrfach das Vorzeichen wechselt — bei einem Projekt
+   * der Normalfall, sobald Tranchen gezogen und zurückbezahlt werden —, hat er
+   * mehrere Lösungen oder gar keine. Dann steht der modifizierte Zinsfuss da:
+   * Fehlbeträge zum Finanzierungssatz verzinst, Überschüsse ebenso angelegt.
+   * Er ist immer eindeutig und wird als „mod." ausgewiesen.
+   */
+  const zinsfuss = (k: ReihenKennzahlen, bezug: string) => (
+    k.irrJahr != null && !k.irrMehrdeutig
+      ? { wert: pct(k.irrJahr), hinweis: `p. a., ${bezug}` }
+      : k.mirrJahr != null
+        ? { wert: pct(k.mirrJahr), hinweis: `mod. Zinsfuss p. a., ${bezug}` }
+        : { wert: '—', hinweis: bezug }
+  )
+  const zfProjekt = zinsfuss(projekt, 'auf dem Gesamtkapital')
+  const zfEigen = zinsfuss(eigen, `auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`)
+  const modifiziert = (projekt.irrJahr == null || projekt.irrMehrdeutig)
+    || (eigen.irrJahr == null || eigen.irrMehrdeutig)
 
   return (
     <div className="space-y-2">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Kennzahl label="IRR Projekt" wert={pct(projekt.irrJahr)} hinweis="p. a., auf dem Gesamtkapital" />
-        <Kennzahl label="IRR Eigenkapital" wert={pct(eigen.irrJahr)}
-          hinweis={`p. a., auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`} />
+        <Kennzahl label="IRR Projekt" wert={zfProjekt.wert} hinweis={zfProjekt.hinweis} />
+        <Kennzahl label="IRR Eigenkapital" wert={zfEigen.wert} hinweis={zfEigen.hinweis} />
         <Kennzahl label="Kapitalbindung" wert={formatNumber(projekt.kapitalbindung)}
           hinweis="grösster Mittelbedarf, CHF" />
         <Kennzahl label="Break-even" wert={quartalLabel(projekt.breakEven)}
@@ -697,16 +717,20 @@ function IrrKennzahlen({
           hinweis="Summe der Zahlungsreihe, CHF" />
       </div>
 
-      {projekt.irrJahr == null && (
+      {modifiziert && (
         <p className="text-xs text-slate-500">
-          Kein interner Zinsfuss: die Reihe wechselt das Vorzeichen nicht — entweder fehlt die
-          zeitliche Verteilung der Kosten, oder die Erlöse decken sie nie.
+          Die Zahlungsreihe wechselt mehrfach das Vorzeichen — bei gezogenen und
+          zurückbezahlten Tranchen unvermeidlich. Ein interner Zinsfuss ist dann nicht
+          eindeutig; ausgewiesen ist deshalb der modifizierte Zinsfuss (MIRR) zum erfassten
+          Finanzierungssatz: Fehlbeträge werden zu diesem Satz finanziert, Überschüsse zu
+          demselben angelegt. Er ist immer eindeutig und für den Variantenvergleich die
+          belastbarere Zahl.
         </p>
       )}
-      {projekt.vorzeichenwechsel > 1 && (
+      {projekt.summe <= 0 && (
         <p className="text-xs text-amber-700">
-          Die Reihe wechselt {projekt.vorzeichenwechsel}-mal das Vorzeichen; der interne Zinsfuss
-          ist dann rechnerisch mehrdeutig und mit Vorsicht zu lesen.
+          Die Zahlungsreihe summiert sich auf {formatNumber(projekt.summe)} CHF — ohne
+          Überschuss gibt es keine Verzinsung, die sich ausweisen liesse.
         </p>
       )}
       {unterdeckung && (
