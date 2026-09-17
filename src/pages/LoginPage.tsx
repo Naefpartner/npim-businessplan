@@ -54,9 +54,6 @@ const buttonClass =
   + 'text-sm font-bold text-white transition hover:bg-[#8B6956] '
   + 'disabled:cursor-not-allowed disabled:opacity-60'
 
-/** Die fünf Dienstleistungen — dieselbe Zeile wie auf der Website. */
-const DIENSTLEISTUNGEN = ['Beraten', 'Entwickeln', 'Vertreten', 'Bauen', 'Entscheiden']
-
 export function LoginPage() {
   const { session, loading, signIn } = useAuth()
   const [mode, setMode] = useState<Mode>(readInitialMode)
@@ -92,9 +89,9 @@ export function LoginPage() {
 
 /**
  * Die Anmeldeseite tritt auf wie die Titelseite von naefpartner.com: weisse
- * Fläche, die Wortmarke gross über die ganze Satzbreite, darunter die Zeile der
- * Dienstleistungen, dann ein Bild, dem unten rechts ein weisser Kasten
- * überlappt. Der Kasten trägt hier das Formular statt des Claims.
+ * Fläche, die Wortmarke gross über die ganze Satzbreite, darunter eine Linie
+ * mit dem Namen des Werkzeugs, dann ein Bild, dem unten rechts ein weisser
+ * Kasten überlappt. Der Kasten trägt hier das Formular statt des Claims.
  *
  * Gesetzt in der Hausschrift Euclid NP; rechte Winkel, keine Schatten, schwarz
  * auf weiss — die Kupferfarbe erscheint nur im Fokus und im Überfahren.
@@ -119,12 +116,8 @@ function Frame({ titel, lead, children }: {
           Naef &amp; Partner
         </h1>
 
-        <div className="mt-4 flex items-center justify-between gap-6 border-t border-black/15 pt-3">
+        <div className="mt-4 border-t border-black/15 pt-3">
           <span className="text-sm font-bold sm:text-base">Businessplan</span>
-          <nav className="hidden gap-6 text-sm font-bold lg:flex">
-            {DIENSTLEISTUNGEN.map((d) => <span key={d}>{d}</span>)}
-          </nav>
-          <img src="/naef-bildmarke.png" alt="" className="h-9 w-9 object-contain" />
         </div>
 
         {/* Bild und Kasten: auf breiten Schirmen überlappt der Kasten die
