@@ -121,23 +121,30 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
 
   // ── Jahresspalten: sie tragen den Balkenplan und die Zahlen darunter ─────
   const jahre = [...new Set(z.quartale.map((q) => q.jahr))]
+  /*
+   * Jedes Jahr zeigt alle vier Quartale, auch wo das Betrachtungsfenster nur
+   * einen Teil davon führt: ein angeschnittenes Jahr mit zwei breiten Feldern
+   * las sich wie ein anderer Zeitmassstab. Die Balken rechnen deshalb auf der
+   * Kalenderachse — vier Quartale je Jahresspalte.
+   */
   const jahresSpalten = jahre.map((j) => ({
     label: String(j),
-    quartale: z.quartale.filter((q) => q.jahr === j).map((q) => `Q${q.q}`),
+    quartale: ['Q1', 'Q2', 'Q3', 'Q4'],
   }))
   const raster = rasterJahre(jahre.length)
 
   // ── Terminplan als Balkenplan über den Jahresspalten ─────────────────────
   if (z.phasen.length > 0) {
-    /** Quartalsindex eines Monats — vor dem Fenster das erste, danach das letzte. */
+    /**
+     * Quartalsfeld eines Monats auf der Kalenderachse des Balkenplans: vier
+     * Felder je Jahresspalte, gezählt ab dem ersten gezeigten Jahr. Was
+     * ausserhalb liegt, wird auf den Rand gelegt.
+     */
+    const letztesFeld = jahre.length * 4 - 1
     const quartalIndex = (monat: string): number => {
       const [jahr, mon] = monat.split('-').map(Number)
-      const q = Math.floor((mon - 1) / 3) + 1
-      const treffer = z.quartale.findIndex((x) => x.jahr === jahr && x.q === q)
-      if (treffer >= 0) return treffer
-      const vorher = z.quartale[0]
-      const frueher = jahr < vorher.jahr || (jahr === vorher.jahr && q < vorher.q)
-      return frueher ? 0 : z.quartale.length - 1
+      const feld = (jahr - jahre[0]) * 4 + Math.floor((mon - 1) / 3)
+      return Math.min(letztesFeld, Math.max(0, feld))
     }
     bereiche.push({
       titel: '',
