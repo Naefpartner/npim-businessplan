@@ -75,7 +75,9 @@ function menge(p: PositionResult): string {
  */
 function ansatz(p: PositionResult): string {
   if (p.kennwertGemischt || p.kennwert == null) return '—'
-  const e = p.preisEinheit
+  // Im Bericht kurz „CHF/EH": die Ansatzspalte ist schmal, und „Einh." kostet
+  // dort mehr Platz, als die Abkürzung an Klarheit bringt.
+  const e = p.preisEinheit === 'CHF/Einh.' ? 'CHF/EH' : p.preisEinheit
   const wert = e === '%' || e === '%/a'
     ? (p.kennwert * 100).toFixed(1)
     : e === '‰'

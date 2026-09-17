@@ -2656,8 +2656,15 @@ function sichtTitel(basis: string, sicht: MengenSicht): string {
   return sicht.gesamt ? basis : `${basis} — ${sicht.titel}`
 }
 
-/** Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts. */
-const MENGEN_BREITEN = [1.25, 2.0, 0.8, 0.95, 1.05, 0.95, 1.05, 1.05, 1.3]
+/**
+ * Spaltenanteile der Mengentabelle — Mengen links, Erträge rechts.
+ *
+ * Die Geschossangabe ist knapp gehalten und die Nutzung entsprechend breiter:
+ * „Geschosswohnung" ist 27.4 mm breit und brach sonst um, während neben „EG"
+ * oder „2. UG" Platz brachlag. Die Summe der beiden bleibt gleich, damit die
+ * Zahlenspalten mit der Häuserübersicht fluchten.
+ */
+const MENGEN_BREITEN = [1.05, 2.2, 0.8, 0.95, 1.05, 0.95, 1.05, 1.05, 1.3]
 
 /**
  * Dieselben Spalten für die Häuserübersicht, nur die ersten beiden getauscht:
