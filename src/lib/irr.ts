@@ -134,7 +134,8 @@ export interface FinanzierungsReihe {
   /** Kumulierter Mittelbedarf einschliesslich aufgelaufener Zinsen. */
   benoetigt: number[]
   /**
-   * Was das Eigenkapital trägt: Saldo abzüglich Fremdkapitalsaldo und Zins.
+   * Was das Eigenkapital trägt: Saldo abzüglich Fremdkapitalsaldo, zuzüglich
+   * des bezahlten Zinses.
    * Negativ heisst, dass mehr zurückgeflossen ist als eingeschossen wurde —
    * der Gewinn des Eigenkapitals.
    */
@@ -200,12 +201,14 @@ export function finanzierungsreihe(
 
     /*
      * Das Eigenkapital eines Quartals: Saldo abzüglich des aufgenommenen
-     * Fremdkapitals und der aufgelaufenen Zinsen — dieselbe Rechnung, die in
-     * der Tabelle Zeile für Zeile übereinander steht. Ohne Untergrenze: dreht
-     * der Saldo ins Plus, steht hier der Rückfluss an das Eigenkapital, und
-     * erst dieser Vorzeichenwechsel macht den internen Zinsfuss rechenbar.
+     * Fremdkapitals, zuzüglich der aufgelaufenen Zinsen — dieselbe Rechnung,
+     * die in der Tabelle Zeile für Zeile übereinander steht. Der Zins ist
+     * bezahlt und nicht im Saldo enthalten; er belastet also das Eigenkapital
+     * und mindert es nicht. Ohne Untergrenze: dreht der Saldo ins Plus, steht
+     * hier der Rückfluss an das Eigenkapital, und erst dieser
+     * Vorzeichenwechsel macht den internen Zinsfuss rechenbar.
      */
-    const ek = kumBedarf - schuldStand - kumZins
+    const ek = kumBedarf - schuldStand + kumZins
     // Eigenkapital zuerst: Fremdkapital wird erst nötig, wenn die Einlagen aufgebraucht sind.
     const fk = Math.max(0, kumBedarf - kumEk)
 

@@ -1111,7 +1111,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
 
       {/* Was nach Fremdkapital und Zins vom Mittelbedarf bleibt — der Teil,
           den das Eigenkapital trägt. */}
-      <FootRow label="Beanspruchtes Eigenkapital (Saldo − Fremdkapital − Zins)" values={fin.beanspruchtesEk}
+      <FootRow label="Beanspruchtes Eigenkapital (Saldo − Fremdkapital + Zins)" values={fin.beanspruchtesEk}
         total={fin.beanspruchtesEk[fin.beanspruchtesEk.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
