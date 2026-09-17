@@ -123,10 +123,9 @@ function Frame({ titel, lead, children }: {
           Naef &amp; Partner
         </h1>
 
-        {/* Bild und Kasten: das Bild fast über die ganze Breite, darüber oben
-            rechts die weisse Stufe der Website, unten rechts der Kasten mit dem
-            Formular. */}
-        <div className="relative mt-[3vh]">
+        {/* Bild und Kasten: das Bild über die ganze Satzbreite, unten rechts der
+            Kasten mit dem Formular. */}
+        <div className="relative mt-[6vh]">
           {/* Aus public/ statt als Base64-Modul: das Bild gehört nicht ins
               JavaScript-Paket, und der Browser kann es zwischenspeichern. */}
           <img
@@ -134,19 +133,28 @@ function Frame({ titel, lead, children }: {
             alt=""
             className="h-[40vh] w-full object-cover sm:h-[48vh] lg:h-[58vh]"
           />
-          {/* Die Stufe oben rechts — auf der Website ergibt sie sich aus zwei
-              versetzten Bildern; hier deckt eine weisse Fläche dasselbe Mass ab. */}
-          <div className="absolute right-0 top-0 hidden h-[6vh] w-[38%] bg-white lg:block" />
-
           <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:-bottom-8 lg:right-0 lg:mt-0 lg:w-[46%] lg:max-w-none lg:px-0 lg:pb-0 lg:pl-[3.2vw] lg:pt-[3.2vh]">
-            <h2
-              className="font-bold leading-[1.02] tracking-[-0.03em]"
-              style={{ fontSize: 'clamp(1.7rem, 3.4vw, 3.4rem)' }}
-            >
-              {titel}
-            </h2>
-            {lead && <p className="mt-2 text-sm text-black/60 lg:text-base">{lead}</p>}
-            <div className="mt-6 max-w-[26rem]">{children}</div>
+            {/*
+              Der Titel gibt die Breite: `w-fit` nimmt sie von ihm, und die
+              Zeilen darunter tragen `w-0 min-w-full` — so füllen sie den Block,
+              zählen aber nicht in seine Breite hinein. Rechts steht der Block
+              auf der Bildkante (der Kasten hat dort keinen Innenabstand),
+              Felder und Knopf sind damit so breit wie das Wort darüber.
+            */}
+            <div className="ml-auto lg:w-fit">
+              <h2
+                className="font-bold leading-[1.02] tracking-[-0.03em] lg:whitespace-nowrap"
+                style={{ fontSize: 'clamp(1.7rem, 3.4vw, 3.4rem)' }}
+              >
+                {titel}
+              </h2>
+              {lead && (
+                <p className="mt-2 text-sm text-black/60 lg:w-0 lg:min-w-full lg:text-base">
+                  {lead}
+                </p>
+              )}
+              <div className="mt-6 lg:w-0 lg:min-w-full">{children}</div>
+            </div>
           </div>
         </div>
       </div>
