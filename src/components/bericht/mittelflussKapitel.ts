@@ -158,7 +158,8 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
           const von = quartalIndex(p.startMonat)
           const bis = quartalIndex(monatAdd(p.startMonat, Math.max(1, p.dauerMonate) - 1))
           return {
-            label: `${p.label} · ${monatText(p.startMonat)}, ${p.dauerMonate} Mte`,
+            // Nur der Name der Phase: Beginn und Dauer stehen im Balken.
+            label: p.label,
             farbe: p.farbe,
             von,
             bis: Math.max(von, bis),
