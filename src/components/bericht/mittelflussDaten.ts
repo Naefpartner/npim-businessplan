@@ -12,7 +12,7 @@ import {
   honorarPhasenGewichte, projektEnde, quartaleZwischen, resolvePhasen,
   verkaufsVerteilung, defaultMittelflussDoc,
 } from '@/lib/mittelfluss'
-import { analysiereReihe, barwerteKalender, finanzierungsreihe } from '@/lib/irr'
+import { analysiereReihe, finanzierungsreihe } from '@/lib/irr'
 import { buildUnits } from '@/lib/mengenAnalyse'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { eigentumsartForBuilding } from '@/types'
@@ -124,15 +124,12 @@ export function useMittelflussDaten(
     const tage = quartale.map((q) => Date.UTC(q.jahr, q.q * 3, 0) / 86_400_000)
     const satzProQuartal = doc.fremdZinssatz / 100 / 4
     const kEigen = analysiereReihe(fin.ekFluss, { satzProQuartal, tage })
-    const satzBarwert = kEigen.xirrJahr ?? kEigen.irrJahr
     const kumSaldo: number[] = []
     { let run = 0; for (const v of projektReihe) { run += v; kumSaldo.push(run) } }
 
     return mittelflussKapitel({
       quartale,
       phasen: resolvePhasen(doc.phasen),
-      startMonat: doc.startMonat,
-      endMonat,
       fremdZinssatz: doc.fremdZinssatz,
       verkaufModell: doc.verkauf.modell,
       aufHauptgruppen,
@@ -148,9 +145,6 @@ export function useMittelflussDaten(
       fin,
       kProjekt: analysiereReihe(projektReihe, { satzProQuartal, tage }),
       kEigen,
-      barwerte: satzBarwert == null
-        ? null
-        : barwerteKalender(satzBarwert, fin.ekFluss, tage),
     })
   }, [mfDoc, ksDoc, honGewichte, ak.presentEig, ak.positionsByEig, ak.typForByEig,
     ak.konsolidiertEffektiv, ak.benchmarkAktiv, ak.keeValueAktiv, ak.buildings, ak.etappen])

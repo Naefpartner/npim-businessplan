@@ -10,14 +10,6 @@ import type {
   BereichsKapitelDaten, KapitelBereich, TabellenZeile,
 } from '@/components/bericht/BerichtDokument'
 
-/**
- * Raster der Zahlungsreihe: links das Quartal, danach zehn Wertspalten. Die
- * Tabelle steht auf A3 hoch — auf A4 wären die Spalten zu schmal für
- * Millionenbeträge, und getrennt gesetzt liessen sich die Reihen nicht Zeile
- * für Zeile gegeneinander lesen.
- */
-const RASTER_REIHE = { breiten: [24, ...Array<number>(9).fill(23)], spaltenAbstand: 2 }
-
 /** Raster der Jahresübersicht: Position, je Jahr eine Spalte, rechts der Abschluss. */
 function rasterJahre(anzahl: number): { breiten: number[]; spaltenAbstand: number } {
   /*
@@ -51,15 +43,6 @@ function pct(v: number | null, stellen = 1): string {
   return `${v < 0 ? '−' : ''}${z} %`
 }
 
-const MONAT_LANG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
-
-/** Monat als „Januar 2027". */
-function monatText(s: string): string {
-  const [jahr, monat] = s.split('-')
-  return `${MONAT_LANG[Number(monat) - 1] ?? monat} ${jahr}`
-}
-
 const VERKAUF_TEXT: Record<MfVerkauf['modell'], string> = {
   uebergabe: 'vollständig bei Übergabe',
   baufortschritt: 'nach Baufortschritt',
@@ -76,8 +59,6 @@ export interface MfKapitelZahlen {
   quartale: MfQuartal[]
   /** Terminplan, Verkettungen aufgelöst. */
   phasen: MfPhase[]
-  startMonat: string
-  endMonat: string
   fremdZinssatz: number
   verkaufModell: MfVerkauf['modell']
   aufHauptgruppen: boolean
@@ -96,8 +77,6 @@ export interface MfKapitelZahlen {
   fin: FinanzierungsReihe
   kProjekt: ReihenKennzahlen
   kEigen: ReihenKennzahlen
-  /** Barwerte der Eigenkapitalreihe; null, wo es keinen Zinsfuss gibt. */
-  barwerte: number[] | null
 }
 
 /**
@@ -167,13 +146,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         }),
       },
       tabellen: [],
-      hinweis: `Betrachtet wird ${monatText(z.startMonat)} bis ${monatText(z.endMonat)} `
-        + '— zwei Quartale nach dem letzten Termineintrag. Die Kosten stammen aus der '
-        + 'Anlagekostenberechnung der gewählten Methode'
-        + (z.aufHauptgruppen ? ' und sind auf BKP-Hauptgruppen verteilt' : '')
-        + ', die Verkaufserlöse aus den Mengen und Erträgen '
-        + `(${VERKAUF_TEXT[z.verkaufModell]}), die Gewinnsteuern aus dem Kapitel `
-        + 'Kapital und Steuern. Die Planerhonorare folgen den SIA-Phasen des Terminplans.',
     })
   }
 
@@ -223,65 +195,18 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         jahrZeile('Zahlungsfluss Eigenkapital', z.fin.ekFluss, 'summe', true),
       ],
     }],
-    hinweis: 'Zahlungen sind je Jahr summiert, Stände am Jahresende abgelesen. Die '
+    hinweis: 'Zahlungen sind je Jahr summiert, Stände am Jahresende abgelesen; die '
       + 'Spalte rechts führt deshalb bei Zahlungen die Summe über die ganze '
-      + 'Betrachtung und bei Ständen den Wert an deren Ende.',
-  })
-
-  // ── Zahlungsreihe je Quartal ──────────────────────────────────────────────
-  const zeilen: TabellenZeile[] = z.quartale.map((q, i) => ({
-    zellen: [
-      `${q.jahr} Q${q.q}`,
-      chf(z.kosten[i] ?? 0),
-      chf(z.erloese[i] ?? 0),
-      chf(z.kumSaldo[i] ?? 0),
-      chf(z.ek[i] ?? 0),
-      chf(z.tranchen[i] ?? 0),
-      chf(z.fin.schuld[i] ?? 0),
-      chf(z.fin.beanspruchtesEk[i] ?? 0),
-      chf(z.fin.ekFluss[i] ?? 0),
-      z.barwerte ? chf(z.barwerte[i] ?? 0) : '—',
-    ],
-  }))
-  zeilen.push({
-    zellen: [
-      'Total',
-      chf0(z.kosten.reduce((s, v) => s + v, 0)),
-      chf0(z.erloese.reduce((s, v) => s + v, 0)),
-      chf0(z.kumSaldo[z.kumSaldo.length - 1] ?? 0),
-      chf0(z.ek.reduce((s, v) => s + v, 0)),
-      chf0(z.tranchen.reduce((s, v) => s + v, 0)),
-      chf0(z.fin.schuld[z.fin.schuld.length - 1] ?? 0),
-      chf0(z.fin.beanspruchtesEk[z.fin.beanspruchtesEk.length - 1] ?? 0),
-      chf0(z.fin.ekFluss.reduce((s, v) => s + v, 0)),
-      z.barwerte ? chf0(z.barwerte.reduce((s, v) => s + v, 0)) : '—',
-    ],
-    total: true,
-  })
-  bereiche.push({
-    titel: '',
-    ...farben,
-    tabellen: [{
-      titel: 'Zahlungsreihe je Quartal, in CHF',
-      kopf: ['Quartal', 'Anlagekosten inkl. MWST', 'Verkaufserlöse', 'Saldo kumuliert',
-        'Eingebrachtes Eigenkapital', 'Tranchen Fremdkapital', 'Saldo Fremdkapital',
-        'Beanspruchtes Eigenkapital', 'Zahlungsfluss Eigenkapital', 'Barwert'],
-      ...RASTER_REIHE,
-      linksBis: 0,
-      zeilen,
-    }],
-    hinweis: 'Saldo kumuliert = Verkaufserlöse abzüglich Anlagekosten inklusive '
-      + 'Mehrwertsteuer und Gewinnsteuern, aufgelaufen; die Bauzinsen stehen als '
-      + 'Positionen in den Eigentümerkosten und sind darin enthalten. '
-      + 'Beanspruchtes Eigenkapital = Saldo abzüglich Fremdkapitalsaldo; der '
-      + 'Zahlungsfluss Eigenkapital ist dessen Veränderung von Quartal zu Quartal — '
-      + 'wächst die Beanspruchung, fliesst Geld ab. '
-      + (z.barwerte
-        ? 'Die Barwerte sind zum ausgewiesenen Zinsfuss des Eigenkapitals über die '
-          + 'tatsächlichen Tage abgezinst; ihre Summe ist null, und genau das ist die '
-          + 'Probe der Zinsfussrechnung.'
-        : 'Ein interner Zinsfuss lässt sich aus dieser Reihe nicht ermitteln — die '
-          + 'Barwertspalte bleibt deshalb leer.'),
+      + 'Betrachtung und bei Ständen den Wert an deren Ende. Gerechnet wird auf '
+      + 'Quartalen. Der Saldo ist der aufgelaufene Überschuss der Verkaufserlöse '
+      + 'über die Anlagekosten; das beanspruchte Eigenkapital ist der Saldo '
+      + 'abzüglich des aufgenommenen Fremdkapitals, der Zahlungsfluss Eigenkapital '
+      + 'dessen Veränderung — wächst die Beanspruchung, fliesst Geld ab. Die Kosten '
+      + 'stammen aus der Anlagekostenberechnung der gewählten Methode'
+      + (z.aufHauptgruppen ? ' und sind auf BKP-Hauptgruppen verteilt' : '')
+      + `, die Verkaufserlöse aus den Mengen und Erträgen (${VERKAUF_TEXT[z.verkaufModell]}), `
+      + 'die Gewinnsteuern aus dem Kapitel Kapital und Steuern; die Planerhonorare '
+      + 'folgen den SIA-Phasen des Terminplans.',
   })
 
   // ── Kennzahlen ────────────────────────────────────────────────────────────
