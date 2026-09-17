@@ -14,40 +14,42 @@ export function barwert(zins: number, reihe: number[]): number {
 }
 
 /**
- * Alle internen Zinsfüsse einer Reihe im lesbaren Bereich (−99 % bis +1000 %
- * je Periode).
- *
- * Gesucht wird auf einem Gitter: überall dort, wo der Barwert das Vorzeichen
- * wechselt, liegt eine Nullstelle, die anschliessend über Bisektion eingeengt
- * wird. Eine Reihe mit mehreren Vorzeichenwechseln — bei Projekten der
- * Normalfall, sobald Tranchen gezogen und zurückbezahlt werden — hat mehrere
- * solche Nullstellen; ein Verfahren, das nur die Randpunkte prüft, findet
- * dann gar keine.
+ * Barwert auf der Kalenderachse: jede Zahlung wird über ihre tatsächliche
+ * Anzahl Tage abgezinst, 365 Tage je Jahr — die Konvention von XINTZINSFUSS
+ * (XIRR). Der gesuchte Satz ist damit direkt ein Jahressatz.
  */
-export function irrWurzeln(reihe: number[]): number[] {
-  if (reihe.length < 2) return []
-  if (!reihe.some((v) => v > 0) || !reihe.some((v) => v < 0)) return []
+export function barwertKalender(jahresZins: number, reihe: number[], tage: number[]): number {
+  let bw = 0
+  for (let t = 0; t < reihe.length; t++) {
+    bw += reihe[t] / (1 + jahresZins) ** ((tage[t] - tage[0]) / 365)
+  }
+  return bw
+}
 
-  // Feines Gitter um die lesbaren Sätze, grobes darüber.
+/**
+ * Alle Nullstellen einer Barwertfunktion im lesbaren Bereich (−99 % bis
+ * +1000 %): feines Gitter um die üblichen Sätze, grobes darüber; wo der
+ * Barwert das Vorzeichen wechselt, wird bisektiert.
+ */
+function nullstellen(bwBei: (satz: number) => number): number[] {
   const gitter: number[] = []
   for (let r = -0.99; r < 1; r += 0.0025) gitter.push(r)
   for (let r = 1; r <= 10; r += 0.05) gitter.push(r)
 
   const wurzeln: number[] = []
   let voriges = gitter[0]
-  let bwVor = barwert(voriges, reihe)
+  let bwVor = bwBei(voriges)
   for (let i = 1; i < gitter.length; i++) {
     const jetzt = gitter[i]
-    const bw = barwert(jetzt, reihe)
+    const bw = bwBei(jetzt)
     if (bw === 0) { wurzeln.push(jetzt); voriges = jetzt; bwVor = bw; continue }
     if (bwVor * bw < 0) {
-      // Bisektion im gefundenen Intervall.
       let lo = voriges
       let hi = jetzt
       let bwLo = bwVor
       for (let k = 0; k < 100 && hi - lo > 1e-10; k++) {
         const mitte = (lo + hi) / 2
-        const bwM = barwert(mitte, reihe)
+        const bwM = bwBei(mitte)
         if (bwM === 0) { lo = mitte; hi = mitte; break }
         if (bwM * bwLo < 0) hi = mitte
         else { lo = mitte; bwLo = bwM }
@@ -60,12 +62,45 @@ export function irrWurzeln(reihe: number[]): number[] {
   return wurzeln
 }
 
+/** Reihen ohne Vorzeichenwechsel haben keine Nullstelle — gar nicht erst suchen. */
+function reiheDreht(reihe: number[]): boolean {
+  return reihe.length >= 2 && reihe.some((v) => v > 0) && reihe.some((v) => v < 0)
+}
+
 /**
- * Startwert der Suche, wenn mehrere Nullstellen in Frage kommen: 10 % p. a. auf
- * die Quartalsachse gerechnet — derselbe Vorgabewert, mit dem Excel rechnet.
- * So fällt die ausgewiesene Lösung mit der einer Zielwertsuche zusammen.
+ * Alle internen Zinsfüsse einer Reihe im lesbaren Bereich (−99 % bis +1000 %
+ * je Periode).
+ *
+ * Gesucht wird auf einem Gitter: überall dort, wo der Barwert das Vorzeichen
+ * wechselt, liegt eine Nullstelle, die anschliessend über Bisektion eingeengt
+ * wird. Eine Reihe mit mehreren Vorzeichenwechseln — bei Projekten der
+ * Normalfall, sobald Tranchen gezogen und zurückbezahlt werden — hat mehrere
+ * solche Nullstellen; ein Verfahren, das nur die Randpunkte prüft, findet
+ * dann gar keine.
  */
-const IRR_STARTWERT = 1.1 ** (1 / 4) - 1
+export function irrWurzeln(reihe: number[]): number[] {
+  if (!reiheDreht(reihe)) return []
+  return nullstellen((r) => barwert(r, reihe))
+}
+
+/**
+ * Interner Zinsfuss auf der Kalenderachse — das Gegenstück zu XINTZINSFUSS im
+ * Excel. Er kommt ohne Hochrechnung aus: gesucht wird direkt der Jahressatz,
+ * der die Summe der Barwerte auf null stellt.
+ */
+export function xirrWurzeln(reihe: number[], tage: number[]): number[] {
+  if (!reiheDreht(reihe)) return []
+  return nullstellen((r) => barwertKalender(r, reihe, tage))
+}
+
+/**
+ * Startwert der Suche, wenn mehrere Nullstellen in Frage kommen: 10 % p. a. —
+ * derselbe Vorgabewert, mit dem Excel rechnet. So fällt die ausgewiesene
+ * Lösung mit der einer Zielwertsuche zusammen. Auf der Quartalsachse
+ * entsprechend umgerechnet.
+ */
+const IRR_STARTWERT_JAHR = 0.1
+const IRR_STARTWERT_QUARTAL = 1.1 ** (1 / 4) - 1
 
 /**
  * Interner Zinsfuss je Periode — von mehreren Nullstellen die, die dem
@@ -76,14 +111,23 @@ const IRR_STARTWERT = 1.1 ** (1 / 4) - 1
  * mehr zu lesen. Dann trägt der modifizierte Zinsfuss die Aussage.
  */
 export function irrProPeriode(reihe: number[]): number | null {
-  return naechsteWurzel(irrWurzeln(reihe))
+  return naechsteWurzel(irrWurzeln(reihe), IRR_STARTWERT_QUARTAL)
 }
 
 /** Von mehreren Nullstellen die dem Startwert nächste. */
-function naechsteWurzel(wurzeln: number[]): number | null {
+function naechsteWurzel(wurzeln: number[], startwert: number): number | null {
   if (wurzeln.length === 0) return null
   return wurzeln.reduce((a, b) => (
-    Math.abs(b - IRR_STARTWERT) < Math.abs(a - IRR_STARTWERT) ? b : a))
+    Math.abs(b - startwert) < Math.abs(a - startwert) ? b : a))
+}
+
+/**
+ * Interner Zinsfuss nach XINTZINSFUSS: Jahressatz, kalendergenau über die
+ * tatsächlichen Tage. `tage` sind die Tageszahlen der Zahlungen auf derselben
+ * Achse (Reihenfolge wie `reihe`).
+ */
+export function xirr(reihe: number[], tage: number[]): number | null {
+  return naechsteWurzel(xirrWurzeln(reihe, tage), IRR_STARTWERT_JAHR)
 }
 
 /** Periodenzins auf Jahreszins hochrechnen (Quartale: vier Perioden). */
@@ -135,6 +179,11 @@ export interface ReihenKennzahlen {
   /** Alle gefundenen Nullstellen, auf ein Jahr hochgerechnet. */
   wurzelnJahr: number[]
   /**
+   * Interner Zinsfuss p. a. nach XINTZINSFUSS — kalendergenau über die
+   * tatsächlichen Tage. `null`, wenn keine Zahlungstage mitgegeben wurden.
+   */
+  xirrJahr: number | null
+  /**
    * Modifizierter interner Zinsfuss p. a. — eindeutig, auch wo der interne
    * Zinsfuss keine oder mehrere Lösungen hat. `null` ohne Finanzierungssatz.
    */
@@ -147,10 +196,16 @@ export interface ReihenKennzahlen {
  * Kennzahlen einer Zahlungsreihe in einem Durchgang.
  *
  * `satzProQuartal` ist der Satz, zu dem Fehlbeträge finanziert und Überschüsse
- * angelegt werden — daraus entsteht der modifizierte Zinsfuss. Ohne ihn bleibt
- * dieser leer.
+ * angelegt werden — daraus entsteht der modifizierte Zinsfuss. `tage` sind die
+ * Zahlungstage auf einer fortlaufenden Tagesachse; mit ihnen kommt der
+ * kalendergenaue Zinsfuss nach XINTZINSFUSS dazu. Beides ist optional, ohne
+ * bleibt die jeweilige Kennzahl leer.
  */
-export function analysiereReihe(netto: number[], satzProQuartal?: number): ReihenKennzahlen {
+export function analysiereReihe(
+  netto: number[], optionen?: { satzProQuartal?: number; tage?: number[] },
+): ReihenKennzahlen {
+  const satzProQuartal = optionen?.satzProQuartal
+  const tage = optionen?.tage
   const kumuliert: number[] = []
   let lauf = 0
   for (const v of netto) { lauf += v; kumuliert.push(lauf) }
@@ -168,7 +223,7 @@ export function analysiereReihe(netto: number[], satzProQuartal?: number): Reihe
   }
 
   const wurzeln = irrWurzeln(netto)
-  const irrQ = naechsteWurzel(wurzeln)
+  const irrQ = naechsteWurzel(wurzeln, IRR_STARTWERT_QUARTAL)
   const mirrQ = satzProQuartal == null
     ? null
     : mirrProPeriode(netto, satzProQuartal, satzProQuartal)
@@ -182,6 +237,7 @@ export function analysiereReihe(netto: number[], satzProQuartal?: number): Reihe
     irrJahr: irrQ == null ? null : aufJahr(irrQ),
     irrMehrdeutig: wurzeln.length > 1,
     wurzelnJahr: wurzeln.map((w) => aufJahr(w)),
+    xirrJahr: tage && tage.length === netto.length ? xirr(netto, tage) : null,
     mirrJahr: mirrQ == null ? null : aufJahr(mirrQ),
     summe: lauf,
   }

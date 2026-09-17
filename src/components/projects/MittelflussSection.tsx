@@ -479,6 +479,17 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     [calc, steuerJeQuartal],
   )
 
+  /*
+   * Zahlungstage der Quartale: das Quartalsende, auf einer fortlaufenden
+   * Tagesachse. Damit rechnet der Zinsfuss kalendergenau wie XINTZINSFUSS im
+   * Excel — Quartale sind unterschiedlich lang, und die Hochrechnung über
+   * (1+q)^4 trifft es nur näherungsweise.
+   */
+  const zahlungsTage = useMemo(
+    () => quartale.map((q) => Date.UTC(q.jahr, q.q * 3, 0) / 86_400_000),
+    [quartale],
+  )
+
   const irr = useMemo(() => {
     const ek = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['eigenkapital']?.[qk] ?? 0)
     const tranche = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['tranche']?.[qk] ?? 0)
@@ -491,12 +502,12 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
       ek,
       fin,
       projektReihe: projekt,
-      projekt: analysiereReihe(projekt, satzProQuartal),
-      eigenKennzahlen: analysiereReihe(fin.ekFluss, satzProQuartal),
+      projekt: analysiereReihe(projekt, { satzProQuartal, tage: zahlungsTage }),
+      eigenKennzahlen: analysiereReihe(fin.ekFluss, { satzProQuartal, tage: zahlungsTage }),
       // Spitze der Beanspruchung — die Bezugsgrösse des Eigenkapital-Zinsfusses.
       spitzeEk: fin.beanspruchtesEk.reduce((m, v) => Math.max(m, v), 0),
     }
-  }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, kostenJeQuartal])
+  }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, kostenJeQuartal, zahlungsTage])
 
   // ── Setter ───────────────────────────────────────────────────────────────────
   const setPct = (scope: string, posKey: string, qKey: string, val: number) => setDoc((d) => {
@@ -685,16 +696,17 @@ function IrrKennzahlen({
   const quartalLabel = (i: number | null) =>
     (i == null || !quartale[i] ? '—' : `${quartale[i].jahr} Q${quartale[i].q}`)
   /*
-   * In der Kachel steht der interne Zinsfuss — dieselbe Zahl, die eine
-   * Zielwertsuche über die Barwerte der Reihe findet. Nur wenn es gar keine
-   * Nullstelle gibt, tritt der modifizierte Zinsfuss an seine Stelle; er ist
-   * dann als „mod." gekennzeichnet. Bei mehreren Nullstellen steht die da, die
-   * eine Zielwertsuche mit üblichem Startwert findet; die übrigen nennt der
-   * Hinweis darunter.
+   * In der Kachel steht der interne Zinsfuss, kalendergenau gerechnet wie
+   * XINTZINSFUSS im Excel — dieselbe Zahl, die eine Zielwertsuche über die
+   * Barwerte der Reihe findet. Nur wenn es gar keine Nullstelle gibt, tritt der
+   * modifizierte Zinsfuss an seine Stelle; er ist dann als „mod."
+   * gekennzeichnet. Bei mehreren Nullstellen steht die da, die eine
+   * Zielwertsuche mit üblichem Startwert findet; die übrigen nennt der Hinweis
+   * darunter.
    */
   const zinsfuss = (k: ReihenKennzahlen, bezug: string) => (
-    k.irrJahr != null
-      ? { wert: pct(k.irrJahr), hinweis: `p. a., ${bezug}` }
+    k.xirrJahr != null || k.irrJahr != null
+      ? { wert: pct(k.xirrJahr ?? k.irrJahr), hinweis: `p. a., ${bezug}` }
       : k.mirrJahr != null
         ? { wert: pct(k.mirrJahr), hinweis: `mod. Zinsfuss p. a., ${bezug}` }
         : { wert: '—', hinweis: bezug }
@@ -702,8 +714,8 @@ function IrrKennzahlen({
   const zfProjekt = zinsfuss(projekt, 'auf dem Gesamtkapital')
   const zfEigen = zinsfuss(eigen, `auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`)
   const mehrdeutig = projekt.irrMehrdeutig || eigen.irrMehrdeutig
-  const ersetzt = (projekt.irrJahr == null && projekt.mirrJahr != null)
-    || (eigen.irrJahr == null && eigen.mirrJahr != null)
+  const ersetzt = (projekt.xirrJahr == null && projekt.irrJahr == null && projekt.mirrJahr != null)
+    || (eigen.xirrJahr == null && eigen.irrJahr == null && eigen.mirrJahr != null)
 
   return (
     <div className="space-y-2">
@@ -718,12 +730,12 @@ function IrrKennzahlen({
           hinweis="Summe der Zahlungsreihe, CHF" />
       </div>
 
-      {eigen.irrProQuartal != null && (
+      {eigen.xirrJahr != null && (
         <p className="text-xs text-slate-500">
-          Gerechnet wird auf der Quartalsachse: {pct(eigen.irrProQuartal)} je Quartal auf dem
-          Eigenkapital ergeben hochgezinst (1+q)<sup>4</sup>−1 = {pct(eigen.irrJahr)} p. a. Eine
-          Zielwertsuche über die Barwerte der Zeile „Zahlungsfluss Eigenkapital" liefert den
-          Quartalssatz — die Jahreszahl steht in der Kachel.
+          Gerechnet wie XINTZINSFUSS: jede Quartalszahlung wird über ihre tatsächlichen Tage
+          abgezinst (Zahlungstag = Quartalsende, 365 Tage je Jahr), gesucht ist der Jahressatz,
+          der die Summe der Barwerte auf null stellt. Auf der reinen Quartalsachse ergäben sich
+          {' '}{pct(eigen.irrProQuartal)} je Quartal oder {pct(eigen.irrJahr)} p. a.
         </p>
       )}
       {mehrdeutig && (
