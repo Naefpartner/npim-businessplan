@@ -131,8 +131,6 @@ export function useMittelflussDaten(
       quartale,
       phasen: resolvePhasen(doc.phasen),
       fremdZinssatz: doc.fremdZinssatz,
-      verkaufModell: doc.verkauf.modell,
-      aufHauptgruppen,
       nettoAK: calc.totNetto,
       mwst: calc.totMwst,
       ggst,

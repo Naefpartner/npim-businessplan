@@ -2,7 +2,7 @@
 // Datenbeschaffung. Getrennt, damit sich das Kapitel mit Probezahlen rendern
 // und nachmessen lässt, ohne Datenbank und ohne React.
 
-import { monatAdd, type MfPhase, type MfQuartal, type MfVerkauf } from '@/lib/mittelfluss'
+import { monatAdd, type MfPhase, type MfQuartal } from '@/lib/mittelfluss'
 import type { FinanzierungsReihe, ReihenKennzahlen } from '@/lib/irr'
 import { formatNumber } from '@/lib/utils'
 import { BERICHT_FARBE } from '@/lib/bericht'
@@ -43,13 +43,6 @@ function pct(v: number | null, stellen = 1): string {
   return `${v < 0 ? '−' : ''}${z} %`
 }
 
-const VERKAUF_TEXT: Record<MfVerkauf['modell'], string> = {
-  uebergabe: 'vollständig bei Übergabe',
-  baufortschritt: 'nach Baufortschritt',
-  frei: 'frei erfasst je Quartal',
-  objekte: 'je Verkaufseinheit erfasst',
-}
-
 /**
  * Die fertig gerechneten Reihen des Kapitels. Sie trennen die Beschaffung der
  * Daten vom Satz der Tabellen — so lässt sich das Kapitel auch mit Probezahlen
@@ -60,8 +53,6 @@ export interface MfKapitelZahlen {
   /** Terminplan, Verkettungen aufgelöst. */
   phasen: MfPhase[]
   fremdZinssatz: number
-  verkaufModell: MfVerkauf['modell']
-  aufHauptgruppen: boolean
   /** Anlagekosten netto je Quartal, Bauzinsen eingeschlossen. */
   nettoAK: number[]
   mwst: number[]
@@ -195,18 +186,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         jahrZeile('Zahlungsfluss Eigenkapital', z.fin.ekFluss, 'summe', true),
       ],
     }],
-    hinweis: 'Zahlungen sind je Jahr summiert, Stände am Jahresende abgelesen; die '
-      + 'Spalte rechts führt deshalb bei Zahlungen die Summe über die ganze '
-      + 'Betrachtung und bei Ständen den Wert an deren Ende. Gerechnet wird auf '
-      + 'Quartalen. Der Saldo ist der aufgelaufene Überschuss der Verkaufserlöse '
-      + 'über die Anlagekosten; das beanspruchte Eigenkapital ist der Saldo '
-      + 'abzüglich des aufgenommenen Fremdkapitals, der Zahlungsfluss Eigenkapital '
-      + 'dessen Veränderung — wächst die Beanspruchung, fliesst Geld ab. Die Kosten '
-      + 'stammen aus der Anlagekostenberechnung der gewählten Methode'
-      + (z.aufHauptgruppen ? ' und sind auf BKP-Hauptgruppen verteilt' : '')
-      + `, die Verkaufserlöse aus den Mengen und Erträgen (${VERKAUF_TEXT[z.verkaufModell]}), `
-      + 'die Gewinnsteuern aus dem Kapitel Kapital und Steuern; die Planerhonorare '
-      + 'folgen den SIA-Phasen des Terminplans.',
   })
 
   // ── Kennzahlen ────────────────────────────────────────────────────────────
@@ -265,11 +244,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         },
       ],
     }],
-    hinweis: 'Der interne Zinsfuss ist der Jahressatz, der die Summe der Barwerte auf '
-      + 'null stellt — gerechnet über die tatsächlichen Tage, 365 Tage je Jahr, wie '
-      + 'XINTZINSFUSS. Wechselt die Zahlungsreihe mehrfach das Vorzeichen, ist er '
-      + 'nicht eindeutig; dann trägt der modifizierte Zinsfuss die Aussage, der '
-      + 'Fehlbeträge und Überschüsse zum Finanzierungssatz verzinst.',
   })
 
   return {
