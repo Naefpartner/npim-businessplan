@@ -68,7 +68,8 @@ export const BERICHT_KAPITEL: BerichtKapitel[] = [
   // Schlüssel bleibt 'benchmarks': gespeicherte Vorlagen führen ihn.
   { key: 'benchmarks',        label: 'Kennwerte',                 beschrieb: 'Flächen- und Volumenkennwerte, Kostenkennwerte' },
   { key: 'wirtschaftlichkeit', label: 'Wirtschaftlichkeit',       beschrieb: 'Kostenmiete, Rendite, Verkaufsgewinn' },
-  { key: 'mittelfluss',       label: 'Mittelflussrechnung',       beschrieb: 'Terminplan und Quartalsverteilung', format: 'a3' },
+  { key: 'kapitalsteuern',    label: 'Kapital und Steuern',       beschrieb: 'Investoren, Gesellschaften, Gewinn und Steuern' },
+  { key: 'mittelfluss',       label: 'Mittelflussrechnung',       beschrieb: 'Zahlungsreihe je Quartal, Finanzierung und Zinsfuss', format: 'a3' },
   { key: 'honorare',          label: 'Honorarrechner',            beschrieb: 'Planerhonorare nach SIA' },
   { key: 'variantenvergleich', label: 'Variantenvergleich',       beschrieb: 'Gegenüberstellung aller Varianten', format: 'a4-quer' },
 ]

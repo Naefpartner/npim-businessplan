@@ -5,12 +5,13 @@ import { useUndoableState } from '@/contexts/UndoContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useMittelfluss } from '@/hooks/useMittelfluss'
 import { useKapitalSteuern } from '@/hooks/useKapitalSteuern'
-import { kapitalSteuernErgebnis, positionsBetraegeAus } from '@/lib/kapitalSteuern'
+import {
+  gewinnsteuern, mittelflussCalc, mittelflussZeilen, objektErloesReihen,
+  type MfDispRow, type MfRow, type QCell,
+} from '@/lib/mittelflussRechnung'
 import { useHonorar } from '@/hooks/useHonorar'
-import { posSortKey } from '@/hooks/useAnlagekosten'
 import { berechneHonorare, type HonorarInput } from '@/lib/honorar'
 import { EIGENTUMSART_LABEL, eigentumsartForBuilding, type Eigentumsart } from '@/types'
-import { HAUPTGRUPPEN, type BkpPosition } from '@/lib/bkpKatalog'
 import type { BkpErgebnis } from '@/lib/bkpBerechnung'
 import { formatNumber } from '@/lib/utils'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
@@ -54,29 +55,8 @@ function segBackground(monthColors: (string | undefined)[] | undefined, alpha: s
   return `linear-gradient(90deg, ${stops.join(', ')})`
 }
 
-interface MfRow {
-  key: string
-  label: string
-  hauptgruppe: number
-  netto: number
-  mwst: number
-  brutto: number
-  kind: 'normal' | 'honorar' | 'finanzierung'
-  rate?: number
-  share?: number
-}
-interface QCell { pct: number; netto: number; mwst: number; brutto: number }
 interface QGeo { monthStart: number; months: number }
 
-// Anzeige-Zeile: Basis-Zeile + Verteilungs-Scope, Einrückung, Kopf/Editier-Flag.
-interface MfDispRow extends MfRow {
-  scope: string      // Verteilungs-Scope `${etappe}|${eig}`
-  posKey: string     // Verteilungs-Positionsschlüssel
-  indent: number     // 0 = Position/Gesamt, 1 = Etappen-Unterzeile
-  isHeader: boolean  // Kopfzeile im Etappen-Modus (read-only, Summe der Kinder)
-  editable: boolean  // hat %-Eingabefelder
-  groupId?: string   // verbindet Kopfzeile mit ihren Etappen-Kindern
-}
 
 export function MittelflussSection({ projectId, variantId, defaultExpanded = false }: {
   projectId: string
@@ -145,124 +125,50 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
   const fremdScope = `fremd|${eigSel}`
 
   const rows = useMemo<MfDispRow[]>(() => {
-    const posMeta = new Map<string, BkpPosition>()
-    for (const eig of eigsInScope) for (const p of (ak.positionsByEig.get(eig) ?? [])) if (!posMeta.has(p.code)) posMeta.set(p.code, p)
-    const istFinanz = (code: string) => eigsInScope.some((eig) => ak.typForByEig.get(eig)?.(code)?.kind === 'finanzierung')
-    const sumBis41 = honGewichte.filter((g) => g.group === 'bis41').reduce((s, g) => s + g.weight, 0)
-    const sumAb51 = honGewichte.filter((g) => g.group === 'ab51').reduce((s, g) => s + g.weight, 0)
-    const bkp2Label = `2 · ${HAUPTGRUPPEN.find((h) => h.code === 2)?.label ?? 'Gebäude'} (BKP 2 gesamt)`
-
-    /**
-     * Basiszeilen für einen Kosten-Scope.
-     *
-     * Welche Zeilen es gibt, hängt an der Erfassungsmethode: der Detailkatalog
-     * liefert einzelne Positionen, Benchmark und keeValue rechnen dagegen auf
-     * Hauptgruppen — dort führen ihre Ergebnisse nur Land und Reserve als
-     * Position, und die Tabelle bliebe fast leer. In diesem Fall sind die
-     * Hauptgruppen selbst die Zeilen.
-     */
     // Benchmark und keeValue kennen keine Positionen; sonst entscheidet die
     // gewählte Ebene.
     const aufHauptgruppen = ak.benchmarkAktiv || ak.keeValueAktiv
       || doc.verteilEbene === 'hauptgruppe'
-    const buildBase = (ergFor: (eig: Eigentumsart) => BkpErgebnis | undefined): MfRow[] => {
-      if (aufHauptgruppen) {
-        const netto = Array<number>(10).fill(0)
-        const mwst = Array<number>(10).fill(0)
-        for (const eig of eigsInScope) {
-          const erg = ergFor(eig)
-          if (!erg) continue
-          for (let c = 0; c <= 9; c++) {
-            const k = c as keyof BkpErgebnis['hauptgruppenSummenNetto']
-            netto[c] += erg.hauptgruppenSummenNetto[k] ?? 0
-            mwst[c] += erg.hauptgruppenSummenMwst[k] ?? 0
-          }
-          /*
-           * Die Finanzierungspositionen stecken in ihrer Hauptgruppe (940/950/960
-           * in den Eigentümerkosten) — hier gehören sie heraus: die Zeile trägt
-           * „exkl. Finanzierung", und der Zinsaufwand steht unten für sich, auf
-           * dem Kapitalbedarf, den diese Kosten erst ergeben.
-           */
-          for (const [code, p] of Object.entries(erg.positionen)) {
-            if (ak.typForByEig.get(eig)?.(code)?.kind !== 'finanzierung') continue
-            const hg = posMeta.get(code)?.hauptgruppe ?? (Number(code[0]) || 9)
-            netto[hg] -= p.betragNetto ?? 0
-            mwst[hg] -= p.mwstBetrag ?? 0
-          }
-        }
-        return HAUPTGRUPPEN
-          .filter((h) => Math.abs(netto[h.code] + mwst[h.code]) >= 0.5)
-          .map((h) => ({
-            key: `hg${h.code}`,
-            label: `${h.code} · ${h.label}`,
-            hauptgruppe: h.code,
-            netto: netto[h.code],
-            mwst: mwst[h.code],
-            brutto: netto[h.code] + mwst[h.code],
-            kind: 'normal' as const,
-          }))
-      }
-      const acc = new Map<string, { netto: number; mwst: number; brutto: number; kennwert: number | null; kennwert2: number | null }>()
-      for (const eig of eigsInScope) {
-        const erg = ergFor(eig)
-        if (!erg) continue
-        for (const code of Object.keys(erg.positionen)) {
-          const p = erg.positionen[code]
-          const cur = acc.get(code) ?? { netto: 0, mwst: 0, brutto: 0, kennwert: null, kennwert2: null }
-          cur.netto += p.betragNetto ?? 0
-          cur.mwst += p.mwstBetrag ?? 0
-          cur.brutto += p.betragBrutto ?? 0
-          if (cur.kennwert == null) cur.kennwert = p.kennwert
-          if (cur.kennwert2 == null) cur.kennwert2 = p.kennwert2 ?? null
-          acc.set(code, cur)
-        }
-      }
-      const codes = [...acc.keys()].sort((a, b) => {
-        const pa = posMeta.get(a), pb = posMeta.get(b)
-        return (pa?.hauptgruppe ?? 9) - (pb?.hauptgruppe ?? 9) || posSortKey(pa ?? ({} as BkpPosition)) - posSortKey(pb ?? ({} as BkpPosition))
-      })
-      const bkp2 = { netto: 0, mwst: 0, brutto: 0 }
-      for (const code of codes) if (posMeta.get(code)?.hauptgruppe === 2) { const a = acc.get(code)!; bkp2.netto += a.netto; bkp2.mwst += a.mwst; bkp2.brutto += a.brutto }
-      let bkp2Pushed = false
-      const out: MfRow[] = []
-      for (const code of codes) {
-        const a = acc.get(code)!
-        const meta = posMeta.get(code)
-        const hg = meta?.hauptgruppe ?? 9
-        if (hg === 2) {
-          if (!bkp2Pushed) { if (Math.abs(bkp2.brutto) >= 0.5) out.push({ key: 'hg2', label: bkp2Label, hauptgruppe: 2, netto: bkp2.netto, mwst: bkp2.mwst, brutto: bkp2.brutto, kind: 'normal' }); bkp2Pushed = true }
-          continue
-        }
-        const disp = meta?.displayCode ?? meta?.code ?? code
-        if (Math.abs(a.brutto) < 0.5 && !(code === '690a' || code === '690b')) continue
-        if (istFinanz(code)) { out.push({ key: code, label: `${disp} · ${meta?.label ?? ''}`, hauptgruppe: hg, netto: a.netto, mwst: a.mwst, brutto: a.brutto, kind: 'finanzierung', rate: a.kennwert ?? 0, share: a.kennwert2 ?? 0.5 }); continue }
-        if (code === '690a' && sumBis41 > 0 && Math.abs(a.brutto) >= 0.5) { for (const g of honGewichte) if (g.group === 'bis41') { const f = g.weight / sumBis41; out.push({ key: `hon:${g.gruppe}`, label: `690a · Phase ${g.gruppe} ${g.label}`, hauptgruppe: hg, netto: a.netto * f, mwst: a.mwst * f, brutto: a.brutto * f, kind: 'honorar' }) } continue }
-        if (code === '690b' && sumAb51 > 0 && Math.abs(a.brutto) >= 0.5) { for (const g of honGewichte) if (g.group === 'ab51') { const f = g.weight / sumAb51; out.push({ key: `hon:${g.gruppe}`, label: `690b · Phase ${g.gruppe} ${g.label}`, hauptgruppe: hg, netto: a.netto * f, mwst: a.mwst * f, brutto: a.brutto * f, kind: 'honorar' }) } continue }
-        out.push({ key: code, label: `${disp} · ${meta?.label ?? ''}`, hauptgruppe: hg, netto: a.netto, mwst: a.mwst, brutto: a.brutto, kind: 'normal' })
-      }
-      return out
-    }
+    const zeilen = (ergFor: (eig: Eigentumsart) => BkpErgebnis | undefined) => mittelflussZeilen({
+      eigs: eigsInScope,
+      positionsByEig: ak.positionsByEig,
+      typForByEig: ak.typForByEig,
+      ergFor,
+      honGewichte: honGewichte,
+      aufHauptgruppen,
+    })
 
-    const konsRows = buildBase((eig) => ak.konsolidiertEffektiv.get(eig))
+    const konsRows = zeilen((eig) => ak.konsolidiertEffektiv.get(eig))
     const konsScope = `kons|${eigSel}`
 
     if (verteilModus === 'gesamt') {
-      return konsRows.map((r) => ({ ...r, scope: konsScope, posKey: r.key, indent: 0, isHeader: false, editable: r.kind !== 'finanzierung' }))
+      return konsRows.map((r) => ({
+        ...r, scope: konsScope, posKey: r.key, indent: 0, isHeader: false,
+        editable: r.kind !== 'finanzierung',
+      }))
     }
 
     // Etappen-Modus: je Position eine Kopfzeile + je Etappe eine editierbare Unterzeile.
     const etAmt = new Map<string, Map<string, MfRow>>()
     for (const et of etappen) {
-      const rws = buildBase((eig) => ak.blockErgebnisseEffektiv.get(`${et.id}::${eig}`))
+      const rws = zeilen((eig) => ak.blockErgebnisseEffektiv.get(`${et.id}::${eig}`))
       etAmt.set(et.id, new Map(rws.map((r) => [r.key, r])))
     }
     const disp: MfDispRow[] = []
     for (const r of konsRows) {
-      if (r.kind === 'finanzierung') { disp.push({ ...r, scope: konsScope, posKey: r.key, indent: 0, isHeader: false, editable: false }); continue }
+      if (r.kind === 'finanzierung') {
+        disp.push({ ...r, scope: konsScope, posKey: r.key, indent: 0, isHeader: false, editable: false })
+        continue
+      }
       disp.push({ ...r, scope: konsScope, posKey: r.key, indent: 0, isHeader: true, editable: false, groupId: r.key })
       for (const et of etappen) {
         const er = etAmt.get(et.id)?.get(r.key)
-        disp.push({ key: `${r.key}@@${et.id}`, label: et.name, hauptgruppe: r.hauptgruppe, netto: er?.netto ?? 0, mwst: er?.mwst ?? 0, brutto: er?.brutto ?? 0, kind: r.kind, scope: `${et.id}|${eigSel}`, posKey: r.key, indent: 1, isHeader: false, editable: true, groupId: r.key })
+        disp.push({
+          key: `${r.key}@@${et.id}`, label: et.name, hauptgruppe: r.hauptgruppe,
+          netto: er?.netto ?? 0, mwst: er?.mwst ?? 0, brutto: er?.brutto ?? 0, kind: r.kind,
+          scope: `${et.id}|${eigSel}`, posKey: r.key, indent: 1, isHeader: false,
+          editable: true, groupId: r.key,
+        })
       }
     }
     return disp
@@ -311,49 +217,10 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
   }, [quartale, quartalGeo, resolvedPhasen, doc.startMonat])
 
   // ── Berechnung je Quartal ────────────────────────────────────────────────────
-  const calc = useMemo(() => {
-    const vert = doc.verteilung
-    const qKeys = quartale.map((q) => q.key)
-    const cells: Record<string, QCell[]> = {}
-    const cumBase = new Array(qKeys.length).fill(0)
-    // Editierbare Zeilen (Gesamt-Positionen bzw. Etappen-Unterzeilen) aus ihrem Scope.
-    for (const r of rows) {
-      if (!r.editable) continue
-      const rc = qKeys.map((qk) => {
-        const pct = vert[r.scope]?.[r.posKey]?.[qk] ?? 0
-        return { pct, netto: (pct / 100) * r.netto, mwst: (pct / 100) * r.mwst, brutto: (pct / 100) * r.brutto }
-      })
-      cells[r.key] = rc
-      rc.forEach((c, i) => { cumBase[i] += c.brutto })
-    }
-    const cum: number[] = []
-    let run = 0
-    for (let i = 0; i < qKeys.length; i++) { run += cumBase[i]; cum.push(run) }
-    // Finanzierung: abgeleitet aus dem kumulierten Bedarf.
-    for (const r of rows) if (r.kind === 'finanzierung') {
-      cells[r.key] = qKeys.map((_, i) => {
-        const zins = cum[i] * (r.rate ?? 0) * (r.share ?? 0.5) / 4
-        return { pct: 0, netto: zins, mwst: 0, brutto: zins }
-      })
-    }
-    // Kopfzeilen (Etappen-Modus): Summe ihrer Etappen-Kinder.
-    for (const r of rows) if (r.isHeader) {
-      const kids = rows.filter((x) => x.editable && x.groupId === r.groupId)
-      cells[r.key] = qKeys.map((_, i) => {
-        let n = 0, m = 0, b = 0
-        for (const k of kids) { const c = cells[k.key]?.[i]; if (c) { n += c.netto; m += c.mwst; b += c.brutto } }
-        return { pct: 0, netto: n, mwst: m, brutto: b }
-      })
-    }
-    // Summen: editierbare Zeilen + Finanzierung (Kopfzeilen NICHT, sonst doppelt).
-    const contrib = (r: MfDispRow) => r.editable || r.kind === 'finanzierung'
-    const totNetto = qKeys.map((_, i) => rows.reduce((s, r) => s + (contrib(r) ? (cells[r.key]?.[i]?.netto ?? 0) : 0), 0))
-    // Anlagekosten netto OHNE Finanzierung (Zinsen fliessen nur ins Brutto-Total).
-    const totNettoAK = qKeys.map((_, i) => rows.reduce((s, r) => s + (r.editable ? (cells[r.key]?.[i]?.netto ?? 0) : 0), 0))
-    const totMwst = qKeys.map((_, i) => rows.reduce((s, r) => s + (contrib(r) ? (cells[r.key]?.[i]?.mwst ?? 0) : 0), 0))
-    const totBrutto = totNetto.map((n, i) => n + totMwst[i])
-    return { qKeys, cells, totNetto, totNettoAK, totMwst, totBrutto }
-  }, [rows, doc.verteilung, quartale])
+  const calc = useMemo(
+    () => mittelflussCalc(rows, doc.verteilung, quartale.map((q) => q.key)),
+    [rows, doc.verteilung, quartale],
+  )
 
   // ── Verkaufserlöse je Quartal ────────────────────────────────────────────────
   // Nur Verkaufsobjekte bringen Einnahmen während der Projektdauer; Rendite-
@@ -392,32 +259,12 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
       }))
   }, [ak.buildings, ak.etappen, erloesTotal])
 
-  /*
-   * Je Wohnung zwei Zeilen: der Landanteil und der Werkanteil. Der
-   * Verkaufserlös des Grundstücks verteilt sich im Verhältnis der
-   * Verkaufspreise auf die Einheiten; was übrig bleibt, ist der Werkanteil.
-   * Beide Teile fliessen zu verschiedenen Zeiten — Land beim Abschluss, Werk
-   * nach Baufortschritt —, deshalb je eine eigene Zeile.
-   */
-  const objektReihen = useMemo(() => {
-    // Land tragen nur Einheiten mit Verkaufsfläche — ein Parkplatz oder ein
-    // Kellerabteil hat keinen Landanteil, sein Preis ist ganz Werk.
-    const mitFlaeche = verkaufsObjekte.filter((o) => o.vkf > 0)
-    const summe = mitFlaeche.reduce((s, o) => s + o.betrag, 0)
-    const reihe = (id: string, label: string, betrag: number) => {
-      const pct = quartale.map((q) => doc.verteilung[erloesScope]?.[`obj:${id}`]?.[q.key] ?? 0)
-      return { id, label, betrag, pct, betraege: pct.map((p) => (p / 100) * betrag) }
-    }
-    return verkaufsObjekte.flatMap((o) => {
-      const land = o.vkf > 0 && summe > 0 ? landerloes * (o.betrag / summe) : 0
-      // Ohne Landanteil bleibt es bei einer Zeile — eine Nullzeile sagte nichts.
-      if (land <= 0) return [reihe(`${o.id}:werk`, o.label, o.betrag)]
-      return [
-        reihe(`${o.id}:land`, `${o.label} · Landanteil`, land),
-        reihe(`${o.id}:werk`, `${o.label} · Werkanteil`, o.betrag - land),
-      ]
-    })
-  }, [verkaufsObjekte, quartale, doc.verteilung, erloesScope, landerloes])
+  const objektReihen = useMemo(
+    () => objektErloesReihen(
+      verkaufsObjekte, quartale.map((q) => q.key),
+      doc.verteilung[erloesScope], landerloes),
+    [verkaufsObjekte, quartale, doc.verteilung, erloesScope, landerloes],
+  )
 
   const erloese = useMemo(() => {
     if (doc.verkauf.modell === 'objekte') {
@@ -432,15 +279,12 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
    * verteilt — sie fallen meist erst nach dem Verkauf an.
    */
   const steuerScope = `steuer|${eigSel}`
-  const steuern = useMemo(() => {
-    if (!ksDoc) return { grundstueckgewinn: 0, gewinnTu: 0 }
-    const erg = ak.konsolidiertEffektiv.get('verkaufsobjekt')
-    const betraege = positionsBetraegeAus(erg, ak.benchmarkAktiv || ak.keeValueAktiv)
-    const p010 = erg?.positionen['010']
-    const landpreis = (p010?.betragNetto ?? 0) + (p010?.mwstBetrag ?? 0)
-    const r = kapitalSteuernErgebnis(ksDoc, betraege, landpreis, erloesTotal)
-    return { grundstueckgewinn: r.lp.steuern, gewinnTu: r.tu.steuern }
-  }, [ksDoc, ak.konsolidiertEffektiv, ak.benchmarkAktiv, ak.keeValueAktiv, erloesTotal])
+  const steuern = useMemo(
+    () => gewinnsteuern(
+      ksDoc, ak.konsolidiertEffektiv.get('verkaufsobjekt'),
+      ak.benchmarkAktiv || ak.keeValueAktiv, erloesTotal),
+    [ksDoc, ak.konsolidiertEffektiv, ak.benchmarkAktiv, ak.keeValueAktiv, erloesTotal],
+  )
 
   const steuerReihen = useMemo(() => {
     const reihe = (key: string, label: string, betrag: number) => {

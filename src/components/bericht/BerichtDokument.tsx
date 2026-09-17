@@ -50,6 +50,13 @@ export interface BerichtDaten {
    */
   limiten?: BereichsKapitelDaten
   /**
+   * Inhalt des Kapitels „Kapital und Steuern"; fehlt, wo keine Verkaufsobjekte
+   * erfasst sind — die beiden Gesellschaften gibt es nur dort.
+   */
+  kapitalSteuern?: BereichsKapitelDaten
+  /** Inhalt des Kapitels „Mittelflussrechnung"; fehlt ohne erfasste Kosten. */
+  mittelfluss?: BereichsKapitelDaten
+  /**
    * Bausteine, vor denen von Hand eine neue Seite beginnt. Die Rechnung füllt
    * die Seiten so weit wie möglich; wo das fachlich Zusammengehörendes trennt,
    * entscheidet die Wahl hier. Schlüssel siehe berichtUmbruchPunkte().
@@ -1493,6 +1500,16 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     const l = daten.limiten
     return l ? bereichsSeiten(l, key, umbruchSet(daten)).length : 1
   }
+  if (key === 'kapitalsteuern') {
+    const k = daten.kapitalSteuern
+    return k ? bereichsSeiten(k, key, umbruchSet(daten)).length : 1
+  }
+  if (key === 'mittelfluss') {
+    const m = daten.mittelfluss
+    return m
+      ? bereichsSeiten(m, key, umbruchSet(daten), BEREICHS_FORMAT_BREIT).length
+      : 1
+  }
   if (key === 'mengengeruest') {
     const sichten = daten.mengen?.sichten ?? []
     if (sichten.length === 0) return 1
@@ -1604,6 +1621,14 @@ export function berichtUmbruchPunkte(daten: BerichtDaten): UmbruchEintrag[] {
     if (e.kapitel.key === 'anlagekostenlimiten' && daten.limiten) {
       sammle(e.kapitel.label, e.seite,
         bereichsSeiten(daten.limiten, e.kapitel.key, gesetzt))
+    }
+    if (e.kapitel.key === 'kapitalsteuern' && daten.kapitalSteuern) {
+      sammle(e.kapitel.label, e.seite,
+        bereichsSeiten(daten.kapitalSteuern, e.kapitel.key, gesetzt))
+    }
+    if (e.kapitel.key === 'mittelfluss' && daten.mittelfluss) {
+      sammle(e.kapitel.label, e.seite,
+        bereichsSeiten(daten.mittelfluss, e.kapitel.key, gesetzt, BEREICHS_FORMAT_BREIT))
     }
     if (e.kapitel.key === 'mengengeruest' && daten.mengen) {
       let nr = e.seite
@@ -3548,6 +3573,12 @@ function KennwertKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite) {
  */
 const BEREICHS_FORMAT: SeitenFormat = 'a4'
 
+/**
+ * Die Mittelflussrechnung steht auf A3 hoch: ihre Zahlungsreihe führt elf
+ * Spalten, und Millionenbeträge brauchen Platz. Sonst ist der Bau derselbe.
+ */
+const BEREICHS_FORMAT_BREIT: SeitenFormat = 'a3'
+
 type BereichsElement = Umbruchpunkt & (
   /** Obertitel einer Sicht — nur, wenn mehr als eine gedruckt wird. */
   | { art: 'sicht'; titel: string }
@@ -3629,9 +3660,10 @@ function bereichsElemente(w: BereichsKapitelDaten, kapitelKey: string): Bereichs
  */
 function bereichsSeiten(
   w: BereichsKapitelDaten, kapitelKey: string, gesetzt: ReadonlySet<string>,
+  format: SeitenFormat = BEREICHS_FORMAT,
 ): BereichsElement[][] {
-  const hoeheJeSeite = seitenHoehe(BEREICHS_FORMAT)
-  const breite = satzBreite(BEREICHS_FORMAT)
+  const hoeheJeSeite = seitenHoehe(format)
+  const breite = satzBreite(format)
 
   const seiten: BereichsElement[][] = []
   let laufend: BereichsElement[] = []
@@ -3726,12 +3758,15 @@ function BereichsBausteine({ elemente }: { elemente: BereichsElement[] }) {
 /** Ein Kapitel aus Bereichen und Tabellen, Seite für Seite gesetzt. */
 function BereichsKapitel({
   daten, seite, seitenTotal, nummer, kapitelKey, titel, inhalt, leerText,
+  format = BEREICHS_FORMAT,
 }: Kapitelseite & {
   kapitelKey: string
   titel: string
   inhalt: BereichsKapitelDaten | undefined
   /** Satz, wenn es nichts zu drucken gibt. */
   leerText: string
+  /** Seitenformat des Kapitels; ohne Angabe A4 hoch. */
+  format?: SeitenFormat
 }) {
   if (!inhalt) {
     return (
@@ -3743,8 +3778,8 @@ function BereichsKapitel({
   }
   return (
     <>
-      {bereichsSeiten(inhalt, kapitelKey, umbruchSet(daten)).map((elemente, n) => (
-        <InhaltsSeite key={n} format={BEREICHS_FORMAT} daten={daten}
+      {bereichsSeiten(inhalt, kapitelKey, umbruchSet(daten), format).map((elemente, n) => (
+        <InhaltsSeite key={n} format={format} daten={daten}
           seite={seite + n} seitenTotal={seitenTotal}>
           {n === 0 && <KapitelTitel nummer={nummer} text={titel} />}
           <BereichsBausteine elemente={elemente} />
@@ -3822,6 +3857,29 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
             + 'in dieser Variante ist keine Genossenschaft erfasst.'}
         />
       )
+    case 'kapitalsteuern':
+      return (
+        <BereichsKapitel
+          {...rest}
+          kapitelKey="kapitalsteuern"
+          titel="Kapital und Steuern"
+          inhalt={rest.daten.kapitalSteuern}
+          leerText={'Kapital und Steuern der beiden Gesellschaften gibt es nur bei '
+            + 'Verkaufsobjekten; in dieser Variante sind keine erfasst.'}
+        />
+      )
+    case 'mittelfluss':
+      return (
+        <BereichsKapitel
+          {...rest}
+          kapitelKey="mittelfluss"
+          titel="Mittelflussrechnung"
+          inhalt={rest.daten.mittelfluss}
+          leerText={'Für die Mittelflussrechnung braucht es erfasste Kosten und einen '
+            + 'Terminplan in der Variante.'}
+          format={BEREICHS_FORMAT_BREIT}
+        />
+      )
     default:                  return <KapitelPlatzhalter kapitel={kapitel} {...rest} />
   }
 }
@@ -3831,7 +3889,8 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
  *
  * Titelblatt und Inhaltsverzeichnis stehen; von den Fachkapiteln sind
  * Projektübersicht, Nutzungsberechnung, Mengen, Wohnungsmix, Anlagekosten,
- * Kennwerte, Anlagekostenlimiten und Wirtschaftlichkeit ausgebaut. Die
+ * Kennwerte, Anlagekostenlimiten, Wirtschaftlichkeit, Kapital und Steuern sowie
+ * die Mittelflussrechnung ausgebaut. Die
  * übrigen erscheinen als
  * Platzhalter — so bleibt die Gliederung vollständig und man sieht, was noch
  * fehlt.
