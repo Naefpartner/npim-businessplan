@@ -153,7 +153,10 @@ export function useAnlagekosten(
     const m = new Map<Eigentumsart, BkpPosition[]>()
     for (const eig of presentEig) {
       const list = [
-        ...BKP_POSITIONEN,
+        // Positionen, die nur für bestimmte Eigentumsarten gelten (etwa die
+        // Verkaufs- und Beurkundungskosten des Stockwerkeigentums), erscheinen
+        // auch nur dort.
+        ...BKP_POSITIONEN.filter((p) => !p.nurFuer || p.nurFuer.includes(eig)),
         ...bkp2GeneratedPositions(bkp2Aggregat, eig),
         ...customToPositions(custom.rows, eig),
       ]

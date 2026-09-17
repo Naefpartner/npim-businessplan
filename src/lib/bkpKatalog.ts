@@ -2,7 +2,7 @@
 // Hauptgruppe 2 ist in den variant_buildings als BKP-2-Kennwerte separat
 // erfasst (siehe bkp2.ts); hier sind die übrigen Hauptgruppen 0, 1, 3-9.
 
-import type { BaseRef, CalcMethod } from '@/types'
+import type { BaseRef, CalcMethod, Eigentumsart } from '@/types'
 
 export type BkpHauptgruppe = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
@@ -92,6 +92,12 @@ export interface BkpPosition {
   mwst: boolean
   /** Optionale Zusatz-Notiz, in der UI als Tooltip / Subtext */
   hinweis?: string
+  /**
+   * Eigentumsarten, für die die Position gilt. Ohne Angabe für alle — mit
+   * Angabe erscheint sie nur dort, etwa die Verkaufs- und Beurkundungskosten,
+   * die nur beim Stockwerkeigentum anfallen.
+   */
+  nurFuer?: Eigentumsart[]
 }
 
 export const BKP_POSITIONEN: BkpPosition[] = [
@@ -101,6 +107,9 @@ export const BKP_POSITIONEN: BkpPosition[] = [
   { code: '020', hauptgruppe: 0, label: 'Vorstudien Grundstückserwerb',
     typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
     defaultMode: 'pauschal', mwst: true },
+  { code: '021', hauptgruppe: 0, label: 'Treuhänder, Anwaltskosten (Darlehensverträge etc.)',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: true, nurFuer: ['verkaufsobjekt'] },
   { code: '030', hauptgruppe: 0, label: 'Vermessung, Vermarchung',
     typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
     defaultMode: 'pauschal', mwst: true },
@@ -113,9 +122,46 @@ export const BKP_POSITIONEN: BkpPosition[] = [
   { code: '060', hauptgruppe: 0, label: 'Sicherungskosten, Handänderung, Grundbuch, Notar',
     typ: { kind: 'promille_von_refs', refs: [{ kind: 'position', ref: '010' }] }, defaultStatus: 'beruecksichtigt', mwst: false,
     hinweis: 'Kennwert = ‰ der Grundstückskosten (Pos. 010). Alternativ als Pauschale erfassbar.' },
+  // Beurkundung und Grundbuch, getrennt nach Ankauf und Verkauf — beim
+  // Stockwerkeigentum fallen sie zweimal an und werden einzeln erfasst.
+  { code: '061', hauptgruppe: 0, label: 'Notariatsgebühren Kaufvertrag Ankauf',
+    typ: { kind: 'promille_von_refs', refs: [{ kind: 'position', ref: '010' }] },
+    defaultStatus: 'beruecksichtigt', mwst: true, nurFuer: ['verkaufsobjekt'],
+    hinweis: 'Kennwert = ‰ der Grundstückskosten (Pos. 010).' },
+  { code: '062', hauptgruppe: 0, label: 'Grundbuchgebühren Kaufvertrag Ankauf',
+    typ: { kind: 'promille_von_refs', refs: [{ kind: 'position', ref: '010' }] },
+    defaultStatus: 'beruecksichtigt', mwst: false, nurFuer: ['verkaufsobjekt'],
+    hinweis: 'Kennwert = ‰ der Grundstückskosten (Pos. 010).' },
+  { code: '063', hauptgruppe: 0, label: 'Notariatsgebühren Schuldbrieferrichtung Ankauf',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: true, nurFuer: ['verkaufsobjekt'] },
+  { code: '064', hauptgruppe: 0, label: 'Grundbuchgebühren Schuldbrieferrichtung Ankauf',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: false, nurFuer: ['verkaufsobjekt'] },
+  { code: '065', hauptgruppe: 0, label: 'Notariatsgebühren Kaufvertrag STWEG, Verkauf',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: true, nurFuer: ['verkaufsobjekt'] },
+  { code: '066', hauptgruppe: 0, label: 'Grundbuchgebühren Kaufvertrag STWEG, Verkauf',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: false, nurFuer: ['verkaufsobjekt'] },
+  { code: '067', hauptgruppe: 0, label: 'Feststellungsbeschluss Bezirksrat (BewG)',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: false, nurFuer: ['verkaufsobjekt'] },
   { code: '070', hauptgruppe: 0, label: 'Vermittlungsprovisionen',
     typ: { kind: 'prozent_von_refs', refs: [{ kind: 'position', ref: '010' }] }, defaultStatus: 'beruecksichtigt', mwst: true,
     hinweis: 'Kennwert = % der Grundstückskosten (Pos. 010). Alternativ als Pauschale erfassbar.' },
+  { code: '071', hauptgruppe: 0, label: 'Leistungen Eigentümervertretung Ankauf',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: true, nurFuer: ['verkaufsobjekt'] },
+  { code: '072', hauptgruppe: 0, label: 'Leistungen Eigentümervertretung MBS',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: true, nurFuer: ['verkaufsobjekt'] },
+  { code: '073', hauptgruppe: 0, label: 'Vermittlungsprovision Verkauf',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: true, nurFuer: ['verkaufsobjekt'] },
+  { code: '074', hauptgruppe: 0, label: 'Stockwerkeigentumsbegründung',
+    typ: { kind: 'manuell_menge_einheit' }, defaultStatus: 'beruecksichtigt',
+    defaultMode: 'pauschal', mwst: false, nurFuer: ['verkaufsobjekt'] },
   { code: '080', hauptgruppe: 0, label: 'Abfindungen, Servitute, Beiträge',
     typ: { kind: 'pauschal' }, defaultStatus: 'beruecksichtigt', mwst: false },
   { code: '090', hauptgruppe: 0, label: 'Erschliessungskosten Leitungen / Verkehrsanlagen extern',
@@ -199,6 +245,9 @@ export const BKP_POSITIONEN: BkpPosition[] = [
     typ: { kind: 'prozent_von_hauptgruppen', gruppen: [1, 2, 3, 4, 5, 6, 7] }, defaultStatus: 'beruecksichtigt', mwst: true },
   { code: '820', hauptgruppe: 8, label: 'Projektleitung Realisierung bis und mit SIA-Phase 41',
     typ: { kind: 'prozent_von_hauptgruppen', gruppen: [1, 2, 3, 4, 5, 6, 7], exklRueckstellung: true }, defaultStatus: 'beruecksichtigt', defaultKennwert: 0.00176, mwst: true },
+  { code: '830', hauptgruppe: 8, label: 'Projektleitung Realisierung ab SIA-Phase 51',
+    typ: { kind: 'prozent_von_hauptgruppen', gruppen: [1, 2, 3, 4, 5, 6, 7], exklRueckstellung: true },
+    defaultStatus: 'beruecksichtigt', mwst: true, nurFuer: ['verkaufsobjekt'] },
   { code: '840', hauptgruppe: 8, label: 'Begleitung Qualitätssicherung',
     typ: { kind: 'prozent_von_hauptgruppen', gruppen: [1, 2, 3, 4, 5, 6, 7] }, defaultStatus: 'beruecksichtigt', mwst: true },
   { code: '850', hauptgruppe: 8, label: 'Zertifizierungskosten',
@@ -222,6 +271,16 @@ export const BKP_POSITIONEN: BkpPosition[] = [
     typ: { kind: 'finanzierung', gruppen: [0], refs: [{ kind: 'position', ref: '010' }] },
     defaultStatus: 'beruecksichtigt', defaultKennwert: 0.015, mwst: false,
     hinweis: 'Kennwert = Zinssatz p.a. (z.B. 0.015 = 1.5%). Laufzeit in Monaten im Bezugsmenge-Feld.' },
+  // Das Grundstück wird beim Stockwerkeigentum in Tranchen finanziert und
+  // stückweise wieder abgelöst — deshalb zwei Zeilen mit eigener Laufzeit.
+  { code: '941', hauptgruppe: 9, label: 'Finanzierung Grundstück ab Landanbindung, Tranche 1',
+    typ: { kind: 'finanzierung', gruppen: [0], refs: [{ kind: 'position', ref: '010' }] },
+    defaultStatus: 'beruecksichtigt', mwst: false, nurFuer: ['verkaufsobjekt'],
+    hinweis: 'Kennwert = Zinssatz p.a., Laufzeit in Monaten im Bezugsmenge-Feld.' },
+  { code: '942', hauptgruppe: 9, label: 'Finanzierung Grundstück ab Landanbindung, Tranche 2',
+    typ: { kind: 'finanzierung', gruppen: [0], refs: [{ kind: 'position', ref: '010' }] },
+    defaultStatus: 'beruecksichtigt', mwst: false, nurFuer: ['verkaufsobjekt'],
+    hinweis: 'Kennwert = Zinssatz p.a., Laufzeit in Monaten im Bezugsmenge-Feld.' },
   { code: '950', hauptgruppe: 9, label: 'Finanzierung Erstellung bis und mit SIA-Phase 41',
     typ: { kind: 'finanzierung', gruppen: [5, 6, 7, 8] }, defaultStatus: 'beruecksichtigt', mwst: false },
   { code: '960', hauptgruppe: 9, label: 'Finanzierung Erstellung ab SIA-Phase 51',

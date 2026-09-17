@@ -164,7 +164,13 @@ export async function fetchAnlagekostenVergleich(positionCode: string): Promise<
     let totalNetto = 0, totalMwst = 0
     for (const eig of EIGENTUMSART_ORDER) {
       if (!eigSet.has(eig)) continue
-      const positions = [...BKP_POSITIONEN, ...bkp2GeneratedPositions(bkp2Aggregat, eig), ...customToPositions(customRows as never, eig)]
+      // Dieselbe Auswahl wie in der Kostenrechnung: Positionen, die nur für
+      // bestimmte Eigentumsarten gelten, zählen auch nur dort.
+      const positions = [
+        ...BKP_POSITIONEN.filter((p) => !p.nurFuer || p.nurFuer.includes(eig)),
+        ...bkp2GeneratedPositions(bkp2Aggregat, eig),
+        ...customToPositions(customRows as never, eig),
+      ]
       const typFor = makeTypFor(positions, konsRows as never, eig)
       const km = konsolidiertMengen({ buildings: buildings as never, eig, bkp2Aggregat, gsfTotal, mwstSatzGlobal: mwstSatz })
       const erg = buildKonsolidiert(konsRows as never, eig, km, [], positions, typFor).ergebnis
