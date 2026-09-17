@@ -231,10 +231,6 @@ function SignInForm({
         ) : 'Anmelden'}
       </button>
 
-      <p className="pt-2 text-xs leading-relaxed text-black/50">
-        Der Zugang erfolgt ausschliesslich auf Einladung. Wenden Sie sich bei Bedarf
-        an Ihren Administrator.
-      </p>
     </form>
   )
 }
