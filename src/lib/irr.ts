@@ -61,17 +61,29 @@ export function irrWurzeln(reihe: number[]): number[] {
 }
 
 /**
- * Interner Zinsfuss je Periode — die Nullstelle, die am ehesten zu lesen ist:
- * von mehreren die betragsmässig kleinste, also die dem Nullsatz nächste.
+ * Startwert der Suche, wenn mehrere Nullstellen in Frage kommen: 10 % p. a. auf
+ * die Quartalsachse gerechnet — derselbe Vorgabewert, mit dem Excel rechnet.
+ * So fällt die ausgewiesene Lösung mit der einer Zielwertsuche zusammen.
+ */
+const IRR_STARTWERT = 1.1 ** (1 / 4) - 1
+
+/**
+ * Interner Zinsfuss je Periode — von mehreren Nullstellen die, die dem
+ * üblichen Startwert am nächsten liegt.
  *
  * `null`, wo es keine gibt: ohne Vorzeichenwechsel hat die Reihe keine
  * Nullstelle, und ausserhalb des Suchbereichs wäre eine Zahl ohnehin nicht
  * mehr zu lesen. Dann trägt der modifizierte Zinsfuss die Aussage.
  */
 export function irrProPeriode(reihe: number[]): number | null {
-  const w = irrWurzeln(reihe)
-  if (w.length === 0) return null
-  return w.reduce((a, b) => (Math.abs(b) < Math.abs(a) ? b : a))
+  return naechsteWurzel(irrWurzeln(reihe))
+}
+
+/** Von mehreren Nullstellen die dem Startwert nächste. */
+function naechsteWurzel(wurzeln: number[]): number | null {
+  if (wurzeln.length === 0) return null
+  return wurzeln.reduce((a, b) => (
+    Math.abs(b - IRR_STARTWERT) < Math.abs(a - IRR_STARTWERT) ? b : a))
 }
 
 /** Periodenzins auf Jahreszins hochrechnen (Quartale: vier Perioden). */
@@ -120,6 +132,8 @@ export interface ReihenKennzahlen {
   irrJahr: number | null
   /** Mehr als eine Nullstelle — der interne Zinsfuss ist dann nicht eindeutig. */
   irrMehrdeutig: boolean
+  /** Alle gefundenen Nullstellen, auf ein Jahr hochgerechnet. */
+  wurzelnJahr: number[]
   /**
    * Modifizierter interner Zinsfuss p. a. — eindeutig, auch wo der interne
    * Zinsfuss keine oder mehrere Lösungen hat. `null` ohne Finanzierungssatz.
@@ -154,9 +168,7 @@ export function analysiereReihe(netto: number[], satzProQuartal?: number): Reihe
   }
 
   const wurzeln = irrWurzeln(netto)
-  const irrQ = wurzeln.length === 0
-    ? null
-    : wurzeln.reduce((a, b) => (Math.abs(b) < Math.abs(a) ? b : a))
+  const irrQ = naechsteWurzel(wurzeln)
   const mirrQ = satzProQuartal == null
     ? null
     : mirrProPeriode(netto, satzProQuartal, satzProQuartal)
@@ -169,6 +181,7 @@ export function analysiereReihe(netto: number[], satzProQuartal?: number): Reihe
     irrProQuartal: irrQ,
     irrJahr: irrQ == null ? null : aufJahr(irrQ),
     irrMehrdeutig: wurzeln.length > 1,
+    wurzelnJahr: wurzeln.map((w) => aufJahr(w)),
     mirrJahr: mirrQ == null ? null : aufJahr(mirrQ),
     summe: lauf,
   }

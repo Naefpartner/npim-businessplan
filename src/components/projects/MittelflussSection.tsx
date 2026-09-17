@@ -685,15 +685,15 @@ function IrrKennzahlen({
   const quartalLabel = (i: number | null) =>
     (i == null || !quartale[i] ? '—' : `${quartale[i].jahr} Q${quartale[i].q}`)
   /*
-   * Welche Zahl in der Kachel steht: der interne Zinsfuss, solange er eindeutig
-   * ist. Sobald die Reihe mehrfach das Vorzeichen wechselt — bei einem Projekt
-   * der Normalfall, sobald Tranchen gezogen und zurückbezahlt werden —, hat er
-   * mehrere Lösungen oder gar keine. Dann steht der modifizierte Zinsfuss da:
-   * Fehlbeträge zum Finanzierungssatz verzinst, Überschüsse ebenso angelegt.
-   * Er ist immer eindeutig und wird als „mod." ausgewiesen.
+   * In der Kachel steht der interne Zinsfuss — dieselbe Zahl, die eine
+   * Zielwertsuche über die Barwerte der Reihe findet. Nur wenn es gar keine
+   * Nullstelle gibt, tritt der modifizierte Zinsfuss an seine Stelle; er ist
+   * dann als „mod." gekennzeichnet. Bei mehreren Nullstellen steht die da, die
+   * eine Zielwertsuche mit üblichem Startwert findet; die übrigen nennt der
+   * Hinweis darunter.
    */
   const zinsfuss = (k: ReihenKennzahlen, bezug: string) => (
-    k.irrJahr != null && !k.irrMehrdeutig
+    k.irrJahr != null
       ? { wert: pct(k.irrJahr), hinweis: `p. a., ${bezug}` }
       : k.mirrJahr != null
         ? { wert: pct(k.mirrJahr), hinweis: `mod. Zinsfuss p. a., ${bezug}` }
@@ -701,8 +701,9 @@ function IrrKennzahlen({
   )
   const zfProjekt = zinsfuss(projekt, 'auf dem Gesamtkapital')
   const zfEigen = zinsfuss(eigen, `auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`)
-  const modifiziert = (projekt.irrJahr == null || projekt.irrMehrdeutig)
-    || (eigen.irrJahr == null || eigen.irrMehrdeutig)
+  const mehrdeutig = projekt.irrMehrdeutig || eigen.irrMehrdeutig
+  const ersetzt = (projekt.irrJahr == null && projekt.mirrJahr != null)
+    || (eigen.irrJahr == null && eigen.mirrJahr != null)
 
   return (
     <div className="space-y-2">
@@ -717,14 +718,37 @@ function IrrKennzahlen({
           hinweis="Summe der Zahlungsreihe, CHF" />
       </div>
 
-      {modifiziert && (
+      {eigen.irrProQuartal != null && (
         <p className="text-xs text-slate-500">
-          Die Zahlungsreihe wechselt mehrfach das Vorzeichen — bei gezogenen und
-          zurückbezahlten Tranchen unvermeidlich. Ein interner Zinsfuss ist dann nicht
-          eindeutig; ausgewiesen ist deshalb der modifizierte Zinsfuss (MIRR) zum erfassten
-          Finanzierungssatz: Fehlbeträge werden zu diesem Satz finanziert, Überschüsse zu
-          demselben angelegt. Er ist immer eindeutig und für den Variantenvergleich die
-          belastbarere Zahl.
+          Gerechnet wird auf der Quartalsachse: {pct(eigen.irrProQuartal)} je Quartal auf dem
+          Eigenkapital ergeben hochgezinst (1+q)<sup>4</sup>−1 = {pct(eigen.irrJahr)} p. a. Eine
+          Zielwertsuche über die Barwerte der Zeile „Zahlungsfluss Eigenkapital" liefert den
+          Quartalssatz — die Jahreszahl steht in der Kachel.
+        </p>
+      )}
+      {mehrdeutig && (
+        <p className="text-xs text-amber-700">
+          Die Zahlungsreihe wechselt mehrfach das Vorzeichen und hat deshalb mehr als eine
+          Lösung: {eigen.wurzelnJahr.length > 1 ? eigen.wurzelnJahr.map((w) => pct(w)).join(', ') : projekt.wurzelnJahr.map((w) => pct(w)).join(', ')} p. a. —
+          alle setzen die Summe der Barwerte auf null. Ausgewiesen ist die Lösung nächst null;
+          eine Zielwertsuche findet je nach Startwert eine andere. Eindeutig ist in solchen
+          Fällen nur der modifizierte Zinsfuss (siehe unten).
+        </p>
+      )}
+      {ersetzt && (
+        <p className="text-xs text-slate-500">
+          Für die Zahlungsreihe gibt es keinen internen Zinsfuss — der Barwert wird bei keinem
+          Satz null. Ausgewiesen ist deshalb der modifizierte Zinsfuss, gekennzeichnet als
+          „mod."
+        </p>
+      )}
+      {(projekt.mirrJahr != null || eigen.mirrJahr != null) && !ersetzt && (
+        <p className="text-xs text-slate-500">
+          Zum Vergleich der modifizierte Zinsfuss (MIRR) zum erfassten Finanzierungssatz —
+          Fehlbeträge zu diesem Satz finanziert, Überschüsse zu demselben angelegt statt zum
+          internen Zinsfuss: {pct(projekt.mirrJahr)} auf dem Gesamtkapital,
+          {' '}{pct(eigen.mirrJahr)} auf dem Eigenkapital. Für den Variantenvergleich ist er
+          die vorsichtigere Zahl.
         </p>
       )}
       {projekt.summe <= 0 && (
