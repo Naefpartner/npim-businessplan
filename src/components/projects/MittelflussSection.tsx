@@ -15,7 +15,10 @@ import type { BkpErgebnis } from '@/lib/bkpBerechnung'
 import { formatNumber } from '@/lib/utils'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { buildUnits } from '@/lib/mengenAnalyse'
-import { analysiereReihe, eigenkapitalReihe, type ReihenKennzahlen } from '@/lib/irr'
+import {
+  analysiereReihe, finanzierungsreihe,
+  type FinanzierungsReihe, type ReihenKennzahlen,
+} from '@/lib/irr'
 import { CI } from '@/lib/ci'
 import {
   verkaufsVerteilung, type MfVerkauf, type VerkaufModell, type VerteilEbene,
@@ -457,27 +460,41 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
   )
 
   // ── Zahlungsreihen und interner Zinsfuss ─────────────────────────────────────
+  /*
+   * Tabelle und Kennzahlen rechnen aus derselben Reihe: der Bedarf je Quartal
+   * (Kosten und Steuern abzüglich Erlöse) wird zuerst vom erfassten
+   * Eigenkapital getragen, der Rest vom Fremdkapital. Früher lief die Zeile
+   * „beanspruchtes Eigenkapital" über eine eigene Formel und der interne
+   * Zinsfuss über ein Wasserfallmodell — die beiden konnten sich widersprechen,
+   * und ohne erfasste Einlagen fehlte dem Zinsfuss jede Auszahlung. Jetzt
+   * trägt die Zeile „Zahlungsfluss Eigenkapital" beides.
+   */
+  /**
+   * Anlagekosten inklusive Mehrwertsteuer und Gewinnsteuern, ohne Finanzierung
+   * — die Kopfzeile der Tabelle und zugleich die Kostenseite der Zahlungsreihe.
+   */
+  const kostenJeQuartal = useMemo(
+    () => calc.qKeys.map(
+      (_, i) => (calc.totNettoAK[i] ?? 0) + (calc.totMwst[i] ?? 0) + (steuerJeQuartal[i] ?? 0)),
+    [calc, steuerJeQuartal],
+  )
+
   const irr = useMemo(() => {
     const ek = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['eigenkapital']?.[qk] ?? 0)
     const tranche = calc.qKeys.map((qk) => doc.verteilung[fremdScope]?.['tranche']?.[qk] ?? 0)
-    // Zins auf dem ausstehenden Fremdkapital, Jahreszins zu einem Viertel.
-    const zins: number[] = []
-    { let stand = 0; for (const t of tranche) { stand += t; zins.push(stand * (doc.fremdZinssatz / 100) / 4) } }
-    // Projektsicht: Einnahmen minus Ausgaben, ohne Rücksicht auf die Herkunft
-    // des Kapitals. Die Kosten stehen im Mittelfluss positiv, hier kehren sie
-    // das Vorzeichen — die Reihe steht aus Sicht des Investors.
-    const projekt = erloese.map(
-      (e, i) => e - (calc.totBrutto[i] ?? 0) - (steuerJeQuartal[i] ?? 0))
-    const eigen = eigenkapitalReihe(projekt, ek, tranche, zins)
+    // Einnahmen abzüglich Ausgaben — die Sicht des Projekts.
+    const projekt = erloese.map((e, i) => e - (kostenJeQuartal[i] ?? 0))
+    const fin = finanzierungsreihe(projekt.map((v) => -v), ek, tranche, doc.fremdZinssatz)
     return {
       ek,
-      zins,
+      fin,
       projektReihe: projekt,
       projekt: analysiereReihe(projekt),
-      eigen,
-      eigenKennzahlen: analysiereReihe(eigen.reihe),
+      eigenKennzahlen: analysiereReihe(fin.ekFluss),
+      // Spitze der Beanspruchung — die Bezugsgrösse des Eigenkapital-Zinsfusses.
+      spitzeEk: fin.beanspruchtesEk.reduce((m, v) => Math.max(m, v), 0),
     }
-  }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, steuerJeQuartal])
+  }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, kostenJeQuartal])
 
   // ── Setter ───────────────────────────────────────────────────────────────────
   const setPct = (scope: string, posKey: string, qKey: string, val: number) => setDoc((d) => {
@@ -615,10 +632,9 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 fremdZinssatz={doc.fremdZinssatz} onSetFremdZins={setFremdZins}
                 erloesScope={erloesScope} erloesTotal={erloesTotal}
                 erloese={erloese} verkaufPct={verkaufPct} objektReihen={objektReihen}
-                steuerScope={steuerScope} steuerReihen={steuerReihen}
-                steuerJeQuartal={steuerJeQuartal}
+                steuerScope={steuerScope} steuerReihen={steuerReihen} fin={irr.fin}
+                kostenJeQuartal={kostenJeQuartal}
                 verkauf={doc.verkauf} onSetVerkauf={setVerkauf}
-                ekCf={irr.eigen.reihe}
               />
             </div>
           </div>
@@ -628,8 +644,8 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
             erloesTotal={erloesTotal}
             projekt={irr.projekt}
             eigen={irr.eigenKennzahlen}
-            unterdeckung={irr.eigen.unterdeckung}
-            restschuld={irr.eigen.restschuld}
+            unterdeckung={irr.fin.deckungsluecke.some((v) => v > 0.5)}
+            spitzeEk={irr.spitzeEk}
             eingelegt={irr.ek.reduce((a, v) => a + v, 0)}
           />
         </div>
@@ -644,14 +660,14 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
  * ist der Hebel der Fremdfinanzierung.
  */
 function IrrKennzahlen({
-  quartale, erloesTotal, projekt, eigen, unterdeckung, restschuld, eingelegt,
+  quartale, erloesTotal, projekt, eigen, unterdeckung, spitzeEk, eingelegt,
 }: {
   quartale: MfQuartal[]
   erloesTotal: number
   projekt: ReihenKennzahlen
   eigen: ReihenKennzahlen
   unterdeckung: boolean
-  restschuld: number
+  spitzeEk: number
   eingelegt: number
 }) {
   if (erloesTotal <= 0) {
@@ -672,7 +688,7 @@ function IrrKennzahlen({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Kennzahl label="IRR Projekt" wert={pct(projekt.irrJahr)} hinweis="p. a., auf dem Gesamtkapital" />
         <Kennzahl label="IRR Eigenkapital" wert={pct(eigen.irrJahr)}
-          hinweis={eingelegt > 0 ? `auf ${formatNumber(eingelegt)} CHF Einlagen` : 'keine Einlagen erfasst'} />
+          hinweis={`p. a., auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`} />
         <Kennzahl label="Kapitalbindung" wert={formatNumber(projekt.kapitalbindung)}
           hinweis="grösster Mittelbedarf, CHF" />
         <Kennzahl label="Break-even" wert={quartalLabel(projekt.breakEven)}
@@ -695,14 +711,15 @@ function IrrKennzahlen({
       )}
       {unterdeckung && (
         <p className="text-xs text-amber-700">
-          Eigenkapital und Finanzierungstranchen decken den Mittelbedarf zeitweise nicht — der
-          IRR auf dem Eigenkapital unterstellt, dass die Lücke trotzdem finanziert wird.
+          Eigenkapital und Finanzierungstranchen decken den Mittelbedarf zeitweise nicht —
+          die Lücke steht in der Tabelle als benötigtes Fremdkapital über dem Saldo Fremdkapital.
         </p>
       )}
-      {restschuld > 0.5 && (
+      {eingelegt > 0 && eingelegt + 0.5 < spitzeEk && (
         <p className="text-xs text-amber-700">
-          Am Ende stehen noch {formatNumber(restschuld)} CHF Fremdkapital offen; sie mindern den
-          Rückfluss an das Eigenkapital nicht, weil die Tilgung offen bleibt.
+          Das erfasste Eigenkapital von {formatNumber(eingelegt)} CHF liegt unter der
+          Beanspruchung von {formatNumber(spitzeEk)} CHF — die Zeile „Eingebrachtes
+          Eigenkapital" deckt den Bedarf nicht.
         </p>
       )}
     </div>
@@ -857,7 +874,7 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
 }
 
 // ── Kostentabelle (Positionen × Quartale), gleiche Geometrie wie der Terminplan ──
-function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, steuerJeQuartal, verkauf, onSetVerkauf }: {
+function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, fremdZinssatz, onSetFremdZins, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, kostenJeQuartal }: {
   rows: MfDispRow[]
   quartale: MfQuartal[]
   calc: { qKeys: string[]; cells: Record<string, QCell[]>; totNetto: number[]; totNettoAK: number[]; totMwst: number[]; totBrutto: number[] }
@@ -877,10 +894,10 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   objektReihen: { id: string; label: string; betrag: number; pct: number[]; betraege: number[] }[]
   steuerScope: string
   steuerReihen: { key: string; label: string; betrag: number; pct: number[]; betraege: number[] }[]
-  steuerJeQuartal: number[]
   verkauf: MfVerkauf
   onSetVerkauf: (patch: Partial<MfVerkauf>) => void
-  ekCf: number[]
+  fin: FinanzierungsReihe
+  kostenJeQuartal: number[]
 }) {
   const anzWarn = rows.filter((r) => {
     if (!r.editable) return false
@@ -894,12 +911,12 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   const sumTotNettoAK = calc.totNettoAK.reduce((s, v) => s + v, 0)
   const sumTotMwst = calc.totMwst.reduce((s, v) => s + v, 0)
   /*
-   * Kopfzeile: BKP 0–9 mit Mehrwertsteuer, dazu die beiden Gewinnsteuern.
-   * Draussen bleibt allein die Finanzierung — sie läuft unten für sich, auf
-   * dem Kapitalbedarf, den diese Zeile erst ergibt.
+   * Kopfzeile: BKP 0–9 mit Mehrwertsteuer, dazu die beiden Gewinnsteuern —
+   * gerechnet in der Sektion, damit Tabelle und Kennzahlen auf derselben
+   * Kostenseite stehen. Draussen bleibt allein die Finanzierung; sie läuft
+   * unten für sich, auf dem Kapitalbedarf, den diese Zeile erst ergibt.
    */
-  const totAKInkl = calc.qKeys.map(
-    (_, i) => (calc.totNettoAK[i] ?? 0) + (calc.totMwst[i] ?? 0) + (steuerJeQuartal[i] ?? 0))
+  const totAKInkl = kostenJeQuartal
   const sumTotAKInkl = totAKInkl.reduce((s, v) => s + v, 0)
   /*
    * Saldo = laufende Summe aus Verkaufserlösen abzüglich der Anlagekosten
@@ -915,41 +932,17 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
       saldo.push(run)
     })
   }
-  /*
-   * Als Mittelbedarf gelesen — solange der Saldo im Minus ist, muss das Geld
-   * von irgendwoher kommen. Die Zeilen darunter rechnen damit.
-   */
-  const bedarf = saldo.map((v) => -v)
-  // Eingebrachtes Eigenkapital je Quartal (Eingabe, CHF) + kumuliert.
+  // Die beiden Eingabezeilen: eingebrachtes Eigenkapital und Tranchen.
   const ek = calc.qKeys.map((qk) => ekVert[qk] ?? 0)
-  const cumEK: number[] = []; { let r = 0; for (const v of ek) { r += v; cumEK.push(r) } }
   const sumEK = ek.reduce((s, v) => s + v, 0)
-  // Benötigtes Fremdkapital (Stock) = Mittelbedarf − kumuliertes Eigenkapital.
-  const fremdKapital = bedarf.map((b, i) => b - cumEK[i])
-  // Finanzierungstranchen je Quartal (Eingabe, CHF) + kumuliert (= ausstehendes FK).
   const tranche = calc.qKeys.map((qk) => trancheVert[qk] ?? 0)
-  const cumTranche: number[] = []; { let r = 0; for (const v of tranche) { r += v; cumTranche.push(r) } }
   const sumTranche = tranche.reduce((s, v) => s + v, 0)
-  // Zinsaufwand des Quartals auf die kumulierten Tranchen (Jahreszins/4).
-  const zins = cumTranche.map((c) => c * (fremdZinssatz / 100) / 4)
-  const sumZins = zins.reduce((s, v) => s + v, 0)
-  // Saldo abzüglich des aufgenommenen Fremdkapitals und der Zinsen.
-  const beanspruchtesEk: number[] = []
-  {
-    let kumZins = 0
-    zins.forEach((z, i) => {
-      kumZins += z
-      beanspruchtesEk.push((bedarf[i] ?? 0) - (cumTranche[i] ?? 0) - kumZins)
-    })
-  }
-  // Reserve = eingebrachtes Eigenkapital abzüglich des beanspruchten.
-  const ekReserve = beanspruchtesEk.map((b, i) => (cumEK[i] ?? 0) - b)
   /*
-   * Zahlungsfluss = Veränderung des beanspruchten Eigenkapitals je Quartal,
-   * aus Sicht des Investors: wächst die Beanspruchung, fliesst Geld ab — das
-   * steht negativ; kommt es zurück, positiv.
+   * Alles Abgeleitete — Zins, Schuldstand, beanspruchtes Eigenkapital und
+   * dessen Zahlungsfluss — kommt aus `finanzierungsreihe` in der Sektion.
+   * Damit rechnet der Eigenkapital-IRR auf genau den Zahlen, die hier stehen.
    */
-  const ekFluss = beanspruchtesEk.map((b, i) => (beanspruchtesEk[i - 1] ?? 0) - b)
+  const sumZins = fin.zins.reduce((s, v) => s + v, 0)
 
   return (
     <div>
@@ -1085,15 +1078,15 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors} canWrite={canWrite} onSet={onSetPct} />
 
       {/* Benötigtes Fremdkapital = kumulierter Saldo − kumuliertes Eigenkapital */}
-      <FootRow label="Benötigtes Fremdkapital (Saldo − Eigenkapital)" values={fremdKapital} total={fremdKapital[fremdKapital.length - 1] ?? 0} cols={cols} quartalMonthColors={quartalMonthColors} />
+      <FootRow label="Benötigtes Fremdkapital (Saldo − Eigenkapital)" values={fin.benoetigtesFk} total={fin.benoetigtesFk[fin.benoetigtesFk.length - 1] ?? 0} cols={cols} quartalMonthColors={quartalMonthColors} />
 
       {/* Finanzierungstranchen (Eingabe, CHF je Quartal) */}
       <ChfInputRow label="Finanzierungstranchen" scope={fremdScope} posKey="tranche" values={tranche} total={sumTranche}
         qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors} canWrite={canWrite} onSet={onSetPct} />
 
       {/* Stand des aufgenommenen Fremdkapitals — Bezugsgrösse des Zinses darunter */}
-      <FootRow label="Saldo Fremdkapital" values={cumTranche}
-        total={cumTranche[cumTranche.length - 1] ?? 0}
+      <FootRow label="Saldo Fremdkapital" values={fin.schuld}
+        total={fin.schuld[fin.schuld.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
       {/* Zinsaufwand auf die kumulierten Tranchen — Zinssatz vorne, Gesamtsumme in der Gesamt-Spalte */}
@@ -1108,7 +1101,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
           </div>
         </div>
         <div className="bg-white px-2 py-1.5 text-right tabular-nums font-semibold text-slate-800">{formatNumber(sumZins)}</div>
-        {zins.map((v, i) => (
+        {fin.zins.map((v, i) => (
           <div key={i} className="border-l border-slate-100 px-1 py-1.5 text-right text-[11px] tabular-nums text-slate-700"
             style={{ background: segBackground(quartalMonthColors[i], '10') }}>{v ? formatNumber(v) : ''}</div>
         ))}
@@ -1118,19 +1111,19 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
 
       {/* Was nach Fremdkapital und Zins vom Mittelbedarf bleibt — der Teil,
           den das Eigenkapital trägt. */}
-      <FootRow label="Beanspruchtes Eigenkapital" values={beanspruchtesEk}
-        total={beanspruchtesEk[beanspruchtesEk.length - 1] ?? 0}
+      <FootRow label="Beanspruchtes Eigenkapital" values={fin.beanspruchtesEk}
+        total={fin.beanspruchtesEk[fin.beanspruchtesEk.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
       {/* Was vom eingebrachten Eigenkapital noch nicht gebunden ist. */}
-      <FootRow label="Eigenkapitalreserve" values={ekReserve}
-        total={ekReserve[ekReserve.length - 1] ?? 0}
+      <FootRow label="Eigenkapitalreserve" values={fin.reserve}
+        total={fin.reserve[fin.reserve.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
       {/* Bewegung des beanspruchten Eigenkapitals von Quartal zu Quartal:
           Einlage negativ, Rückfluss positiv. */}
-      <FootRow label="Zahlungsfluss Eigenkapital" values={ekFluss}
-        total={-(beanspruchtesEk[beanspruchtesEk.length - 1] ?? 0)}
+      <FootRow label="Zahlungsfluss Eigenkapital" values={fin.ekFluss}
+        total={fin.ekFluss.reduce((s, v) => s + v, 0)}
         cols={cols} quartalMonthColors={quartalMonthColors} strong />
 
       {anzWarn > 0 && (

@@ -124,66 +124,98 @@ export function analysiereReihe(netto: number[]): ReihenKennzahlen {
   }
 }
 
-/** Ergebnis der Eigenkapitalsicht. */
-export interface EigenkapitalReihe {
-  /** Zahlungsreihe des Eigenkapitals: Einlagen negativ, Ausschüttungen positiv. */
-  reihe: number[]
-  /** Ausschüttung je Quartal. */
-  ausschuettung: number[]
-  /** Ausstehendes Fremdkapital am Ende jedes Quartals. */
+// ─── Finanzierung aus den erfassten Einlagen und Tranchen ────────────────────
+
+export interface FinanzierungsReihe {
+  /** Zinsaufwand je Quartal auf dem ausstehenden Fremdkapital. */
+  zins: number[]
+  /** Ausstehendes Fremdkapital (Stand der aufgenommenen Tranchen). */
   schuld: number[]
+  /** Kumulierter Mittelbedarf einschliesslich aufgelaufener Zinsen. */
+  benoetigt: number[]
   /**
-   * Das Projektkonto war zeitweise im Minus: Einlagen und Tranchen decken den
-   * Bedarf nicht. Die Reihe rechnet trotzdem, aber die Finanzierung ist dann
-   * nicht vollständig geplant.
+   * Was das Eigenkapital trägt: Mittelbedarf abzüglich des aufgenommenen
+   * Fremdkapitals. Negativ heisst, dass mehr zurückgeflossen ist als
+   * eingeschossen wurde — der Gewinn des Eigenkapitals.
    */
-  unterdeckung: boolean
-  /** Am Ende nicht getilgtes Fremdkapital. */
-  restschuld: number
+  beanspruchtesEk: number[]
+  /** Eingelegtes, aber noch nicht beanspruchtes Eigenkapital. */
+  reserve: number[]
+  /** Was nach dem eingelegten Eigenkapital noch zu finanzieren wäre. */
+  benoetigtesFk: number[]
+  /** Bedarf, den weder Einlagen noch Tranchen decken. */
+  deckungsluecke: number[]
+  /**
+   * Zahlungsreihe des Eigenkapitals: die Veränderung des beanspruchten
+   * Eigenkapitals mit umgekehrtem Vorzeichen — wächst die Beanspruchung,
+   * fliesst Geld ab. Dieselbe Reihe trägt die Tabelle und der interne Zinsfuss.
+   */
+  ekFluss: number[]
 }
 
 /**
- * Sicht des Eigenkapitals. Das Projektkonto nimmt auf, was hereinkommt —
- * Verkaufserlöse, Einlagen, Fremdkapitaltranchen — und zahlt Kosten und Zins.
- * Was übrig bleibt, tilgt zuerst das Fremdkapital; erst danach fliesst etwas
- * an das Eigenkapital zurück. Das ist die übliche Reihenfolge und macht die
- * Reihe ohne weitere Eingaben rechenbar.
+ * Finanzierung einer Quartalsreihe aus dem, was erfasst ist: Eigenkapital
+ * zuerst, Fremdkapital für den Rest.
+ *
+ * Eine einzige Rechnung für die Tabelle und für den internen Zinsfuss — vorher
+ * standen die Zeilen der Mittelflussrechnung und ein eigenes Wasserfallmodell
+ * nebeneinander und konnten sich widersprechen.
+ *
+ * Der Mittelbedarf wächst um die Ausgaben und die Zinsen und schrumpft mit den
+ * Einnahmen. Getragen wird er zuerst vom eingelegten Eigenkapital; was darüber
+ * hinausgeht, ist Fremdkapitalbedarf. Zinsen laufen auf den tatsächlich
+ * aufgenommenen Tranchen — nicht auf dem Bedarf, denn Geld kostet erst, wenn
+ * es geholt ist.
  */
-export function eigenkapitalReihe(
-  /** Projekt-Cashflow je Quartal (Erlöse − Kosten). */
-  nettoCf: number[],
+export function finanzierungsreihe(
+  /** Auszahlungen abzüglich Einzahlungen je Quartal (positiv = Bedarf). */
+  bedarf: number[],
   /** Eingebrachtes Eigenkapital je Quartal. */
   einlagen: number[],
   /** Aufgenommene Fremdkapitaltranchen je Quartal. */
   tranchen: number[],
-  /** Zinsaufwand je Quartal. */
-  zins: number[],
-): EigenkapitalReihe {
-  let kasse = 0
-  let schuld = 0
-  let unterdeckung = false
-  const reihe: number[] = []
-  const ausschuettung: number[] = []
-  const schuldStand: number[] = []
+  /** Jahreszinssatz in Prozent. */
+  zinssatzPct: number,
+): FinanzierungsReihe {
+  const zins: number[] = []
+  const schuld: number[] = []
+  const benoetigt: number[] = []
+  const beanspruchtesEk: number[] = []
+  const reserve: number[] = []
+  const benoetigtesFk: number[] = []
+  const deckungsluecke: number[] = []
 
-  for (let t = 0; t < nettoCf.length; t++) {
-    const einlage = einlagen[t] ?? 0
-    schuld += tranchen[t] ?? 0
-    kasse += (nettoCf[t] ?? 0) + einlage + (tranchen[t] ?? 0) - (zins[t] ?? 0)
-    if (kasse < -0.5) unterdeckung = true
+  let schuldStand = 0
+  let kumBedarf = 0
+  let kumEk = 0
 
-    const tilgung = kasse > 0 ? Math.min(schuld, kasse) : 0
-    schuld -= tilgung
-    kasse -= tilgung
+  for (let t = 0; t < bedarf.length; t++) {
+    schuldStand += tranchen[t] ?? 0
+    const z = schuldStand * (zinssatzPct / 100) / 4
+    kumBedarf += (bedarf[t] ?? 0) + z
+    kumEk += einlagen[t] ?? 0
 
-    // Ausgeschüttet wird erst, wenn nichts mehr zu tilgen ist.
-    const aus = schuld <= 0.5 && kasse > 0 ? kasse : 0
-    kasse -= aus
+    /*
+     * Beansprucht ist, was nach dem aufgenommenen Fremdkapital vom Bedarf
+     * übrig bleibt — ohne Untergrenze: dreht der Bedarf ins Minus, hat das
+     * Eigenkapital mehr zurückerhalten als eingeschossen. Genau dieser
+     * Überschuss macht den internen Zinsfuss überhaupt erst rechenbar.
+     */
+    const ek = kumBedarf - schuldStand
+    // Eigenkapital zuerst: Fremdkapital wird erst nötig, wenn die Einlagen aufgebraucht sind.
+    const fk = Math.max(0, kumBedarf - kumEk)
 
-    ausschuettung.push(aus)
-    schuldStand.push(schuld)
-    reihe.push(aus - einlage)
+    zins.push(z)
+    schuld.push(schuldStand)
+    benoetigt.push(kumBedarf)
+    beanspruchtesEk.push(ek)
+    reserve.push(kumEk - ek)
+    benoetigtesFk.push(fk)
+    deckungsluecke.push(Math.max(0, fk - schuldStand))
   }
 
-  return { reihe, ausschuettung, schuld: schuldStand, unterdeckung, restschuld: schuld }
+  const ekFluss = beanspruchtesEk.map((v, i) => (beanspruchtesEk[i - 1] ?? 0) - v)
+  return {
+    zins, schuld, benoetigt, beanspruchtesEk, reserve, benoetigtesFk, deckungsluecke, ekFluss,
+  }
 }
