@@ -2,6 +2,7 @@
 // Datenbeschaffung. Getrennt, damit sich das Kapitel mit Probezahlen rendern
 // und nachmessen lässt, ohne Datenbank und ohne React.
 
+import { HAUPTGRUPPEN } from '@/lib/bkpKatalog'
 import {
   berechneKapital, kapitalSteuernErgebnis, zeilenBetrag,
   type KapitalSteuernDoc, type KsGesellschaft, type KsGesellschaftErgebnis,
@@ -101,6 +102,17 @@ export function kapitalSteuernKapitel(
   const anteil = (v: number): string => (
     verkaufserloes > 0 ? pct(v / verkaufserloes) : '')
 
+  /**
+   * BKP-Hauptgruppe einer übernommenen Position — aus „hg2" so gut wie aus
+   * „830". Freie Zeilen und Zeilen ohne erkennbare Nummer geben null; sie
+   * behalten ihre eigene Zeile, auch wo auf Hauptgruppen verdichtet wird.
+   */
+  function hauptgruppeVon(z: KsKostenZeile): number | null {
+    if (!z.code) return null
+    const treffer = /^(?:hg)?(\d)/.exec(z.code) ?? /^(\d)/.exec(z.label)
+    return treffer ? Number(treffer[1]) : null
+  }
+
   /** Eine Kostenzeile der Gesellschaft, mit ihrem Betrag aus der Rechnung. */
   function kostenZeile(z: KsKostenZeile): TabellenZeile {
     const betrag = zeilenBetrag(
@@ -122,9 +134,40 @@ export function kapitalSteuernKapitel(
    * dann Gewinn, Steuern und Gewinn nach Steuern. Dieselbe Reihenfolge wie im
    * Reiter — wer beides nebeneinander legt, findet jede Zahl wieder.
    */
+  /**
+   * Die Anlagekosten einer Gesellschaft als Zeilen. Auf Wunsch auf die
+   * BKP-Hauptgruppen verdichtet: beim Totalunternehmer sind es sonst dutzende
+   * Positionen, und für die Erfolgsrechnung zählt die Gliederung, nicht die
+   * einzelne Position — die steht im Kapitel Anlagekosten. Freie Zeilen
+   * behalten ihre eigene Zeile, sie gehören in keine Hauptgruppe.
+   */
+  function kostenBlock(zeilen: KsKostenZeile[], verdichtet: boolean): TabellenZeile[] {
+    if (!verdichtet) return zeilen.map(kostenZeile)
+    const summen = new Map<number, number>()
+    const einzeln: KsKostenZeile[] = []
+    for (const z of zeilen) {
+      const hg = hauptgruppeVon(z)
+      if (hg == null) { einzeln.push(z); continue }
+      const betrag = zeilenBetrag(z, betraege.get(z.code ?? ''), landpreis)
+      summen.set(hg, (summen.get(hg) ?? 0) + betrag)
+    }
+    const aus: TabellenZeile[] = [...summen.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([hg, betrag]) => ({
+        zellen: [
+          `${hg} · ${HAUPTGRUPPEN.find((h) => h.code === hg)?.label ?? ''}`,
+          '', kostenBetrag(betrag), anteil(Math.abs(betrag)),
+        ],
+        einzug: true,
+      }))
+    return [...aus, ...einzeln.map(kostenZeile)]
+  }
+
   function erfolgsTabelle(
     titel: string, g: KsGesellschaft, e: KsGesellschaftErgebnis,
     erloesLabel: string, erloes: number, steuerLabel: string,
+    /** Anlagekosten auf BKP-Hauptgruppen verdichten statt Position für Position. */
+    aufHauptgruppen = false,
   ): KapitelTabelle {
     const zeilen: TabellenZeile[] = [
       { zellen: [erloesLabel, '', chf(erloes), anteil(erloes)], total: true },
@@ -135,7 +178,7 @@ export function kapitalSteuernKapitel(
     }
     if (g.anlagekosten.length > 0) {
       zeilen.push({ zellen: ['Anlagekosten', '', '', ''] })
-      for (const z of g.anlagekosten) zeilen.push(kostenZeile(z))
+      for (const z of kostenBlock(g.anlagekosten, aufHauptgruppen)) zeilen.push(z)
     }
     zeilen.push({
       zellen: ['Kosten total', '', kostenBetrag(e.kostenTotal),
@@ -206,27 +249,9 @@ export function kapitalSteuernKapitel(
     })
   }
 
-  // ── Die beiden Gesellschaften ────────────────────────────────────────────
-  bereiche.push({
-    titel: mehrereEig ? 'Gesellschaften' : '',
-    ...farben,
-    tabellen: [
-      erfolgsTabelle(
-        `${ksDoc.landprovider.name} · Landprovider`, ksDoc.landprovider, lp,
-        'Verkaufserlös Land', ksDoc.landprovider.ertrag, 'Grundstückgewinnsteuer'),
-      erfolgsTabelle(
-        `${ksDoc.totalunternehmer.name} · Totalunternehmer`, ksDoc.totalunternehmer, tu,
-        'Verkaufserlös Werk', werkerloes, 'Gewinnsteuer Totalunternehmer'),
-    ],
-    hinweis: 'Der Landprovider bringt das Grundstück ein und verkauft es an den '
-      + 'Totalunternehmer; dessen Werkerlös ist der Verkaufserlös der Einheiten '
-      + `abzüglich dieses Landanteils (${chf(verkaufserloes)} − `
-      + `${chf(ksDoc.landprovider.ertrag)} CHF). Übernommene Kostenpositionen `
-      + 'stammen aus der Anlagekostenberechnung der gewählten Methode, '
-      + 'Anteilszeilen rechnen auf dem Landpreis.',
-  })
-
-  // ── Ergebnis ─────────────────────────────────────────────────────────────
+  // ── Die beiden Gesellschaften und ihr Ergebnis ───────────────────────────
+  // Alles in einem Bereich: die Erfolgsrechnungen und ihre Zusammenführung
+  // gehören auf eine Seite, sonst blättert man beim Lesen hin und her.
   const ergebnisZeilen: TabellenZeile[] = [
     {
       zellen: [`Gewinn nach Steuern ${ksDoc.landprovider.name}`, '',
@@ -252,25 +277,40 @@ export function kapitalSteuernKapitel(
         anteil(kapital.kapitalTotal)],
     })
     ergebnisZeilen.push({
-      zellen: ['Gewinn nach Steuern je Franken Eigenkapital',
+      zellen: ['Rendite auf dem eingebrachten Eigenkapital',
         pct(gewinnNachSteuernTotal / kapital.kapitalTotal, 1), '', ''],
       total: true,
     })
   }
+
   bereiche.push({
-    titel: mehrereEig ? 'Ergebnis' : '',
+    titel: mehrereEig ? 'Gesellschaften' : '',
     ...farben,
-    tabellen: [{
-      titel: 'Ergebnis der beiden Gesellschaften',
-      kopf: ['Position', 'Ansatz', 'CHF', '% Erlös'],
-      breiten: RASTER_ERFOLG.breiten,
-      spaltenAbstand: RASTER_ERFOLG.spaltenAbstand,
-      linksBis: 0,
-      zeilen: ergebnisZeilen,
-    }],
-    hinweis: 'Die Rendite bezieht den Gewinn nach Steuern auf das eingebrachte '
-      + 'Eigenkapital, ohne Rücksicht auf die Dauer; die zeitliche Betrachtung '
-      + 'steht im Kapitel Mittelflussrechnung.',
+    tabellen: [
+      erfolgsTabelle(
+        `${ksDoc.landprovider.name} · Landprovider`, ksDoc.landprovider, lp,
+        'Verkaufserlös Land', ksDoc.landprovider.ertrag, 'Grundstückgewinnsteuer'),
+      // Der Totalunternehmer trägt die Baukosten — Position für Position wären
+      // es dutzende Zeilen, und die Erfolgsrechnung fiele auf die nächste Seite.
+      erfolgsTabelle(
+        `${ksDoc.totalunternehmer.name} · Totalunternehmer`, ksDoc.totalunternehmer, tu,
+        'Verkaufserlös Werk', werkerloes, 'Gewinnsteuer Totalunternehmer', true),
+      {
+        titel: 'Ergebnis der beiden Gesellschaften',
+        kopf: ['Position', 'Ansatz', 'CHF', '% Erlös'],
+        breiten: RASTER_ERFOLG.breiten,
+        spaltenAbstand: RASTER_ERFOLG.spaltenAbstand,
+        linksBis: 0,
+        zeilen: ergebnisZeilen,
+      },
+    ],
+    hinweis: 'Der Werkerlös ist der Verkaufserlös der Einheiten abzüglich des '
+      + `Landanteils, den der Landprovider verrechnet (${chf(verkaufserloes)} − `
+      + `${chf(ksDoc.landprovider.ertrag)} CHF). Die Kosten des `
+      + 'Totalunternehmers stehen nach BKP-Hauptgruppen; die Positionen dazu '
+      + 'führt das Kapitel Anlagekosten. Die Rendite bezieht den Gewinn nach '
+      + 'Steuern auf das eingebrachte Eigenkapital, ohne Rücksicht auf die Dauer — '
+      + 'die zeitliche Betrachtung steht in der Mittelflussrechnung.',
   })
 
   return {
