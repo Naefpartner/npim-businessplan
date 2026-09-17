@@ -36,9 +36,13 @@ function chf(v: number): string {
   return g < 0 ? `−${formatNumber(-g)}` : formatNumber(g)
 }
 
-/** Abzug — das Minus steht vor der Zahl, wie in der Sektion. */
-function abzug(v: number): string {
-  return Math.abs(v) < 0.5 ? '—' : `− ${chf(v)}`
+/**
+ * Kosten- und Steuerbetrag. Ohne Vorzeichen: dass Kosten abgezogen werden,
+ * sagt schon die Zeile, in der sie stehen — ein Minus davor liest sich in
+ * einer Kostenaufstellung wie eine Rückerstattung.
+ */
+function kostenBetrag(v: number): string {
+  return Math.abs(v) < 0.5 ? '—' : chf(Math.abs(v))
 }
 
 function pct(v: number, stellen = 1): string {
@@ -106,8 +110,8 @@ export function kapitalSteuernKapitel(
         z.label || z.code || 'Kostenzeile',
         // Anteilszeilen nennen ihren Satz, damit die Herleitung sichtbar ist.
         z.anteilPct != null ? `${z.anteilPct.toFixed(1)} %` : '',
-        abzug(betrag),
-        anteil(-betrag),
+        kostenBetrag(betrag),
+        anteil(Math.abs(betrag)),
       ],
       einzug: true,
     }
@@ -134,7 +138,8 @@ export function kapitalSteuernKapitel(
       for (const z of g.anlagekosten) zeilen.push(kostenZeile(z))
     }
     zeilen.push({
-      zellen: ['Kosten total', '', abzug(e.kostenTotal), anteil(-e.kostenTotal)],
+      zellen: ['Kosten total', '', kostenBetrag(e.kostenTotal),
+          anteil(Math.abs(e.kostenTotal))],
       total: true,
     })
     zeilen.push({
@@ -143,8 +148,8 @@ export function kapitalSteuernKapitel(
       total: true,
     })
     zeilen.push({
-      zellen: [steuerLabel, `${g.steuersatzPct.toFixed(2)} %`, abzug(e.steuern),
-        anteil(-e.steuern)],
+      zellen: [steuerLabel, `${g.steuersatzPct.toFixed(2)} %`, kostenBetrag(e.steuern),
+        anteil(e.steuern)],
     })
     zeilen.push({
       zellen: ['Gewinn nach Steuern', '', chf(e.gewinnNachSteuern),
@@ -237,8 +242,8 @@ export function kapitalSteuernKapitel(
       total: true,
     },
     {
-      zellen: ['Steuern total', '', abzug(lp.steuern + tu.steuern),
-        anteil(-(lp.steuern + tu.steuern))],
+      zellen: ['Steuern total', '', kostenBetrag(lp.steuern + tu.steuern),
+        anteil(lp.steuern + tu.steuern)],
     },
   ]
   if (kapital.kapitalTotal > 0) {
