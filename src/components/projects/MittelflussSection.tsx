@@ -869,6 +869,19 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
       saldo.push(run)
     })
   }
+  /*
+   * Die erfassten Summen — was Kostenberechnung und Mengengerüst führen. Sie
+   * stehen in der Spalte „Gesamt" neben der Summe der verteilten Quartale: wo
+   * die beiden auseinandergehen, ist eine Position nicht zu hundert Prozent
+   * verteilt, und der Saldo ist entsprechend kleiner oder grösser.
+   */
+  const gesamtKosten = rows.reduce(
+    (sum, r) => sum + (r.editable || r.kind === 'finanzierung' ? r.brutto : 0), 0)
+    + steuerReihen.reduce((sum, r) => sum + r.betrag, 0)
+  const gesamtErloes = verkauf.modell === 'objekte'
+    ? objektReihen.reduce((sum, o) => sum + o.betrag, 0)
+    : erloesTotal
+
   // Die beiden Eingabezeilen: eingebrachtes Eigenkapital und Tranchen.
   const ek = calc.qKeys.map((qk) => ekVert[qk] ?? 0)
   const sumEK = ek.reduce((s, v) => s + v, 0)
@@ -897,7 +910,7 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
       {/* Anlagekosten als Kopfzeile über ihren Positionen — zuklappbar */}
       <KopfZeile
         label="Anlagekosten inkl. MWST"
-        values={totAKInkl} total={sumTotAKInkl} cols={cols}
+        values={totAKInkl} total={sumTotAKInkl} gesamt={gesamtKosten} cols={cols}
         quartalMonthColors={quartalMonthColors}
         zu={kostenZu} onToggle={() => setKostenZu((z) => !z)}
       />
@@ -978,9 +991,8 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
           <KopfZeile
             label="Verkaufserlöse total"
             values={erloese}
-            total={verkauf.modell === 'objekte'
-              ? objektReihen.reduce((sum, o) => sum + o.betrag, 0)
-              : erloesTotal}
+            total={erloese.reduce((sum, v) => sum + v, 0)}
+            gesamt={gesamtErloes}
             cols={cols} quartalMonthColors={quartalMonthColors}
             zu={erloesZu} onToggle={() => setErloesZu((z) => !z)}
           />
@@ -1007,7 +1019,12 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
 
       {/* Luft vor der Finanzierung — sie ist der dritte Block der Tabelle. */}
       <div className="h-[25px] bg-white" />
-      <FootRow label="Saldo" values={saldo} total={saldo[saldo.length - 1] ?? 0} cols={cols} quartalMonthColors={quartalMonthColors} strong />
+      {/* Σ Quartale = Stand am Ende der verteilten Reihe, Gesamt = derselbe
+          Saldo aus den erfassten Beträgen. Zwei verschiedene Zahlen heissen:
+          es ist nicht alles verteilt. */}
+      <FootRow label="Saldo" values={saldo} total={saldo[saldo.length - 1] ?? 0}
+        gesamt={gesamtErloes - gesamtKosten}
+        cols={cols} quartalMonthColors={quartalMonthColors} strong />
 
       {/* Eingebrachtes Eigenkapital (Eingabe, CHF je Quartal) */}
       <ChfInputRow label="Eingebrachtes Eigenkapital" scope={fremdScope} posKey="eigenkapital" values={ek} total={sumEK}
@@ -1057,6 +1074,18 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {anzWarn} Position(en): Summe der Quartale weicht vom Anlagekosten-Betrag ab (nicht 100 % verteilt).
+        </div>
+      )}
+      {/* Der Saldo kann nur enthalten, was verteilt ist — fehlt ein Teil der
+          Erlöse auf der Zeitachse, fehlt er auch im Saldo. */}
+      {Math.abs(gesamtErloes - erloese.reduce((sum, v) => sum + v, 0)) > 1 && (
+        <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Verkaufserlöse: von {formatNumber(Math.round(gesamtErloes))} CHF sind
+          {' '}{formatNumber(Math.round(erloese.reduce((sum, v) => sum + v, 0)))} CHF auf
+          Quartale verteilt — die Differenz von
+          {' '}{formatNumber(Math.round(gesamtErloes - erloese.reduce((sum, v) => sum + v, 0)))} CHF
+          fehlt im Saldo und im Zinsfuss.
         </div>
       )}
     </div>
@@ -1202,10 +1231,17 @@ function NumFeld({ value, disabled, placeholder, className, negativ, onChange }:
  * Zuklappbare Kopfzeile über einem Block: sie trägt das Total je Quartal und
  * blendet auf Klick alles aus, was darin steckt.
  */
-function KopfZeile({ label, values, total, cols, quartalMonthColors, zu, onToggle }: {
+function KopfZeile({ label, values, total, gesamt, cols, quartalMonthColors, zu, onToggle }: {
   label: string
   values: number[]
+  /** Summe der verteilten Beträge — sie steht in der Spalte „Σ Quartale". */
   total: number
+  /**
+   * Erfasster Betrag, wie ihn Kostenberechnung oder Mengengerüst führen — er
+   * steht in der Spalte „Gesamt". Weicht er von der Summe der Quartale ab, ist
+   * nicht alles verteilt; genau dafür stehen die beiden Spalten nebeneinander.
+   */
+  gesamt?: number
   cols: string
   quartalMonthColors: (string | undefined)[][]
   zu: boolean
@@ -1224,7 +1260,10 @@ function KopfZeile({ label, values, total, cols, quartalMonthColors, zu, onToggl
           : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
         {label}
       </button>
-      <div className="px-2 py-1.5" style={{ backgroundColor: '#FAEFE9' }} />
+      <div className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-800"
+        style={{ backgroundColor: '#FAEFE9' }}>
+        {gesamt == null ? '' : formatNumber(gesamt)}
+      </div>
       {values.map((v, i) => (
         <div key={i} className="border-l border-slate-100 px-1 py-1.5 text-right text-[11px] font-semibold tabular-nums text-slate-800"
           style={{ background: segBackground(quartalMonthColors[i], '20') ?? '#FAEFE9' }}>
@@ -1259,7 +1298,7 @@ function FootRow({ label, values, total, cols, quartalMonthColors, muted, strong
   return (
     <div className={`grid items-stretch ${wieZeile ? 'text-xs ' : ''}${strong ? 'border-t border-slate-300' : 'border-t border-slate-200'}`} style={{ gridTemplateColumns: cols }}>
       <div style={{ ...stickyLeft, backgroundColor: bg }} className={`px-3 py-1.5 text-left ${txt}`}>{label}</div>
-      <div className="px-2 py-1.5 text-right tabular-nums text-slate-400" style={{ backgroundColor: bg }}>{gesamt != null ? formatNumber(gesamt) : ''}</div>
+      <div className={`px-2 py-1.5 text-right tabular-nums ${strong ? txt : 'text-slate-400'}`} style={{ backgroundColor: bg }}>{gesamt != null ? formatNumber(gesamt) : ''}</div>
       {values.map((v, i) => (
         <div key={i} className={`border-l border-slate-100 px-1 py-1.5 text-right text-[11px] tabular-nums ${txt}`} style={{ background: segBackground(quartalMonthColors[i], strong ? '20' : '10') ?? bg }}>{v ? formatNumber(v) : ''}</div>
       ))}
