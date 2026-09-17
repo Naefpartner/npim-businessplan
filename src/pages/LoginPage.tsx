@@ -133,7 +133,17 @@ function Frame({ titel, lead, children }: {
             alt=""
             className="h-[40vh] w-full object-cover sm:h-[48vh] lg:h-[58vh]"
           />
-          <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:-bottom-8 lg:right-0 lg:mt-0 lg:w-[46%] lg:max-w-none lg:px-0 lg:pb-0 lg:pl-[3.2vw] lg:pt-[3.2vh]">
+          <div className="relative z-10 -mt-10 ml-auto w-full max-w-[26rem] bg-white px-7 pb-8 pt-7 sm:-mt-16 sm:px-10 lg:absolute lg:-bottom-8 lg:right-0 lg:mt-0 lg:w-auto lg:max-w-none lg:px-0 lg:pb-0 lg:pl-[2.93vw] lg:pt-[2.64vw]">
+            {/*
+              Der Kasten legt sich um seinen Inhalt (`w-auto`), damit seine
+              linke Kante denselben Abstand zum Titel hält wie seine obere.
+              Der Abstand des Titels zur Bildkante ist oben und links gleich:
+              3.2 vw, gemessen an der Tinte. Die Innenabstände des Kastens sind
+              deshalb etwas kleiner — links um die Seitenlast des „P" (0.079
+              Geviert), oben um den Abstand von der Zeilenkante zur Versalhöhe
+              (0.165 Geviert bei Zeilenhöhe 1.02, Aufstieg 1.0, Versalhöhe 0.71).
+              In vw gerechnet, weil der Titel selbst in vw wächst.
+            */}
             {/*
               Der Titel gibt die Breite: `w-fit` nimmt sie von ihm, und die
               Zeilen darunter tragen `w-0 min-w-full` — so füllen sie den Block,
