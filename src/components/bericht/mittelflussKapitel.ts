@@ -7,7 +7,7 @@ import type { FinanzierungsReihe, ReihenKennzahlen } from '@/lib/irr'
 import { formatNumber } from '@/lib/utils'
 import { BERICHT_FARBE } from '@/lib/bericht'
 import type {
-  BereichsKapitelDaten, KapitelBereich, KapitelTabelle, TabellenZeile,
+  BereichsKapitelDaten, KapitelBereich, TabellenZeile,
 } from '@/components/bericht/BerichtDokument'
 
 /**
@@ -20,7 +20,11 @@ const RASTER_REIHE = { breiten: [24, ...Array<number>(9).fill(23)], spaltenAbsta
 
 /** Raster der Jahresübersicht: Position, je Jahr eine Spalte, rechts der Abschluss. */
 function rasterJahre(anzahl: number): { breiten: number[]; spaltenAbstand: number } {
-  return { breiten: [70, ...Array<number>(anzahl).fill(21), 23], spaltenAbstand: 3 }
+  /*
+   * Engerer Steg als die üblichen 3 mm: derselbe Raster trägt den Balkenplan,
+   * und dort ist der Steg eine Lücke im Balken an jeder Jahresgrenze.
+   */
+  return { breiten: [70, ...Array<number>(anzahl).fill(21), 23], spaltenAbstand: 2 }
 }
 
 /**
@@ -115,59 +119,57 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
   }
   const bereiche: KapitelBereich[] = []
 
-  // ── Terminplan und Annahmen ───────────────────────────────────────────────
-  const tabellen: KapitelTabelle[] = []
+  // ── Jahresspalten: sie tragen den Balkenplan und die Zahlen darunter ─────
+  const jahre = [...new Set(z.quartale.map((q) => q.jahr))]
+  const jahresSpalten = jahre.map((j) => ({
+    label: String(j),
+    quartale: z.quartale.filter((q) => q.jahr === j).map((q) => `Q${q.q}`),
+  }))
+  const raster = rasterJahre(jahre.length)
+
+  // ── Terminplan als Balkenplan über den Jahresspalten ─────────────────────
   if (z.phasen.length > 0) {
-    tabellen.push({
-      titel: 'Terminplan',
-      kopf: ['Phase', 'Beginn', 'Dauer', 'Ende'],
-      breiten: [76, 32, 20, 32],
-      linksBis: 1,
-      zeilen: z.phasen.map((p) => ({
-        zellen: [
-          p.label,
-          monatText(p.startMonat),
-          `${p.dauerMonate} Mte`,
-          monatText(monatAdd(p.startMonat, Math.max(1, p.dauerMonate) - 1)),
-        ],
-      })),
+    /** Quartalsindex eines Monats — vor dem Fenster das erste, danach das letzte. */
+    const quartalIndex = (monat: string): number => {
+      const [jahr, mon] = monat.split('-').map(Number)
+      const q = Math.floor((mon - 1) / 3) + 1
+      const treffer = z.quartale.findIndex((x) => x.jahr === jahr && x.q === q)
+      if (treffer >= 0) return treffer
+      const vorher = z.quartale[0]
+      const frueher = jahr < vorher.jahr || (jahr === vorher.jahr && q < vorher.q)
+      return frueher ? 0 : z.quartale.length - 1
+    }
+    bereiche.push({
+      titel: '',
+      ...farben,
+      balken: {
+        titel: 'Terminplan',
+        breiten: raster.breiten,
+        spaltenAbstand: raster.spaltenAbstand,
+        jahre: jahresSpalten,
+        zeilen: z.phasen.map((p) => {
+          const von = quartalIndex(p.startMonat)
+          const bis = quartalIndex(monatAdd(p.startMonat, Math.max(1, p.dauerMonate) - 1))
+          return {
+            label: `${p.label} · ${monatText(p.startMonat)}, ${p.dauerMonate} Mte`,
+            farbe: p.farbe,
+            von,
+            bis: Math.max(von, bis),
+          }
+        }),
+      },
+      tabellen: [],
+      hinweis: `Betrachtet wird ${monatText(z.startMonat)} bis ${monatText(z.endMonat)} `
+        + '— zwei Quartale nach dem letzten Termineintrag. Die Kosten stammen aus der '
+        + 'Anlagekostenberechnung der gewählten Methode'
+        + (z.aufHauptgruppen ? ' und sind auf BKP-Hauptgruppen verteilt' : '')
+        + ', die Verkaufserlöse aus den Mengen und Erträgen '
+        + `(${VERKAUF_TEXT[z.verkaufModell]}), die Gewinnsteuern aus dem Kapitel `
+        + 'Kapital und Steuern. Die Planerhonorare folgen den SIA-Phasen des Terminplans.',
     })
   }
-  tabellen.push({
-    titel: 'Annahmen der Rechnung',
-    kopf: ['Grösse', 'Wert'],
-    breiten: [76, 84],
-    linksBis: 1,
-    zeilen: [
-      { zellen: ['Betrachtungsbeginn', monatText(z.startMonat)] },
-      {
-        zellen: ['Betrachtungsende',
-          `${monatText(z.endMonat)} — zwei Quartale nach dem letzten Termineintrag`],
-      },
-      {
-        zellen: ['Finanzierungssatz',
-          `${z.fremdZinssatz.toFixed(2)} % pro Jahr — Bezug des modifizierten Zinsfusses`],
-      },
-      {
-        zellen: ['Ebene der Kostenverteilung',
-          z.aufHauptgruppen ? 'BKP-Hauptgruppen' : 'einzelne Kostenpositionen'],
-      },
-      { zellen: ['Verteilung der Verkaufserlöse', VERKAUF_TEXT[z.verkaufModell]] },
-      { zellen: ['Anzahl Quartale', `${z.quartale.length}`] },
-    ],
-  })
-  bereiche.push({
-    titel: '',
-    ...farben,
-    tabellen,
-    hinweis: 'Die Kosten stammen aus der Anlagekostenberechnung der gewählten Methode, '
-      + 'die Verkaufserlöse aus den Mengen und Erträgen, die Gewinnsteuern aus dem '
-      + 'Kapitel Kapital und Steuern. Die Planerhonorare folgen den SIA-Phasen des '
-      + 'Terminplans; die übrige zeitliche Verteilung ist je Position erfasst.',
-  })
 
   // ── Mittelfluss je Jahr ───────────────────────────────────────────────────
-  const jahre = [...new Set(z.quartale.map((q) => q.jahr))]
   const indexJeJahr = jahre.map(
     (j) => z.quartale.map((q, i) => (q.jahr === j ? i : -1)).filter((i) => i >= 0))
   /**
@@ -195,7 +197,7 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
     tabellen: [{
       titel: 'Mittelfluss je Jahr, in CHF',
       kopf: ['Position', ...jahre.map(String), 'Total / Stand'],
-      ...rasterJahre(jahre.length),
+      ...raster,
       linksBis: 0,
       zeilen: [
         jahrZeile('Anlagekosten exkl. MWST', z.nettoAK, 'summe'),

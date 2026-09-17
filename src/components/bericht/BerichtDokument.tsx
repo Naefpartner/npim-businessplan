@@ -265,6 +265,8 @@ export interface KapitelBereich {
   totalFarbe: string
   /** Hinterlegung einer einzelnen hervorgehobenen Zelle (Stufe 3). */
   zelleFarbe: string
+  /** Balkenplan über den Tabellen des Bereichs; fehlt, wo es keinen gibt. */
+  balken?: KapitelBalken
   tabellen: KapitelTabelle[]
   /** Satz unter den Tabellen — woher die Zahlen stammen. */
   hinweis?: string
@@ -274,6 +276,23 @@ export interface KapitelBereich {
    * liest sich neben der ersten nicht.
    */
   neueSeite?: boolean
+}
+
+/**
+ * Ein Balkenplan über der Tabelle: je Zeile ein Balken, der sich über
+ * Quartalsspalten erstreckt. Die Spaltenanteile sind dieselben wie bei der
+ * Tabelle darunter — so stehen die Jahre des Terminplans über den Jahren der
+ * Zahlen.
+ */
+export interface KapitelBalken {
+  titel: string
+  /** Spaltenanteile: Beschriftung, je Jahr eine Spalte, rechts der Abschluss. */
+  breiten: number[]
+  spaltenAbstand?: number
+  /** Die Jahresspalten mit den Quartalen, die in ihnen liegen. */
+  jahre: { label: string; quartale: string[] }[]
+  /** Balken: Spannweite in Quartalen (Index auf der ganzen Quartalsachse). */
+  zeilen: { label: string; farbe: string; von: number; bis: number }[]
 }
 
 export interface KapitelTabelle {
@@ -926,6 +945,17 @@ const s = StyleSheet.create({
   },
   /** Trennlinie einer Datenzeile — nur dort, wo die Tabelle noch Zeilen hat. */
   tabLinie: { borderBottomWidth: 0.5, borderBottomColor: '#D8D8D8' },
+  /** Eine Jahresspalte des Balkenplans: die Quartale liegen darin nebeneinander. */
+  balkenJahr: { flexDirection: 'row', alignItems: 'center' },
+  /** Ein Balkenstück — seine Breite kommt aus der Spannweite der Phase. */
+  balkenFeld: { height: mm(2.4), flexShrink: 0 },
+  /** Beschriftung eines Quartals unter dem Jahr. */
+  balkenQuartal: {
+    flexGrow: 1, flexShrink: 1, flexBasis: 0,
+    fontSize: 6, color: '#8A8A8A', textAlign: 'center',
+  },
+  /** Jahreszahl über den Quartalen. */
+  balkenJahrLabel: { textAlign: 'center' },
   /** Die Totalzeile hebt sich über die Schrift ab, nicht über eine kräftigere
    *  Linie — ihre Trennlinie ist dieselbe wie bei jeder anderen Zeile. */
   /**
@@ -2352,6 +2382,8 @@ const MH = {
   /** Balken eines Hauses mit knappem Vorabstand. */
   hausTitel: 10.1,
   kopfzeile: 5.0,
+  /** Quartalszeile unter den Jahren im Balkenplan — kleiner gesetzt. */
+  balkenKopf: 3.6,
   /** Beschriftung unter einem Bild samt Abständen. */
   legende: 6.3,
   /**
@@ -3585,6 +3617,11 @@ type BereichsElement = Umbruchpunkt & (
   /** Balken über einem Bereich. */
   | { art: 'bereich'; titel: string; farbe: string; umbruch?: boolean }
   | {
+    art: 'balken'; b: KapitelBalken
+    titelFarbe: string
+    anschluss: boolean
+  }
+  | {
     art: 'tabelle'; t: KapitelTabelle
     titelFarbe: string; totalFarbe: string; zelleFarbe: string
     /** Die erste Tabelle schliesst an den Bereichsbalken an und hält knapperen
@@ -3607,6 +3644,12 @@ function bereichsHoehe(e: BereichsElement, breite: number): number {
         + kopfHoehe(e.t.kopf, e.t.breiten, steg, breite, e.t.kopfZusatz) + MH.blockEnde
         + zeilenHoehe(e.t.zeilen, e.t.breiten, steg, breite)
     }
+    // Kopf des Balkenplans: eine Zeile Jahre, darunter eine flachere mit den
+    // Quartalen.
+    case 'balken':
+      return (e.anschluss ? MH.hausTitel : MH.eigTitel)
+        + MH.kopfzeile + MH.balkenKopf
+        + e.b.zeilen.length * MH.zeile + MH.blockEnde
     case 'hinweis':
       return textZeilen(e.text, breite - EINZUG, 1) * MH.zeile + MH.blockEnde
   }
@@ -3634,13 +3677,21 @@ function bereichsElemente(w: BereichsKapitelDaten, kapitelKey: string): Bereichs
           key: `${kapitelKey}:bereich:${sicht.titel}:${b.titel}`, label: b.titel,
         })
       }
+      if (b.balken) {
+        el.push({
+          art: 'balken', b: b.balken, titelFarbe: b.tabellenFarbe,
+          anschluss: Boolean(b.titel),
+          key: `${kapitelKey}:balken:${sicht.titel}:${b.balken.titel}`,
+          label: b.balken.titel,
+        })
+      }
       b.tabellen.forEach((t, i) => {
         el.push({
           art: 'tabelle', t, titelFarbe: b.tabellenFarbe, totalFarbe: b.totalFarbe,
           zelleFarbe: b.zelleFarbe,
           // Die erste Tabelle schliesst an den Balken des Bereichs an; ohne
           // Balken steht sie für sich und hält den vollen Vorabstand.
-          anschluss: Boolean(b.titel) && i === 0,
+          anschluss: Boolean(b.titel) && i === 0 && !b.balken,
           key: `${kapitelKey}:tabelle:${sicht.titel}:${b.titel}:${t.titel}`,
           label: t.titel,
         })
@@ -3720,7 +3771,103 @@ function bereichsSeiten(
   return seiten
 }
 
-function BereichsBausteine({ elemente }: { elemente: BereichsElement[] }) {
+/**
+ * Balkenplan des Terminplans. Die Spaltenanteile sind dieselben wie in der
+ * Tabelle darunter, deshalb stehen die Jahre über ihren Zahlen; innerhalb
+ * eines Jahres teilt sich die Spalte in die Quartale, die tatsächlich im
+ * Betrachtungsfenster liegen — ein angeschnittenes erstes Jahr hat weniger.
+ */
+function Balkenplan({ b, titelFarbe, anschluss, breite }: {
+  b: KapitelBalken
+  titelFarbe: string
+  anschluss: boolean
+  /** Breite des Satzspiegels abzüglich Einzug, in Millimetern. */
+  breite: number
+}) {
+  /*
+   * Die Spalten stehen hier mit festen Breiten statt über Spaltenanteile: der
+   * Balken soll über die Jahresgrenze durchlaufen, und mit dem Steg der
+   * Tabelle klaffte an jedem Jahreswechsel eine Lücke. Gerechnet werden die
+   * Breiten so, wie die Tabelle sie aus ihren Anteilen und ihrem Steg ergibt —
+   * Aussenbreite je Spalte —, deshalb liegen die Jahre trotzdem genau über
+   * ihren Zahlen.
+   */
+  const steg = b.spaltenAbstand ?? 3
+  const summe = b.breiten.reduce((a, c) => a + c, 0)
+  const rest = breite - steg * (b.breiten.length - 1)
+  const spaltenBreite = b.breiten.map(
+    (g, i) => (g / summe) * rest + (i < b.breiten.length - 1 ? steg : 0))
+  const zelle = (i: number) => ({ width: mm(spaltenBreite[i]), flexShrink: 0 })
+  // Erster Quartalsindex jeder Jahresspalte — die Balken rechnen auf der
+  // durchlaufenden Quartalsachse.
+  const beginn: number[] = []
+  let lauf = 0
+  for (const j of b.jahre) { beginn.push(lauf); lauf += j.quartale.length }
+
+  return (
+    <View style={s.feldBlock}>
+      {b.titel && <Text style={titelStil(titelFarbe, anschluss)}>{b.titel}</Text>}
+      <View style={[s.tabKopf, s.tabKopfGestapelt, s.tabKopfDaten]}>
+        <View style={s.tabKopfZeile}>
+          <Text style={[zelle(0), { paddingRight: mm(steg) }]}>Phase</Text>
+          {b.jahre.map((j, i) => (
+            <Text key={i} style={[zelle(i + 1), s.balkenJahrLabel]}>{j.label}</Text>
+          ))}
+          <View style={zelle(b.breiten.length - 1)} />
+        </View>
+        <View style={s.tabKopfZeile}>
+          <View style={zelle(0)} />
+          {b.jahre.map((j, i) => (
+            <View key={i} style={[zelle(i + 1), s.balkenJahr]}>
+              {j.quartale.map((q, k) => (
+                <Text key={k} style={s.balkenQuartal}>{q}</Text>
+              ))}
+            </View>
+          ))}
+          <View style={zelle(b.breiten.length - 1)} />
+        </View>
+      </View>
+      {b.zeilen.map((z, r) => (
+        <View key={r} style={[s.tabZeile, s.tabLinie]}>
+          <Text style={[zelle(0), { paddingRight: mm(steg) }]}>{z.label}</Text>
+          {b.jahre.map((j, i) => {
+            /*
+             * Ein Balkenstück je Jahresspalte, nicht eines je Quartal: aus
+             * aneinandergesetzten Feldern blitzten feine helle Linien zwischen
+             * den Quartalen. Eine Phase läuft ohnehin zusammenhängend, also
+             * genügt Anfang und Länge innerhalb der Spalte.
+             */
+            const feld = spaltenBreite[i + 1] / j.quartale.length
+            const erstes = Math.max(z.von, beginn[i])
+            const letztes = Math.min(z.bis, beginn[i] + j.quartale.length - 1)
+            if (letztes < erstes) return <View key={i} style={zelle(i + 1)} />
+            return (
+              <View key={i} style={[zelle(i + 1), s.balkenJahr]}>
+                <View style={{ width: mm((erstes - beginn[i]) * feld) }} />
+                <View style={[s.balkenFeld, {
+                  width: mm((letztes - erstes + 1) * feld),
+                  backgroundColor: z.farbe,
+                  // Runde Enden nur dort, wo die Phase beginnt und endet.
+                  borderTopLeftRadius: erstes === z.von ? 1.2 : 0,
+                  borderBottomLeftRadius: erstes === z.von ? 1.2 : 0,
+                  borderTopRightRadius: letztes === z.bis ? 1.2 : 0,
+                  borderBottomRightRadius: letztes === z.bis ? 1.2 : 0,
+                }]} />
+              </View>
+            )
+          })}
+          <View style={zelle(b.breiten.length - 1)} />
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function BereichsBausteine({ elemente, breite }: {
+  elemente: BereichsElement[]
+  /** Satzbreite abzüglich Einzug — der Balkenplan rechnet damit in Millimetern. */
+  breite: number
+}) {
   return (
     <>
       {elemente.map((e, i) => {
@@ -3730,6 +3877,12 @@ function BereichsBausteine({ elemente }: { elemente: BereichsElement[] }) {
         }
         if (e.art === 'hinweis') {
           return <Text key={i} style={s.anlageHinweis}>{e.text}</Text>
+        }
+        if (e.art === 'balken') {
+          return (
+            <Balkenplan key={i} b={e.b} titelFarbe={e.titelFarbe}
+              anschluss={e.anschluss} breite={breite} />
+          )
         }
         return (
           <Datentabelle
@@ -3782,7 +3935,7 @@ function BereichsKapitel({
         <InhaltsSeite key={n} format={format} daten={daten}
           seite={seite + n} seitenTotal={seitenTotal}>
           {n === 0 && <KapitelTitel nummer={nummer} text={titel} />}
-          <BereichsBausteine elemente={elemente} />
+          <BereichsBausteine elemente={elemente} breite={satzBreite(format) - EINZUG} />
         </InhaltsSeite>
       ))}
     </>
