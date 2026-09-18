@@ -6,8 +6,8 @@ import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useTragbarkeit } from '@/hooks/useTragbarkeit'
 import { useAufklappbar } from '@/hooks/useAufklappbar'
 import {
-  berechneTragbarkeit, defaultTragbarkeitDoc,
-  type TragbarkeitBasis, type TragbarkeitDoc,
+  berechneTragbarkeit, berechneVerlauf, defaultTragbarkeitDoc,
+  type TragbarkeitBasis, type TragbarkeitDoc, type TragbarkeitJahr,
 } from '@/lib/tragbarkeit'
 import { isNutzungWohnen } from '@/types'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
@@ -120,6 +120,7 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
   }), [mengen, anlagekosten])
 
   const erg = useMemo(() => berechneTragbarkeit(params, basis), [params, basis])
+  const verlauf = useMemo(() => berechneVerlauf(params, basis), [params, basis])
 
   const setzen = (patch: Partial<TragbarkeitDoc>, label: string, key: string) =>
     setDoc((d) => ({ ...d, ...patch }), { label, coalesceKey: `trag:${key}` })
@@ -199,7 +200,37 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
                 einheit="CHF"
                 wert={doc.zusaetzlicheEigenmittel} canWrite={canWrite}
                 onChange={(v) => setzen({ zusaetzlicheEigenmittel: v }, 'Eigenmittel', 'ek')} />
+              <ZahlFeld
+                label="1. Hypothek (0 = aus der Belehnungsgrenze)"
+                einheit="CHF"
+                wert={doc.ersteHypothekChf} canWrite={canWrite}
+                onChange={(v) => setzen({ ersteHypothekChf: v }, '1. Hypothek', 'hyp1')} />
+              <SatzFeld
+                label="Ertragsausfall Jahr 1"
+                wert={doc.ausfallJahr1} canWrite={canWrite}
+                onChange={(v) => setzen({ ausfallJahr1: v }, 'Ertragsausfall Jahr 1', 'aus1')} />
+              <SatzFeld
+                label="Ertragsausfall Jahr 2 und 3"
+                wert={doc.ausfallJahr2bis3} canWrite={canWrite}
+                onChange={(v) => setzen({ ausfallJahr2bis3: v }, 'Ertragsausfall Jahr 2–3', 'aus2')} />
+              <SatzFeld
+                label="Ertragsausfall ab Jahr 4"
+                wert={doc.ausfallAb4} canWrite={canWrite}
+                onChange={(v) => setzen({ ausfallAb4: v }, 'Ertragsausfall ab Jahr 4', 'aus4')} />
+              <SatzFeld
+                label="Bewirtschaftungskosten Jahr 1 bis 5"
+                wert={doc.kostenquoteBis5} canWrite={canWrite}
+                onChange={(v) => setzen({ kostenquoteBis5: v }, 'Kostenquote Jahr 1–5', 'kq5')} />
+              <SatzFeld
+                label="Bewirtschaftungskosten ab Jahr 6"
+                wert={doc.kostenquoteAb6} canWrite={canWrite}
+                onChange={(v) => setzen({ kostenquoteAb6: v }, 'Kostenquote ab Jahr 6', 'kq6')} />
             </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Der Ertragsausfall sinkt von der Erstvermietung auf den Dauerwert, die
+              Bewirtschaftungskosten steigen nach fünf Jahren, wenn Garantien auslaufen —
+              die Annahmen des Businessplans, hier als Sätze auf dem Mietertrag SOLL.
+            </p>
           </UnterKapitel>
 
           {/* ── Rechnung je m² Wohnfläche ─────────────────────────────────── */}
@@ -248,6 +279,42 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
             </p>
           </UnterKapitel>
 
+          {/* ── Verlauf Jahr für Jahr ─────────────────────────────────────── */}
+          <UnterKapitel titel="Erfolgsrechnung und Fremdkapital über die Laufzeit">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1100px] text-xs">
+                <thead>
+                  <tr className="border-b border-slate-300 text-[11px] uppercase tracking-wider text-slate-500">
+                    <th className="py-2 pr-3 text-left font-medium">Jahr</th>
+                    <th className="py-2 pr-3 text-right font-medium">Mietertrag SOLL</th>
+                    <th className="py-2 pr-3 text-right font-medium">Ertragsausfall</th>
+                    <th className="py-2 pr-3 text-right font-medium">Mietertrag IST</th>
+                    <th className="py-2 pr-3 text-right font-medium">Kosten</th>
+                    <th className="py-2 pr-3 text-right font-medium">Liegenschafts&shy;erfolg</th>
+                    <th className="py-2 pr-3 text-right font-medium">Fremdkapital</th>
+                    <th className="py-2 pr-3 text-right font-medium">1. Hypothek</th>
+                    <th className="py-2 pr-3 text-right font-medium">2. Hypothek</th>
+                    <th className="py-2 pr-3 text-right font-medium">Zins 1. Hyp.</th>
+                    <th className="py-2 pr-3 text-right font-medium">Zins 2. Hyp.</th>
+                    <th className="py-2 pr-3 text-right font-medium">Amortisation</th>
+                    <th className="py-2 text-right font-medium">Überschuss</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {verlauf.map((j, i) => (
+                    <JahrZeile key={j.label} jahr={j} nachLaufzeit={i >= verlauf.length - 2} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Die 1. Hypothek steht, amortisiert wird allein die 2. — in gleichen Raten über
+              {' '}{doc.amortisationsdauer} Jahre. Die beiden letzten Zeilen rechnen dasselbe Jahr
+              ohne 2. Hypothek, einmal zum kalkulatorischen Satz und einmal zum tatsächlichen
+              Zins: die Probe, ob die Liegenschaft auch dann trägt.
+            </p>
+          </UnterKapitel>
+
           {/* ── Kontrolle in Franken ──────────────────────────────────────── */}
           <UnterKapitel titel="Kontrolle in Franken">
             <table className="w-full table-fixed text-sm">
@@ -293,6 +360,48 @@ function UnterKapitel({ titel, children }: { titel: string; children: ReactNode 
       </h3>
       <div className="px-1">{children}</div>
     </div>
+  )
+}
+
+/**
+ * Eine Jahreszeile des Verlaufs. Unter den Beträgen steht, wo das Excel eine
+ * Prozentspalte führt, der Anteil — am Mietertrag SOLL bei den Ertragszeilen,
+ * am Ertragswert bei den Hypotheken.
+ */
+function JahrZeile({ jahr, nachLaufzeit }: { jahr: TragbarkeitJahr; nachLaufzeit: boolean }) {
+  return (
+    <tr
+      className="border-b border-slate-100 tabular-nums"
+      style={nachLaufzeit ? { backgroundColor: HILITE } : undefined}
+    >
+      <td className={`py-1.5 pr-3 text-left ${nachLaufzeit ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+        {jahr.label}
+      </td>
+      <td className="py-1.5 pr-3 text-right">{chf(jahr.mietertragSoll)}</td>
+      <MitAnteil wert={jahr.ertragsausfall} anteil={jahr.ausfallQuote} />
+      <MitAnteil wert={jahr.mietertragIst} anteil={1 - jahr.ausfallQuote} />
+      <MitAnteil wert={jahr.kosten} anteil={jahr.kostenQuote} />
+      <MitAnteil wert={jahr.liegenschaftserfolg} anteil={jahr.erfolgQuote} />
+      <MitAnteil wert={jahr.fremdkapital} anteil={jahr.belehnung} />
+      <td className="py-1.5 pr-3 text-right">{chf(jahr.ersteHypothek)}</td>
+      <td className="py-1.5 pr-3 text-right">{chf(jahr.zweiteHypothek)}</td>
+      <td className="py-1.5 pr-3 text-right">{chf(jahr.zinsErste)}</td>
+      <td className="py-1.5 pr-3 text-right">{chf(jahr.zinsZweite)}</td>
+      <td className="py-1.5 pr-3 text-right">{chf(jahr.amortisation)}</td>
+      <td className={`py-1.5 text-right font-medium ${jahr.ueberschuss < 0 ? 'text-amber-700' : 'text-slate-900'}`}>
+        {chf(jahr.ueberschuss)}
+      </td>
+    </tr>
+  )
+}
+
+/** Betrag mit seinem Anteil darunter — die Prozentspalte des Excel-Blatts. */
+function MitAnteil({ wert, anteil }: { wert: number; anteil: number }) {
+  return (
+    <td className="py-1.5 pr-3 text-right">
+      <div>{chf(wert)}</div>
+      <div className="text-[10px] text-slate-400">{pct(anteil, 1)}</div>
+    </td>
   )
 }
 

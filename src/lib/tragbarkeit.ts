@@ -36,8 +36,22 @@ export interface TragbarkeitParams {
   anteilWohnen: number
   /** Betriebs- und Unterhaltskosten samt Erneuerung, Anteil des Mietertrags. */
   bewirtschaftungsquote: number
-  /** Jahre, in denen die 2. Hypothek amortisiert sein muss. */
+  /** Jahre, in denen die 2. Hypothek amortisiert sein muss — zugleich die
+   *  Länge des Verlaufs. */
   amortisationsdauer: number
+  /** Ertragsausfall im ersten Jahr, Anteil des Mietertrags SOLL. */
+  ausfallJahr1: number
+  /** Ertragsausfall im zweiten und dritten Jahr. */
+  ausfallJahr2bis3: number
+  /** Ertragsausfall ab dem vierten Jahr. */
+  ausfallAb4: number
+  /** Bewirtschaftungskosten der ersten fünf Jahre, Anteil des SOLL — tiefer,
+   *  weil Neubau und Garantien. */
+  kostenquoteBis5: number
+  /** Bewirtschaftungskosten ab dem sechsten Jahr. */
+  kostenquoteAb6: number
+  /** 1. Hypothek in CHF; 0 heisst: aus der Belehnungsgrenze abgeleitet. */
+  ersteHypothekChf: number
   /** Eigenmittel der Kontrollrechnung in CHF. */
   zusaetzlicheEigenmittel: number
 }
@@ -52,6 +66,12 @@ export const TRAGBARKEIT_DEFAULTS: TragbarkeitParams = {
   anteilWohnen: 1,
   bewirtschaftungsquote: 0.2,
   amortisationsdauer: 15,
+  ausfallJahr1: 0.05,
+  ausfallJahr2bis3: 0.02,
+  ausfallAb4: 0.01,
+  kostenquoteBis5: 0.15,
+  kostenquoteAb6: 0.2,
+  ersteHypothekChf: 0,
   zusaetzlicheEigenmittel: 0,
 }
 
@@ -186,6 +206,115 @@ export function berechneTragbarkeit(
   }
 }
 
+// ── Verlauf über die Laufzeit ───────────────────────────────────────────────
+
+/** Eine Zeile des Verlaufs — ein Jahr, in Franken. */
+export interface TragbarkeitJahr {
+  /** Beschriftung der Zeile („Jahr 1", „Jahr 16 mit 5.00 %"). */
+  label: string
+  mietertragSoll: number
+  ertragsausfall: number
+  /** Anteil des Ausfalls am SOLL. */
+  ausfallQuote: number
+  mietertragIst: number
+  kosten: number
+  /** Anteil der Kosten am SOLL. */
+  kostenQuote: number
+  liegenschaftserfolg: number
+  /** Anteil des Erfolgs am SOLL. */
+  erfolgQuote: number
+  fremdkapital: number
+  /** Belehnung: Fremdkapital im Verhältnis zum Ertragswert. */
+  belehnung: number
+  ersteHypothek: number
+  zweiteHypothek: number
+  zinsErste: number
+  zinsZweite: number
+  amortisation: number
+  /** Was nach Zins und Amortisation bleibt. */
+  ueberschuss: number
+}
+
+/**
+ * Der Verlauf über die Laufzeit, wie ihn das Excel-Blatt Jahr für Jahr führt.
+ *
+ * Der Mietertrag bleibt konstant; der Ertragsausfall sinkt von der
+ * Erstvermietung auf den Dauerwert, die Bewirtschaftungskosten steigen nach
+ * fünf Jahren, wenn Garantien auslaufen. Die 1. Hypothek steht; amortisiert
+ * wird allein die 2., in gleichen Raten über die Laufzeit. Was nach Zins und
+ * Amortisation bleibt, ist der Überschuss.
+ *
+ * Nach der Laufzeit stehen zwei Zeilen: dieselbe Rechnung ohne 2. Hypothek,
+ * einmal zum kalkulatorischen Satz und einmal zum tatsächlichen Zins — die
+ * Probe, ob die Liegenschaft auch dann trägt.
+ */
+export function berechneVerlauf(
+  p: TragbarkeitParams, b: TragbarkeitBasis,
+): TragbarkeitJahr[] {
+  const jahre = Math.max(1, Math.round(p.amortisationsdauer))
+  const ertragswert = p.kapitalisierungssatz > 0
+    ? b.mietertragTotal / p.kapitalisierungssatz
+    : 0
+  const fremdkapitalStart = b.anlagekosten - p.zusaetzlicheEigenmittel
+  // Ohne eigene Vorgabe so viel 1. Hypothek, wie die Belehnungsgrenze hergibt —
+  // mehr als das nötige Fremdkapital aber nie.
+  const erste = p.ersteHypothekChf > 0
+    ? p.ersteHypothekChf
+    : Math.min(fremdkapitalStart, ertragswert * p.max1)
+  const zweiteStart = Math.max(0, fremdkapitalStart - erste)
+  const amortisation = zweiteStart / jahre
+
+  const zeile = (
+    label: string, jahr: number, zweite: number, zinssatz: number, tilgt: boolean,
+  ): TragbarkeitJahr => {
+    const ausfallQuote = jahr <= 1 ? p.ausfallJahr1
+      : jahr <= 3 ? p.ausfallJahr2bis3
+        : p.ausfallAb4
+    const kostenQuote = jahr <= 5 ? p.kostenquoteBis5 : p.kostenquoteAb6
+    const soll = b.mietertragTotal
+    const ausfall = soll * ausfallQuote
+    const ist = soll - ausfall
+    const kosten = soll * kostenQuote
+    const erfolg = ist - kosten
+    const zinsErste = erste * zinssatz
+    const zinsZweite = zweite * zinssatz
+    const tilgung = tilgt ? amortisation : 0
+    return {
+      label,
+      mietertragSoll: soll,
+      ertragsausfall: ausfall,
+      ausfallQuote,
+      mietertragIst: ist,
+      kosten,
+      kostenQuote,
+      liegenschaftserfolg: erfolg,
+      erfolgQuote: soll > 0 ? erfolg / soll : 0,
+      fremdkapital: erste + zweite,
+      belehnung: ertragswert > 0 ? (erste + zweite) / ertragswert : 0,
+      ersteHypothek: erste,
+      zweiteHypothek: zweite,
+      zinsErste,
+      zinsZweite,
+      amortisation: tilgung,
+      ueberschuss: erfolg - zinsErste - zinsZweite - tilgung,
+    }
+  }
+
+  const aus: TragbarkeitJahr[] = []
+  let zweite = zweiteStart
+  for (let j = 1; j <= jahre; j++) {
+    aus.push(zeile(`Jahr ${j}`, j, zweite, p.hypozins, true))
+    zweite = Math.max(0, zweite - amortisation)
+  }
+  // Nach der Tilgung: nur noch die 1. Hypothek, zu beiden Sätzen gerechnet.
+  const satz = (v: number) => `${(v * 100).toFixed(2)} %`
+  aus.push(zeile(`Jahr ${jahre + 1} zum Tragbarkeitssatz ${satz(p.tragbarkeitszins)}`,
+    jahre + 1, 0, p.tragbarkeitszins, false))
+  aus.push(zeile(`Jahr ${jahre + 1} zum Hypothekarzins ${satz(p.hypozins)}`,
+    jahre + 1, 0, p.hypozins, false))
+  return aus
+}
+
 // ── Persistenz ──────────────────────────────────────────────────────────────
 
 export interface TragbarkeitDoc extends TragbarkeitParams {
@@ -223,6 +352,12 @@ export function normalizeTragbarkeitDoc(
     anteilWohnen:            zahl(raw.anteilWohnen, d.anteilWohnen),
     bewirtschaftungsquote:   zahl(raw.bewirtschaftungsquote, d.bewirtschaftungsquote),
     amortisationsdauer:      zahl(raw.amortisationsdauer, d.amortisationsdauer),
+    ausfallJahr1:            zahl(raw.ausfallJahr1, d.ausfallJahr1),
+    ausfallJahr2bis3:        zahl(raw.ausfallJahr2bis3, d.ausfallJahr2bis3),
+    ausfallAb4:              zahl(raw.ausfallAb4, d.ausfallAb4),
+    kostenquoteBis5:         zahl(raw.kostenquoteBis5, d.kostenquoteBis5),
+    kostenquoteAb6:          zahl(raw.kostenquoteAb6, d.kostenquoteAb6),
+    ersteHypothekChf:        zahl(raw.ersteHypothekChf, d.ersteHypothekChf),
     zusaetzlicheEigenmittel: zahl(raw.zusaetzlicheEigenmittel, d.zusaetzlicheEigenmittel),
     eigenesMietzinsniveau:   raw.eigenesMietzinsniveau === true,
     eigenerAnteilWohnen:     raw.eigenerAnteilWohnen === true,
