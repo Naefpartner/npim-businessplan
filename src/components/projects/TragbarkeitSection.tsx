@@ -3,10 +3,14 @@ import { ChevronDown, ChevronRight, Scale } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUndoableState } from '@/contexts/UndoContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
+import { useRendite } from '@/hooks/useRendite'
+import {
+  berechneRendite, investitionAusErgebnis, sammleRenditeMengen,
+} from '@/lib/rendite'
 import { useTragbarkeit } from '@/hooks/useTragbarkeit'
 import { useAufklappbar } from '@/hooks/useAufklappbar'
 import {
-  berechneTragbarkeit, berechneVerlauf, defaultTragbarkeitDoc,
+  berechneTragbarkeit, berechneVerlauf, defaultTragbarkeitDoc, kapSatzAus,
   type TragbarkeitBasis, type TragbarkeitDoc, type TragbarkeitJahr,
 } from '@/lib/tragbarkeit'
 import { isNutzungWohnen } from '@/types'
@@ -41,6 +45,7 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
 }) {
   const { canWrite } = useAuth()
   const ak = useAnlagekostenShared()
+  const { params: rParams } = useRendite(variantId)
   const [expanded, umschalten] = useAufklappbar(defaultExpanded)
 
   // ── Persistenz (JSONB je Variante) + globales Undo/Redo ───────────────────
@@ -98,6 +103,26 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
 
   const anlagekosten = ak.konsolidiertEffektiv.get(EIG)?.totalBrutto ?? 0
 
+  /*
+   * Der Ertragswert kommt aus der Wirtschaftlichkeitsrechnung: derselbe
+   * kapitalisierte Liegenschaftserfolg, den der Reiter Wirtschaftlichkeit
+   * ausweist. Die Belehnung hängt damit an derselben Bewertung — und der
+   * Kapitalisierungssatz der Tragbarkeit ergibt sich daraus, statt eine zweite
+   * Annahme zu sein.
+   */
+  const ertragswert = useMemo(() => {
+    const erg = ak.konsolidiertEffektiv.get(EIG)
+    const { ertraege, totalVmf } = sammleRenditeMengen(ak.buildings, null)
+    const { investition, erstellung } = investitionAusErgebnis(erg)
+    return berechneRendite(rParams, {
+      mietertragSoll: ertraege.reduce((s, e) => s + e.ertrag, 0),
+      totalVmf,
+      investition,
+      erstellung,
+      gsf: ak.gsfTotal,
+    }).ertragswert
+  }, [ak.konsolidiertEffektiv, ak.buildings, ak.gsfTotal, rParams])
+
   /** Aus den Mengen abgeleitet — solange die Annahme nicht von Hand gesetzt ist. */
   const abgeleitet = useMemo(() => ({
     mietzinsniveauWohnen: mengen.vmfWohnen > 0 ? mengen.wohnen / mengen.vmfWohnen : 0,
@@ -117,7 +142,8 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
     mietertragWohnen: mengen.wohnen,
     vmfWohnen: mengen.vmfWohnen,
     anlagekosten,
-  }), [mengen, anlagekosten])
+    ertragswert,
+  }), [mengen, anlagekosten, ertragswert])
 
   const erg = useMemo(() => berechneTragbarkeit(params, basis), [params, basis])
   const verlauf = useMemo(() => berechneVerlauf(params, basis), [params, basis])
@@ -172,10 +198,14 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
                 label="Tragbarkeitszinssatz (kalkulatorisch)"
                 wert={doc.tragbarkeitszins} canWrite={canWrite}
                 onChange={(v) => setzen({ tragbarkeitszins: v }, 'Tragbarkeitszins', 'trz')} />
-              <SatzFeld
-                label="Kapitalisierungssatz (auf dem Bruttomietertrag)"
-                wert={doc.kapitalisierungssatz} canWrite={canWrite}
-                onChange={(v) => setzen({ kapitalisierungssatz: v }, 'Kapitalisierungssatz', 'kap')} />
+              <AnzeigeFeld
+                label="Ertragswert"
+                wert={`${chf(ertragswert)} CHF`}
+                herkunft="aus der Wirtschaftlichkeit" />
+              <AnzeigeFeld
+                label="Kapitalisierungssatz"
+                wert={pct(kapSatzAus(basis), 2)}
+                herkunft="Mietertrag ÷ Ertragswert" />
               <SatzFeld
                 label="Max. 1. Hypothek"
                 wert={doc.max1} canWrite={canWrite}
@@ -545,6 +575,23 @@ function ZahlFeld({ label, wert, einheit, canWrite, onChange, eigen, abgeleitetW
       <TextZahl wert={wert} stellen={2} disabled={!canWrite} onChange={onChange} />
       <span className="text-xs text-slate-500">{einheit}</span>
     </FeldRahmen>
+  )
+}
+
+/** Eine Grösse, die aus einer anderen Rechnung kommt — nur zum Lesen. */
+function AnzeigeFeld({ label, wert, herkunft }: {
+  label: string
+  wert: string
+  herkunft: string
+}) {
+  return (
+    <div className="text-xs text-slate-600">
+      <div className="mb-1 flex items-center gap-2 font-medium text-slate-700">
+        <span>{label}</span>
+        <span className="text-[10px] font-normal text-slate-400">{herkunft}</span>
+      </div>
+      <div className="px-2 py-1 text-right text-sm tabular-nums text-slate-800">{wert}</div>
+    </div>
   )
 }
 

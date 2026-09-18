@@ -43,13 +43,6 @@ export interface TragbarkeitParams {
   hypozins: number
   /** Kalkulatorischer Zinssatz der Bank — die Spalte „Tragbarkeit". */
   tragbarkeitszins: number
-  /**
-   * Kapitalisierungssatz auf dem Bruttomietertrag: Ertragswert = Mietertrag
-   * geteilt durch diesen Satz. Nicht zu verwechseln mit dem
-   * Nettokapitalisierungssatz der Residualwertrechnung, der auf dem Nettoertrag
-   * rechnet.
-   */
-  kapitalisierungssatz: number
   /** Höchste Belehnung der 1. Hypothek, Anteil des Ertragswerts. */
   max1: number
   /** Höchste Belehnung total (1. und 2. Hypothek), Anteil des Ertragswerts. */
@@ -80,7 +73,6 @@ export interface TragbarkeitParams {
 export const TRAGBARKEIT_DEFAULTS: TragbarkeitParams = {
   hypozins: 0.02,
   tragbarkeitszins: 0.05,
-  kapitalisierungssatz: 0.035,
   max1: 0.55,
   max2: 0.65,
   mietzinsniveauWohnen: 0,
@@ -95,7 +87,7 @@ export const TRAGBARKEIT_DEFAULTS: TragbarkeitParams = {
   zusaetzlicheEigenmittel: 0,
 }
 
-/** Was die Rechnung aus Mengen und Anlagekosten der Variante übernimmt. */
+/** Was die Rechnung aus Mengen, Kosten und Wirtschaftlichkeit übernimmt. */
 export interface TragbarkeitBasis {
   /** Jahresmietertrag SOLL aller Nutzungen der Renditeobjekte. */
   mietertragTotal: number
@@ -105,6 +97,20 @@ export interface TragbarkeitBasis {
   vmfWohnen: number
   /** Anlagekosten inklusive Mehrwertsteuer. */
   anlagekosten: number
+  /**
+   * Ertragswert aus der Wirtschaftlichkeitsrechnung — der kapitalisierte
+   * Liegenschaftserfolg. Er ist die Bezugsgrösse der Belehnung.
+   */
+  ertragswert: number
+}
+
+/**
+ * Der Kapitalisierungssatz, mit dem die Rechnung arbeitet: Mietertrag geteilt
+ * durch den Ertragswert der Wirtschaftlichkeitsrechnung. Damit hängt die ganze
+ * Tragbarkeit an derselben Bewertung wie die Renditerechnung.
+ */
+export function kapSatzAus(b: TragbarkeitBasis): number {
+  return b.ertragswert > 0 ? b.mietertragTotal / b.ertragswert : 0
 }
 
 /** Eine Spalte der Rechnung — je m² Wohnfläche, ausser wo anders vermerkt. */
@@ -172,9 +178,8 @@ function spalte(
 ): TragbarkeitSpalte {
   const ertragProM2 = p.anteilWohnen > 0 ? p.mietzinsniveauWohnen / p.anteilWohnen : 0
   const nettoertrag = ertragProM2 * (1 - p.bewirtschaftungsquote)
-  const ertragswertProM2 = p.kapitalisierungssatz > 0
-    ? ertragProM2 / p.kapitalisierungssatz
-    : 0
+  const kapSatz = kapSatzAus(b)
+  const ertragswertProM2 = kapSatz > 0 ? ertragProM2 / kapSatz : 0
   const ersteHypothek = ertragswertProM2 * p.max1
   const finanzierungskosten = ersteHypothek * zinssatz
   const maximaleAmortisation = nettoertrag - finanzierungskosten
@@ -205,9 +210,7 @@ function spalte(
 export function berechneTragbarkeit(
   p: TragbarkeitParams, b: TragbarkeitBasis,
 ): TragbarkeitErgebnis {
-  const ertragswert = p.kapitalisierungssatz > 0
-    ? b.mietertragTotal / p.kapitalisierungssatz
-    : 0
+  const ertragswert = b.ertragswert
   const noetigesFremdkapital = b.anlagekosten - p.zusaetzlicheEigenmittel
   const maximaleBelehnung = ertragswert * p.max2
   return {
@@ -277,9 +280,7 @@ export function berechneVerlauf(
   p: TragbarkeitParams, b: TragbarkeitBasis,
 ): TragbarkeitJahr[] {
   const jahre = Math.max(1, Math.round(p.amortisationsdauer))
-  const ertragswert = p.kapitalisierungssatz > 0
-    ? b.mietertragTotal / p.kapitalisierungssatz
-    : 0
+  const ertragswert = b.ertragswert
   const fremdkapitalStart = b.anlagekosten - p.zusaetzlicheEigenmittel
   // Ohne eigene Vorgabe so viel 1. Hypothek, wie die Belehnungsgrenze hergibt —
   // mehr als das nötige Fremdkapital aber nie.
@@ -383,7 +384,6 @@ export function normalizeTragbarkeitDoc(
   return {
     hypozins:                zahl(raw.hypozins, d.hypozins),
     tragbarkeitszins:        zahl(raw.tragbarkeitszins, d.tragbarkeitszins),
-    kapitalisierungssatz:    zahl(raw.kapitalisierungssatz, d.kapitalisierungssatz),
     max1:                    zahl(raw.max1, d.max1),
     max2:                    zahl(raw.max2, d.max2),
     mietzinsniveauWohnen:    zahl(raw.mietzinsniveauWohnen, d.mietzinsniveauWohnen),
