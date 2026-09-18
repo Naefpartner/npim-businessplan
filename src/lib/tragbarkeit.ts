@@ -13,6 +13,30 @@
 // getragen wird.
 // =============================================================================
 
+/**
+ * Sätze, die ab einem Jahr gelten: Schlüssel ist das Jahr, Wert der Anteil.
+ * Zwischenjahre stehen nicht darin — es gilt der letzte gesetzte Satz.
+ */
+export type JahresSaetze = Record<string, number>
+
+/**
+ * Der Satz, der in einem Jahr gilt: der zuletzt gesetzte davor oder in ihm.
+ * Ohne jede Angabe der Vorgabewert.
+ */
+export function satzFuerJahr(
+  saetze: JahresSaetze, jahr: number, vorgabe: number,
+): number {
+  let treffer = vorgabe
+  let bestes = 0
+  for (const [k, v] of Object.entries(saetze)) {
+    const j = Number(k)
+    if (!Number.isFinite(j) || j > jahr || j < bestes) continue
+    bestes = j
+    treffer = v
+  }
+  return treffer
+}
+
 /** Eingaben der Tragbarkeitsrechnung; alle Sätze als Anteil (0.023 = 2.3 %). */
 export interface TragbarkeitParams {
   /** Tatsächlicher Hypothekarzins — die Spalte „Effektiv". */
@@ -39,17 +63,14 @@ export interface TragbarkeitParams {
   /** Jahre, in denen die 2. Hypothek amortisiert sein muss — zugleich die
    *  Länge des Verlaufs. */
   amortisationsdauer: number
-  /** Ertragsausfall im ersten Jahr, Anteil des Mietertrags SOLL. */
-  ausfallJahr1: number
-  /** Ertragsausfall im zweiten und dritten Jahr. */
-  ausfallJahr2bis3: number
-  /** Ertragsausfall ab dem vierten Jahr. */
-  ausfallAb4: number
-  /** Bewirtschaftungskosten der ersten fünf Jahre, Anteil des SOLL — tiefer,
-   *  weil Neubau und Garantien. */
-  kostenquoteBis5: number
-  /** Bewirtschaftungskosten ab dem sechsten Jahr. */
-  kostenquoteAb6: number
+  /**
+   * Ertragsausfall als Anteil des Mietertrags SOLL, je Jahr erfassbar. Nur die
+   * Jahre stehen darin, in denen sich der Satz ändert; er gilt von dort an
+   * weiter — wer in Jahr 4 ein Prozent setzt, hat es bis zum Ende.
+   */
+  ausfallProJahr: JahresSaetze
+  /** Bewirtschaftungskosten als Anteil des SOLL, nach derselben Regel. */
+  kostenquoteProJahr: JahresSaetze
   /** 1. Hypothek in CHF; 0 heisst: aus der Belehnungsgrenze abgeleitet. */
   ersteHypothekChf: number
   /** Eigenmittel der Kontrollrechnung in CHF. */
@@ -66,11 +87,10 @@ export const TRAGBARKEIT_DEFAULTS: TragbarkeitParams = {
   anteilWohnen: 1,
   bewirtschaftungsquote: 0.2,
   amortisationsdauer: 15,
-  ausfallJahr1: 0.05,
-  ausfallJahr2bis3: 0.02,
-  ausfallAb4: 0.01,
-  kostenquoteBis5: 0.15,
-  kostenquoteAb6: 0.2,
+  // Die Staffel des Businessplans: Erstvermietung, Einschwingen, Dauerwert —
+  // und Kosten, die steigen, wenn die Garantien auslaufen.
+  ausfallProJahr: { 1: 0.05, 2: 0.02, 4: 0.01 },
+  kostenquoteProJahr: { 1: 0.15, 6: 0.2 },
   ersteHypothekChf: 0,
   zusaetzlicheEigenmittel: 0,
 }
@@ -220,6 +240,11 @@ export interface TragbarkeitJahr {
   kosten: number
   /** Anteil der Kosten am SOLL. */
   kostenQuote: number
+  /** Das Jahr der Zeile; die beiden Schlusszeilen teilen sich eines. */
+  jahr: number
+  /** Ob der Satz in diesem Jahr selbst gesetzt ist — sonst geerbt. */
+  ausfallEigen: boolean
+  kostenEigen: boolean
   liegenschaftserfolg: number
   /** Anteil des Erfolgs am SOLL. */
   erfolgQuote: number
@@ -267,10 +292,8 @@ export function berechneVerlauf(
   const zeile = (
     label: string, jahr: number, zweite: number, zinssatz: number, tilgt: boolean,
   ): TragbarkeitJahr => {
-    const ausfallQuote = jahr <= 1 ? p.ausfallJahr1
-      : jahr <= 3 ? p.ausfallJahr2bis3
-        : p.ausfallAb4
-    const kostenQuote = jahr <= 5 ? p.kostenquoteBis5 : p.kostenquoteAb6
+    const ausfallQuote = satzFuerJahr(p.ausfallProJahr, jahr, 0)
+    const kostenQuote = satzFuerJahr(p.kostenquoteProJahr, jahr, 0)
     const soll = b.mietertragTotal
     const ausfall = soll * ausfallQuote
     const ist = soll - ausfall
@@ -281,6 +304,9 @@ export function berechneVerlauf(
     const tilgung = tilgt ? amortisation : 0
     return {
       label,
+      jahr,
+      ausfallEigen: p.ausfallProJahr[jahr] != null,
+      kostenEigen: p.kostenquoteProJahr[jahr] != null,
       mietertragSoll: soll,
       ertragsausfall: ausfall,
       ausfallQuote,
@@ -342,6 +368,18 @@ export function normalizeTragbarkeitDoc(
   const d = defaultTragbarkeitDoc()
   if (!raw || typeof raw !== 'object') return d
   const zahl = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+  /** Jahressätze einlesen: nur ganze Jahre ab 1 mit endlichem Satz. */
+  const saetze = (v: unknown, fallback: JahresSaetze): JahresSaetze => {
+    if (!v || typeof v !== 'object') return fallback
+    const aus: JahresSaetze = {}
+    for (const [k, w] of Object.entries(v as Record<string, unknown>)) {
+      const j = Number(k)
+      if (Number.isInteger(j) && j >= 1 && typeof w === 'number' && Number.isFinite(w)) {
+        aus[j] = w
+      }
+    }
+    return Object.keys(aus).length > 0 ? aus : fallback
+  }
   return {
     hypozins:                zahl(raw.hypozins, d.hypozins),
     tragbarkeitszins:        zahl(raw.tragbarkeitszins, d.tragbarkeitszins),
@@ -352,11 +390,8 @@ export function normalizeTragbarkeitDoc(
     anteilWohnen:            zahl(raw.anteilWohnen, d.anteilWohnen),
     bewirtschaftungsquote:   zahl(raw.bewirtschaftungsquote, d.bewirtschaftungsquote),
     amortisationsdauer:      zahl(raw.amortisationsdauer, d.amortisationsdauer),
-    ausfallJahr1:            zahl(raw.ausfallJahr1, d.ausfallJahr1),
-    ausfallJahr2bis3:        zahl(raw.ausfallJahr2bis3, d.ausfallJahr2bis3),
-    ausfallAb4:              zahl(raw.ausfallAb4, d.ausfallAb4),
-    kostenquoteBis5:         zahl(raw.kostenquoteBis5, d.kostenquoteBis5),
-    kostenquoteAb6:          zahl(raw.kostenquoteAb6, d.kostenquoteAb6),
+    ausfallProJahr:          saetze(raw.ausfallProJahr, d.ausfallProJahr),
+    kostenquoteProJahr:      saetze(raw.kostenquoteProJahr, d.kostenquoteProJahr),
     ersteHypothekChf:        zahl(raw.ersteHypothekChf, d.ersteHypothekChf),
     zusaetzlicheEigenmittel: zahl(raw.zusaetzlicheEigenmittel, d.zusaetzlicheEigenmittel),
     eigenesMietzinsniveau:   raw.eigenesMietzinsniveau === true,

@@ -125,6 +125,23 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
   const setzen = (patch: Partial<TragbarkeitDoc>, label: string, key: string) =>
     setDoc((d) => ({ ...d, ...patch }), { label, coalesceKey: `trag:${key}` })
 
+  /**
+   * Einen Jahressatz setzen oder — mit `null` — wieder löschen, sodass das Jahr
+   * den Satz des Vorjahres erbt. Jahr 1 bleibt immer gesetzt; ohne ihn hätte
+   * die Reihe keinen Anfang.
+   */
+  const setzeSatz = (
+    feld: 'ausfallProJahr' | 'kostenquoteProJahr', jahr: number, wert: number | null,
+  ) => setDoc((d) => {
+    const neu = { ...d[feld] }
+    if (wert == null && jahr > 1) delete neu[jahr]
+    else neu[jahr] = wert ?? 0
+    return { ...d, [feld]: neu }
+  }, {
+    label: feld === 'ausfallProJahr' ? 'Ertragsausfall' : 'Bewirtschaftungskosten',
+    coalesceKey: `trag:${feld}:${jahr}`,
+  })
+
   if (!hatRendite) return null
 
   return (
@@ -205,31 +222,10 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
                 einheit="CHF"
                 wert={doc.ersteHypothekChf} canWrite={canWrite}
                 onChange={(v) => setzen({ ersteHypothekChf: v }, '1. Hypothek', 'hyp1')} />
-              <SatzFeld
-                label="Ertragsausfall Jahr 1"
-                wert={doc.ausfallJahr1} canWrite={canWrite}
-                onChange={(v) => setzen({ ausfallJahr1: v }, 'Ertragsausfall Jahr 1', 'aus1')} />
-              <SatzFeld
-                label="Ertragsausfall Jahr 2 und 3"
-                wert={doc.ausfallJahr2bis3} canWrite={canWrite}
-                onChange={(v) => setzen({ ausfallJahr2bis3: v }, 'Ertragsausfall Jahr 2–3', 'aus2')} />
-              <SatzFeld
-                label="Ertragsausfall ab Jahr 4"
-                wert={doc.ausfallAb4} canWrite={canWrite}
-                onChange={(v) => setzen({ ausfallAb4: v }, 'Ertragsausfall ab Jahr 4', 'aus4')} />
-              <SatzFeld
-                label="Bewirtschaftungskosten Jahr 1 bis 5"
-                wert={doc.kostenquoteBis5} canWrite={canWrite}
-                onChange={(v) => setzen({ kostenquoteBis5: v }, 'Kostenquote Jahr 1–5', 'kq5')} />
-              <SatzFeld
-                label="Bewirtschaftungskosten ab Jahr 6"
-                wert={doc.kostenquoteAb6} canWrite={canWrite}
-                onChange={(v) => setzen({ kostenquoteAb6: v }, 'Kostenquote ab Jahr 6', 'kq6')} />
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Der Ertragsausfall sinkt von der Erstvermietung auf den Dauerwert, die
-              Bewirtschaftungskosten steigen nach fünf Jahren, wenn Garantien auslaufen —
-              die Annahmen des Businessplans, hier als Sätze auf dem Mietertrag SOLL.
+              Ertragsausfall und Bewirtschaftungskosten stehen als Sätze in der Tabelle
+              unten — dort lassen sie sich Jahr für Jahr setzen.
             </p>
           </UnterKapitel>
 
@@ -302,7 +298,13 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
                 </thead>
                 <tbody>
                   {verlauf.map((j, i) => (
-                    <JahrZeile key={j.label} jahr={j} nachLaufzeit={i >= verlauf.length - 2} />
+                    <JahrZeile
+                      key={j.label}
+                      jahr={j}
+                      nachLaufzeit={i >= verlauf.length - 2}
+                      canWrite={canWrite}
+                      onSatz={(feld, wert) => setzeSatz(feld, j.jahr, wert)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -368,7 +370,12 @@ function UnterKapitel({ titel, children }: { titel: string; children: ReactNode 
  * Prozentspalte führt, der Anteil — am Mietertrag SOLL bei den Ertragszeilen,
  * am Ertragswert bei den Hypotheken.
  */
-function JahrZeile({ jahr, nachLaufzeit }: { jahr: TragbarkeitJahr; nachLaufzeit: boolean }) {
+function JahrZeile({ jahr, nachLaufzeit, canWrite, onSatz }: {
+  jahr: TragbarkeitJahr
+  nachLaufzeit: boolean
+  canWrite: boolean
+  onSatz: (feld: 'ausfallProJahr' | 'kostenquoteProJahr', wert: number | null) => void
+}) {
   return (
     <tr
       className="border-b border-slate-100 tabular-nums"
@@ -378,9 +385,17 @@ function JahrZeile({ jahr, nachLaufzeit }: { jahr: TragbarkeitJahr; nachLaufzeit
         {jahr.label}
       </td>
       <td className="py-1.5 pr-3 text-right">{chf(jahr.mietertragSoll)}</td>
-      <MitAnteil wert={jahr.ertragsausfall} anteil={jahr.ausfallQuote} />
+      <SatzZelle
+        wert={jahr.ertragsausfall} anteil={jahr.ausfallQuote}
+        eigen={jahr.ausfallEigen} jahr={jahr.jahr}
+        canWrite={canWrite && !nachLaufzeit}
+        onSatz={(v) => onSatz('ausfallProJahr', v)} />
       <MitAnteil wert={jahr.mietertragIst} anteil={1 - jahr.ausfallQuote} />
-      <MitAnteil wert={jahr.kosten} anteil={jahr.kostenQuote} />
+      <SatzZelle
+        wert={jahr.kosten} anteil={jahr.kostenQuote}
+        eigen={jahr.kostenEigen} jahr={jahr.jahr}
+        canWrite={canWrite && !nachLaufzeit}
+        onSatz={(v) => onSatz('kostenquoteProJahr', v)} />
       <MitAnteil wert={jahr.liegenschaftserfolg} anteil={jahr.erfolgQuote} />
       <MitAnteil wert={jahr.fremdkapital} anteil={jahr.belehnung} />
       <td className="py-1.5 pr-3 text-right">{chf(jahr.ersteHypothek)}</td>
@@ -392,6 +407,54 @@ function JahrZeile({ jahr, nachLaufzeit }: { jahr: TragbarkeitJahr; nachLaufzeit
         {chf(jahr.ueberschuss)}
       </td>
     </tr>
+  )
+}
+
+/**
+ * Betrag mit dem Satz darunter — und der Satz ist hier die Eingabe. Was in
+ * einem Jahr gesetzt wird, gilt von dort an weiter; ein geerbter Satz steht
+ * blass, ein gesetzter kräftig. Leeren löscht die Eingabe, das Jahr erbt dann
+ * wieder (Jahr 1 ausgenommen, es ist der Anfang der Reihe).
+ */
+function SatzZelle({ wert, anteil, eigen, jahr, canWrite, onSatz }: {
+  wert: number
+  anteil: number
+  eigen: boolean
+  jahr: number
+  canWrite: boolean
+  onSatz: (wert: number | null) => void
+}) {
+  const [roh, setRoh] = useState<string | null>(null)
+  const anzeige = roh ?? (anteil * 100).toFixed(2).replace(/\.?0+$/, '')
+  return (
+    <td className="py-1.5 pr-3 text-right">
+      <div>{chf(wert)}</div>
+      {canWrite ? (
+        <div className="flex items-center justify-end gap-0.5">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={anzeige}
+            title={eigen ? 'In diesem Jahr gesetzt' : 'Vom Vorjahr übernommen'}
+            onChange={(e) => setRoh(e.target.value)}
+            onBlur={() => {
+              if (roh != null) {
+                const leer = roh.trim() === ''
+                const v = Number(roh.replace(',', '.'))
+                if (leer && jahr > 1) onSatz(null)
+                else if (Number.isFinite(v)) onSatz(v / 100)
+              }
+              setRoh(null)
+            }}
+            className={`w-12 rounded border-0 bg-transparent px-0.5 py-0 text-right text-[10px] tabular-nums focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#B98C74] ${
+              eigen ? 'font-semibold text-slate-700' : 'text-slate-400'}`}
+          />
+          <span className="text-[10px] text-slate-400">%</span>
+        </div>
+      ) : (
+        <div className="text-[10px] text-slate-400">{pct(anteil, 1)}</div>
+      )}
+    </td>
   )
 }
 
