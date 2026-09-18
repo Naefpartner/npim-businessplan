@@ -41,6 +41,7 @@ export function useAnlagekosten(
   projectId: string | undefined,
   variantId: string,
   sharedMengen?: ReturnType<typeof useMengengeruest>,
+  sharedEtappen?: ReturnType<typeof useVariantEtappen>,
 ) {
   const [variant, setVariant] = useState<ProjectVariant | null>(null)
   const [gsfTotal, setGsfTotal] = useState(0)
@@ -50,7 +51,11 @@ export function useAnlagekosten(
   // sonst eine eigene Instanz laden (z. B. wenn ohne Provider verwendet).
   const ownMengen = useMengengeruest(sharedMengen ? undefined : variantId)
   const mengen = sharedMengen ?? ownMengen
-  const { etappen } = useVariantEtappen(variantId)
+  // Dieselbe Etappenliste wie die Mengen-Sektion: eine eigene Instanz kannte
+  // eine frisch angelegte Etappe nicht und hielt die ihr zugeordneten Gebäude
+  // für unzugeordnet.
+  const ownEtappen = useVariantEtappen(sharedEtappen ? undefined : variantId)
+  const { etappen, loading: etappenLaedt } = sharedEtappen ?? ownEtappen
   const gsfAlloc = useGsfAllocation(variantId)
   const bkpKosten = useBkpKosten(variantId)
   const custom = useBkpCustomPositions(variantId)
@@ -224,10 +229,19 @@ export function useAnlagekosten(
     return m
   }, [bkpKosten.rows])
 
-  const hasOhneEtappe = useMemo(() => {
+  /**
+   * Gebäude ohne gültige Etappe — mit Namen, damit die Warnung sagt, welche
+   * gemeint sind. Solange die Etappen noch laden, wird nicht gewarnt: eine
+   * leere Liste hiesse sonst „keines zugeordnet".
+   */
+  const ohneEtappe = useMemo(() => {
+    if (etappenLaedt) return []
     const known = new Set(etappen.map((e) => e.id))
-    return buildings.some((b) => !b.etappe_id || !known.has(b.etappe_id))
-  }, [buildings, etappen])
+    return buildings
+      .filter((b) => !b.etappe_id || !known.has(b.etappe_id))
+      .map((b) => b.name)
+  }, [buildings, etappen, etappenLaedt])
+  const hasOhneEtappe = ohneEtappe.length > 0
 
   const totalAllocatedGsf = useMemo(() => {
     let sum = 0
@@ -389,7 +403,7 @@ export function useAnlagekosten(
     blockErgebnisse, konsolidiert, grandTotalBrutto,
     konsolidiertEffektiv, blockErgebnisseEffektiv,
     kostenMethode, setKostenMethode, keeValueAktiv, benchmarkAktiv, kostenModus,
-    aggregateFlags, hasOhneEtappe, totalAllocatedGsf, gsfMismatch,
+    aggregateFlags, hasOhneEtappe, ohneEtappe, totalAllocatedGsf, gsfMismatch,
     getDetail, defaultShare,
     bkpKosten, custom, gsfAlloc, bkp2Aggregat,
     ertragProNutzungByEig,

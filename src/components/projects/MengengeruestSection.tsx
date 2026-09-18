@@ -10,7 +10,9 @@ import {
   type VariantBuildingFull,
   type VariantBuildingInput,
 } from '@/hooks/useMengengeruest'
-import { useMengengeruestShared } from '@/contexts/VariantDataContext'
+import {
+  useMengengeruestShared, useVariantEtappenGeteilt,
+} from '@/contexts/VariantDataContext'
 import { useVariantEtappen } from '@/hooks/useVariantEtappen'
 import { copyEtappe } from '@/hooks/useVariants'
 import { Button } from '@/components/ui/button'
@@ -359,7 +361,11 @@ export function MengengeruestSection({
 
   const { buildings: existing } = useExistingBuildings(projectId)
   const mengen = useMengengeruestShared()
-  const etappenApi = useVariantEtappen(variantId)
+  // Dieselbe Liste wie die Anlagekostenberechnung — sonst kennt sie eine neu
+  // angelegte Etappe nicht.
+  const etappenGeteilt = useVariantEtappenGeteilt()
+  const etappenEigen = useVariantEtappen(etappenGeteilt ? undefined : variantId)
+  const etappenApi = etappenGeteilt ?? etappenEigen
 
   // Komplette Etappe kopieren (mit Gebäuden, Flächen, Anlagekosten) und
   // danach Etappen- und Mengen-Daten neu laden.
@@ -2105,31 +2111,6 @@ function MiniWhgInput({
   )
 }
 
-// Total-Zellen für die Wohnungsmix-Spalten in der Total-Row der Tabelle
-function WohnungsmixTotalCells({
-  buildings,
-}: {
-  buildings: VariantBuildingFull[]
-}) {
-  const sums: Record<string, number> = {}
-  buildings.forEach((b) => b.mietflaechen.forEach((m) => {
-    if (!isNutzungWohnen(m.nutzung) || !m.wohnungsmix) return
-    WOHNUNGSMIX_KEYS.forEach((k) => {
-      sums[k] = (sums[k] ?? 0) + (m.wohnungsmix?.[k] ?? 0)
-    })
-  }))
-  return (
-    <>
-      <span />
-      {WOHNUNGSMIX_KEYS.map((k) => (
-        <span key={k} className="text-center text-sm tabular-nums">
-          {sums[k] ? sums[k] : ''}
-        </span>
-      ))}
-    </>
-  )
-}
-
 function TextCell({
   value, placeholder, canWrite, list, onCommit,
 }: {
@@ -2255,129 +2236,6 @@ function parseChNumber(raw: string): string {
   return raw.replace(/['\s’]/g, '').replace(',', '.')
 }
 
-
-// ─── Ertragsobjekte-Sub-Sektion ───────────────────────────────────────────
-
-function ErtragsobjekteSection({
-  building, canWrite, api,
-}: {
-  building: VariantBuildingFull
-  canWrite: boolean
-  api: ReturnType<typeof useMengengeruest>
-}) {
-  const [draftBez, setDraftBez] = useState('')
-  const [draftAnz, setDraftAnz] = useState('1')
-
-  async function add() {
-    if (!draftBez.trim()) return
-    const ok = await api.createErtragsobjekt(building.id, {
-      bezeichnung: draftBez.trim(),
-      anzahl:      Number(draftAnz) || 1,
-      notizen:     null,
-      sort_order:  building.ertragsobjekte.length,
-    })
-    if (ok) { setDraftBez(''); setDraftAnz('1') }
-  }
-
-  return (
-    <div className="space-y-2">
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Ertragsobjekte</h4>
-      <div className="overflow-hidden rounded-lg border border-slate-200">
-        <div className="grid border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-400" style={{ gridTemplateColumns: '1fr 4rem 2.5rem' }}>
-          <span>Bezeichnung</span>
-          <span className="text-right">Anzahl</span>
-          <span />
-        </div>
-        {building.ertragsobjekte.map((e) => (
-          <ErtragsobjektRow key={e.id} ertragsobjekt={e} canWrite={canWrite} api={api} />
-        ))}
-        {canWrite && (
-          <div className="grid border-t border-slate-100 px-3 py-1.5" style={{ gridTemplateColumns: '1fr 4rem 2.5rem' }}>
-            <input
-              className={inputClass}
-              placeholder="z.B. Werbefläche"
-              value={draftBez}
-              onChange={(e) => setDraftBez(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-            />
-            <input
-              type="number"
-              inputMode="numeric"
-              step={1}
-              min={1}
-              className={cn(inputClass, 'ml-1 text-right tabular-nums')}
-              value={draftAnz}
-              onChange={(e) => setDraftAnz(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-            />
-            <Button variant="ghost" size="sm" onClick={add} title="Hinzufügen">
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ErtragsobjektRow({
-  ertragsobjekt, canWrite, api,
-}: {
-  ertragsobjekt: VariantBuildingFull['ertragsobjekte'][number]
-  canWrite: boolean
-  api: ReturnType<typeof useMengengeruest>
-}) {
-  const [bez, setBez] = useState(ertragsobjekt.bezeichnung)
-  const [anz, setAnz] = useState(String(ertragsobjekt.anzahl))
-
-  useEffect(() => { setBez(ertragsobjekt.bezeichnung) }, [ertragsobjekt.bezeichnung])
-  useEffect(() => { setAnz(String(ertragsobjekt.anzahl)) }, [ertragsobjekt.anzahl])
-
-  function commitBez() {
-    if (bez.trim() && bez !== ertragsobjekt.bezeichnung) {
-      api.updateErtragsobjekt(ertragsobjekt.id, { bezeichnung: bez.trim() })
-    }
-  }
-  function commitAnz() {
-    const v = Number(anz)
-    if (!isNaN(v) && v !== ertragsobjekt.anzahl) {
-      api.updateErtragsobjekt(ertragsobjekt.id, { anzahl: v })
-    }
-  }
-
-  return (
-    <div className="grid border-t border-slate-50 px-3 py-1.5" style={{ gridTemplateColumns: '1fr 4rem 2.5rem' }}>
-      <input
-        className={cn(inputClass, !canWrite && 'border-transparent bg-transparent')}
-        value={bez}
-        onChange={(e) => setBez(e.target.value)}
-        onBlur={commitBez}
-        disabled={!canWrite}
-      />
-      <input
-        type="number"
-        inputMode="numeric"
-        step={1}
-        min={1}
-        className={cn(inputClass, 'ml-1 text-right tabular-nums', !canWrite && 'border-transparent bg-transparent')}
-        value={anz}
-        onChange={(e) => setAnz(e.target.value)}
-        onBlur={commitAnz}
-        disabled={!canWrite}
-      />
-      {canWrite && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => api.deleteErtragsobjekt(ertragsobjekt.id)}
-          title="Entfernen"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      )}
-    </div>
-  )
-}
 
 // ─── Gebäude anlegen / bearbeiten ─────────────────────────────────────────
 

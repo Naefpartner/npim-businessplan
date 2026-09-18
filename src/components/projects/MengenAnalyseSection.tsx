@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { PieChart, ChevronDown, ChevronRight } from 'lucide-react'
-import { useMengengeruestShared } from '@/contexts/VariantDataContext'
+import {
+  useMengengeruestShared, useVariantEtappenGeteilt,
+} from '@/contexts/VariantDataContext'
 import { useVariantEtappen } from '@/hooks/useVariantEtappen'
 import { useGenossenschaftKostenmiete } from '@/hooks/useGenossenschaftKostenmiete'
 import { EIGENTUMSART_LABEL, WOHNUNGSMIX_KEYS, type Eigentumsart } from '@/types'
@@ -82,7 +84,9 @@ const zimmerFarbe = (zimmerKey: string, familie: CiFamily = 'kupfer'): string =>
 export function MengenAnalyseSection({ variantId, defaultExpanded = false }: { variantId: string; defaultExpanded?: boolean }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const { buildings } = useMengengeruestShared()
-  const { etappen } = useVariantEtappen(variantId)
+  const etappenGeteilt = useVariantEtappenGeteilt()
+  const etappenEigen = useVariantEtappen(etappenGeteilt ? undefined : variantId)
+  const { etappen } = etappenGeteilt ?? etappenEigen
   // Genossenschaft: Wohnungsertrag = Kostenmiete, nicht der im Mengengerüst
   // erfasste Vergleichsmietzins.
   const km = useGenossenschaftKostenmiete(variantId)

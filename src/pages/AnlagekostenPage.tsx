@@ -124,7 +124,7 @@ export function AnlagekostenSection({
     buildings, etappen, presentEig, gsfTotal,
     positionsByEig, typForByEig,
     blockErgebnisse, konsolidiert,
-    aggregateFlags, hasOhneEtappe, totalAllocatedGsf, gsfMismatch,
+    aggregateFlags, hasOhneEtappe, ohneEtappe, totalAllocatedGsf, gsfMismatch,
     getDetail, defaultShare,
     bkpKosten, custom, gsfAlloc, ertragProNutzungByEig,
     kostenMethode, setKostenMethode,
@@ -227,7 +227,13 @@ export function AnlagekostenSection({
       {hasOhneEtappe && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>Es gibt Gebäude ohne Etappen-Zuordnung — diese fliessen nicht in die Anlagekosten ein. Bitte in Mengen und Erträge einer Etappe zuordnen.</span>
+          {/* Mit Namen: sonst sucht man bei zehn Häusern das eine ohne Etappe. */}
+          <span>
+            {ohneEtappe.length === 1 ? 'Ein Gebäude hat' : `${ohneEtappe.length} Gebäude haben`}
+            {' '}keine gültige Etappen-Zuordnung ({ohneEtappe.slice(0, 4).join(', ')}
+            {ohneEtappe.length > 4 ? ' …' : ''}) — sie fliessen nicht in die Anlagekosten
+            ein. Bitte in Mengen und Erträge einer Etappe zuordnen.
+          </span>
         </div>
       )}
 

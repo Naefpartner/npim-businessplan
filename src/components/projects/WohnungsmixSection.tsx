@@ -4,7 +4,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
 } from 'recharts'
-import { useMengengeruestShared } from '@/contexts/VariantDataContext'
+import {
+  useMengengeruestShared, useVariantEtappenGeteilt,
+} from '@/contexts/VariantDataContext'
 import { useVariantEtappen } from '@/hooks/useVariantEtappen'
 import {
   WOHNUNGSMIX_KEYS, WOHNUNGSMIX_LABEL, isNutzungWohnen, effektiveWohnungCounts, WOHNUNG_FALLBACK_KEY,
@@ -136,7 +138,9 @@ function toGroup(c: CountMap, etappeId: string | null, etappeName: string, cat: 
 
 export function WohnungsmixSection({ variantId, defaultExpanded = false }: { variantId: string; defaultExpanded?: boolean }) {
   const mengen = useMengengeruestShared()
-  const { etappen } = useVariantEtappen(variantId)
+  const etappenGeteilt = useVariantEtappenGeteilt()
+  const etappenEigen = useVariantEtappen(etappenGeteilt ? undefined : variantId)
+  const { etappen } = etappenGeteilt ?? etappenEigen
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [view, setView] = useState<'konsolidiert' | 'etappen'>('konsolidiert')
   const [tab, setTab] = useState<'tabelle' | 'visualisierung'>('tabelle')
