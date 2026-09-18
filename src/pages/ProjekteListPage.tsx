@@ -81,7 +81,7 @@ const inputClass =
   'w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-[#8B6956] focus:ring-2 focus:ring-[#8B6956]/20 disabled:opacity-50'
 
 export function ProjekteListPage() {
-  const { canWrite } = useAuth()
+  const { canWrite, isAdmin } = useAuth()
   const { projects, loading, error, createProject, updateProject, reload } = useProjects()
   const [showArchived, setShowArchived] = useState(false)
   const [createOpen, setCreateOpen]     = useState(false)
@@ -225,7 +225,11 @@ export function ProjekteListPage() {
       ) : visible.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
           {projects.length === 0
-            ? 'Noch keine Projekte angelegt.'
+            ? isAdmin
+              ? 'Noch keine Projekte angelegt.'
+              // Ohne Zuordnung sieht ein Benutzer keine Projekte — das ist kein
+              // leerer Bestand, sondern eine Frage der Berechtigung.
+              : 'Ihnen ist noch kein Projekt zugeordnet. Wenden Sie sich an einen Administrator.'
             : kundeId
               ? `Keine Projekte für diesen Kunden${search.trim() ? ', die zur Suche passen' : ''}.`
               : search.trim()

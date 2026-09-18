@@ -10,6 +10,7 @@ import {
   ShieldOff,
   CheckCircle2,
   XCircle,
+  FolderOpen,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth, type UserRole } from '@/contexts/AuthContext'
@@ -23,6 +24,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+
+/** Ein Projekt, wie es die Zuordnung braucht. */
+interface ProjektRow {
+  id: string
+  name: string
+  project_number: string | null
+  archived: boolean
+}
 
 interface ProfileRow {
   id: string
@@ -51,21 +60,40 @@ const roleBadgeClass: Record<UserRole, string> = {
 export function BenutzerverwaltungPage() {
   const { user: currentUser } = useAuth()
   const [rows, setRows]         = useState<ProfileRow[]>([])
+  const [projekte, setProjekte] = useState<ProjektRow[]>([])
+  /** Zugeordnete Projekte je Benutzer. */
+  const [zuordnung, setZuordnung] = useState<Record<string, string[]>>({})
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
   const [search, setSearch]     = useState('')
   const [inviteOpen, setInviteOpen] = useState(false)
+  /** Benutzer, dessen Projekte gerade zugeordnet werden. */
+  const [zuordnenFuer, setZuordnenFuer] = useState<ProfileRow | null>(null)
 
   async function load() {
     setLoading(true)
     setError(null)
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, role, active, created_at')
-      .order('created_at', { ascending: false })
+    const [profileRes, projektRes, memberRes] = await Promise.all([
+      supabase.from('profiles')
+        .select('id, full_name, role, active, created_at')
+        .order('created_at', { ascending: false }),
+      supabase.from('projects')
+        .select('id, name, project_number, archived')
+        .order('name'),
+      supabase.from('project_members').select('project_id, user_id'),
+    ])
 
-    if (error) setError(error.message)
-    else setRows((data ?? []) as ProfileRow[])
+    const fehler = profileRes.error ?? projektRes.error ?? memberRes.error
+    if (fehler) setError(fehler.message)
+    else {
+      setRows((profileRes.data ?? []) as ProfileRow[])
+      setProjekte((projektRes.data ?? []) as ProjektRow[])
+      const nach: Record<string, string[]> = {}
+      for (const m of (memberRes.data ?? []) as { project_id: string; user_id: string }[]) {
+        (nach[m.user_id] ??= []).push(m.project_id)
+      }
+      setZuordnung(nach)
+    }
     setLoading(false)
   }
 
@@ -153,6 +181,7 @@ export function BenutzerverwaltungPage() {
                 <th className="px-4 py-3 text-left font-medium">Name</th>
                 <th className="px-4 py-3 text-left font-medium">Rolle</th>
                 <th className="px-4 py-3 text-left font-medium">Status</th>
+                <th className="px-4 py-3 text-left font-medium">Projekte</th>
                 <th className="px-4 py-3 text-right font-medium">Aktionen</th>
               </tr>
             </thead>
@@ -195,6 +224,23 @@ export function BenutzerverwaltungPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
+                      {row.role === 'admin' ? (
+                        <span className="text-xs text-slate-500">
+                          alle ({projekte.length})
+                        </span>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setZuordnenFuer(row)}
+                          className="gap-1.5 px-2 text-xs font-medium text-slate-700"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5 text-[#8B6956]" />
+                          {(zuordnung[row.id] ?? []).length} von {projekte.length}
+                        </Button>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
                         {row.active ? (
                           <Button
@@ -231,7 +277,159 @@ export function BenutzerverwaltungPage() {
         onClose={() => setInviteOpen(false)}
         onInvited={load}
       />
+
+      <ProjektZuordnungModal
+        benutzer={zuordnenFuer}
+        projekte={projekte}
+        zugeordnet={zuordnenFuer ? (zuordnung[zuordnenFuer.id] ?? []) : []}
+        onClose={() => setZuordnenFuer(null)}
+        onGespeichert={load}
+      />
     </div>
+  )
+}
+
+// ─── Projektzuordnung ─────────────────────────────────────────────────────────
+
+/**
+ * Ordnet einem Benutzer Projekte zu. Wer kein Administrator ist, sieht in der
+ * ganzen Anwendung nur die hier angehakten Projekte — die Datenbank setzt das
+ * durch (Migration 071), nicht die Oberfläche.
+ */
+function ProjektZuordnungModal({
+  benutzer,
+  projekte,
+  zugeordnet,
+  onClose,
+  onGespeichert,
+}: {
+  benutzer: ProfileRow | null
+  projekte: ProjektRow[]
+  zugeordnet: string[]
+  onClose: () => void
+  onGespeichert: () => void
+}) {
+  const [gewaehlt, setGewaehlt] = useState<Set<string>>(new Set())
+  const [suche, setSuche] = useState('')
+  const [speichert, setSpeichert] = useState(false)
+  const [fehler, setFehler] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (benutzer) { setGewaehlt(new Set(zugeordnet)); setSuche(''); setFehler(null) }
+    // Nur beim Öffnen setzen: während des Bearbeitens soll die Liste stehen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [benutzer])
+
+  const gefiltert = useMemo(() => {
+    const q = suche.trim().toLowerCase()
+    if (!q) return projekte
+    return projekte.filter((p) =>
+      p.name.toLowerCase().includes(q)
+      || (p.project_number ?? '').toLowerCase().includes(q))
+  }, [projekte, suche])
+
+  if (!benutzer) return null
+
+  const umschalten = (id: string) => setGewaehlt((alt) => {
+    const neu = new Set(alt)
+    if (neu.has(id)) neu.delete(id)
+    else neu.add(id)
+    return neu
+  })
+
+  async function speichern() {
+    if (!benutzer) return
+    setSpeichert(true)
+    setFehler(null)
+    const vorher = new Set(zugeordnet)
+    const dazu = [...gewaehlt].filter((id) => !vorher.has(id))
+    const weg  = [...vorher].filter((id) => !gewaehlt.has(id))
+
+    if (dazu.length > 0) {
+      const { error } = await supabase.from('project_members')
+        .insert(dazu.map((project_id) => ({ project_id, user_id: benutzer.id })))
+      if (error) { setFehler(error.message); setSpeichert(false); return }
+    }
+    if (weg.length > 0) {
+      const { error } = await supabase.from('project_members')
+        .delete().eq('user_id', benutzer.id).in('project_id', weg)
+      if (error) { setFehler(error.message); setSpeichert(false); return }
+    }
+    setSpeichert(false)
+    onGespeichert()
+    onClose()
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Projekte zuordnen</DialogTitle>
+          <DialogDescription>
+            {benutzer.full_name ?? 'Benutzer'} sieht in der ganzen Anwendung nur die
+            angehakten Projekte — samt Varianten, Mengen, Kosten und Berichten.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={suche}
+            onChange={(e) => setSuche(e.target.value)}
+            placeholder="Projekt suchen…"
+            className={cn(inputClass, 'pl-9')}
+          />
+        </div>
+
+        <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-1">
+          {gefiltert.length === 0 ? (
+            <p className="p-4 text-center text-sm text-slate-500">Kein Projekt gefunden.</p>
+          ) : gefiltert.map((p) => (
+            <label
+              key={p.id}
+              className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                checked={gewaehlt.has(p.id)}
+                onChange={() => umschalten(p.id)}
+                className="h-4 w-4 accent-[#8B6956]"
+              />
+              <span className="min-w-0 flex-1 truncate text-slate-800">{p.name}</span>
+              {p.project_number && (
+                <span className="shrink-0 text-xs text-slate-400">{p.project_number}</span>
+              )}
+              {p.archived && (
+                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                  archiviert
+                </span>
+              )}
+            </label>
+          ))}
+        </div>
+
+        {fehler && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{fehler}</span>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={speichert}>Abbrechen</Button>
+          <Button
+            onClick={speichern}
+            disabled={speichert}
+            className="bg-[#F2D3C2] text-slate-900 hover:bg-[#E7AF90]"
+          >
+            {speichert
+              ? <><Loader2 className="h-4 w-4 animate-spin" />Wird gespeichert…</>
+              : `${gewaehlt.size} Projekt${gewaehlt.size === 1 ? '' : 'e'} zuordnen`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
