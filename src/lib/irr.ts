@@ -259,10 +259,20 @@ export interface FinanzierungsReihe {
    * eingeschossen wurde — der Gewinn des Eigenkapitals.
    */
   beanspruchtesEk: number[]
+  /** Stand des eingebrachten Eigenkapitals: die Einlagen aufsummiert. */
+  eingelegt: number[]
   /** Eingelegtes, aber noch nicht beanspruchtes Eigenkapital. */
   reserve: number[]
   /** Was nach dem eingelegten Eigenkapital noch zu finanzieren wäre. */
   benoetigtesFk: number[]
+  /**
+   * Finanzierungsreserven: was an Mitteln bereitsteht und noch nicht gebraucht
+   * ist — Saldo des Projekts plus eingebrachtes Eigenkapital plus
+   * aufgenommenes Fremdkapital. Der Saldo ist während des Baus negativ, die
+   * beiden Finanzierungsstände positiv; bleibt unter dem Strich etwas übrig,
+   * ist das die Luft. Negativ ist die Deckungslücke.
+   */
+  reserveFk: number[]
   /** Bedarf, den weder Einlagen noch Tranchen decken. */
   deckungsluecke: number[]
   /**
@@ -297,8 +307,10 @@ export function finanzierungsreihe(
   const schuld: number[] = []
   const benoetigt: number[] = []
   const beanspruchtesEk: number[] = []
+  const eingelegt: number[] = []
   const reserve: number[] = []
   const benoetigtesFk: number[] = []
+  const reserveFk: number[] = []
   const deckungsluecke: number[] = []
 
   let schuldStand = 0
@@ -323,13 +335,166 @@ export function finanzierungsreihe(
     schuld.push(schuldStand)
     benoetigt.push(kumBedarf)
     beanspruchtesEk.push(ek)
+    eingelegt.push(kumEk)
     reserve.push(kumEk - ek)
     benoetigtesFk.push(fk)
+    // Saldo (= −kumBedarf) + Stand des Eigenkapitals + Stand des Fremdkapitals.
+    reserveFk.push(kumEk + schuldStand - kumBedarf)
     deckungsluecke.push(Math.max(0, fk - schuldStand))
   }
 
   const ekFluss = beanspruchtesEk.map((v, i) => (beanspruchtesEk[i - 1] ?? 0) - v)
   return {
-    schuld, benoetigt, beanspruchtesEk, reserve, benoetigtesFk, deckungsluecke, ekFluss,
+    schuld, benoetigt, beanspruchtesEk, eingelegt, reserve, benoetigtesFk, reserveFk,
+    deckungsluecke, ekFluss,
   }
+}
+
+// ── Verzinsung des eingebrachten Eigenkapitals (Kontomodell) ─────────────────
+
+/**
+ * Das Eigenkapital als verzinstes Konto: Ergebnis von `ekKontoverzinsung`.
+ */
+export interface EkKonto {
+  /**
+   * Netto eingebrachtes Eigenkapital: Einlagen abzüglich Rückzüge. Wird alles
+   * wieder herausgenommen, ist es null — auf dem Konto bleiben dann die
+   * thesaurierten Zinsen.
+   */
+  einlagen: number
+  /** Nur die Einlagen, ohne die Rückzüge gegenzurechnen. */
+  eingezahlt: number
+  /** Was wieder herausgenommen wurde, als positive Zahl. */
+  zurueckgezogen: number
+  /**
+   * Höchster Einsatz: der grösste Stand der Einlagen ohne Zinsen. Die
+   * Bezugsgrösse, wenn zwischendurch Kapital zurückgezogen wird und die
+   * Nettosumme wenig aussagt.
+   */
+  spitzeEinsatz: number
+  /** Gewinn, der am Schluss an das Eigenkapital geht. */
+  gewinn: number
+  /**
+   * Stand, den das Konto am Ende erreichen muss: das netto eingebrachte
+   * Eigenkapital und den Gewinn obendrauf. Der gesuchte Zins ist der, der
+   * genau dorthin führt.
+   */
+  endwert: number
+  /**
+   * Gesuchter Jahreszins, quartalsweise gutgeschrieben und mitverzinst.
+   * `null`, wenn es keinen gibt — wenn nie Kapital im Spiel war etwa, oder
+   * wenn der Verlust grösser ist als jeder darstellbare Negativzins hergibt.
+   */
+  satz: number | null
+  /** Kontostand je Quartalsende beim gefundenen Satz. */
+  stand: number[]
+  /** Zins, der dem Konto im Quartal gutgeschrieben wird. */
+  zins: number[]
+}
+
+/**
+ * Kontostände zu einem gegebenen Jahreszins.
+ *
+ * Gerechnet wie ein Sparkonto mit Quartalszins, Quartal für Quartal:
+ *
+ *     Stand = Stand des Vorquartals + Zins des Vorquartals + Einlage
+ *     Zins  = Stand × Jahreszins / 4
+ *
+ * Der Zins eines Quartals rechnet also auf dem Stand samt der Einlage dieses
+ * Quartals, gutgeschrieben wird er im nächsten — dort verzinst er sich mit.
+ * Bei 10 % und 100'000 im ersten Quartal sind das 2'500 Zins; der zweite
+ * Stand ist 102'500 und wirft 2'562.50 ab. Im letzten Quartal fällt kein Zins
+ * mehr an: dann ist das Geld draussen.
+ */
+export function ekKontoStaende(
+  einlagen: number[], jahresZins: number,
+): { stand: number[]; zins: number[] } {
+  const stand: number[] = []
+  const zins: number[] = []
+  let s = 0
+  let zVor = 0
+  for (let t = 0; t < einlagen.length; t++) {
+    s += zVor + (einlagen[t] ?? 0)
+    /*
+     * Im letzten Quartal fällt kein Zins mehr an — er würde nirgends mehr
+     * gutgeschrieben. So summieren sich die ausgewiesenen Zinsen genau auf den
+     * Gewinn, und die Zinszeile lässt sich als Kontrolle lesen.
+     */
+    const z = t === einlagen.length - 1 ? 0 : s * (jahresZins / 4)
+    zins.push(z)
+    stand.push(s)
+    zVor = z
+  }
+  return { stand, zins }
+}
+
+/**
+ * Verzinsung des eingebrachten Eigenkapitals.
+ *
+ * Die Frage, die eine Investorin stellt: Welchen Zins hätte dasselbe Geld auf
+ * einem Konto abwerfen müssen, um am Schluss gleich viel wert zu sein? Die
+ * Einlagen sind das eingebrachte Eigenkapital, Quartal für Quartal; der
+ * Endstand ist das eingesetzte Kapital plus den Gewinn. Gesucht ist der Satz
+ * dazwischen — er ist die Zahl, die sich direkt gegen eine andere Anlage
+ * halten lässt.
+ *
+ * Anders als der interne Zinsfuss braucht diese Rechnung keine Annahme über
+ * die Wiederanlage von Rückflüssen: es wird nichts zurückgezahlt, das Konto
+ * läuft bis zum Schluss durch.
+ */
+export function ekKontoverzinsung(
+  /** Eingebrachtes Eigenkapital je Quartal. */
+  einlagen: number[],
+  /** Gewinn, der am Ende an das Eigenkapital geht. */
+  gewinn: number,
+): EkKonto {
+  const summe = einlagen.reduce((s, v) => s + (v ?? 0), 0)
+  const eingezahlt = einlagen.reduce((s, v) => s + Math.max(0, v ?? 0), 0)
+  const zurueckgezogen = einlagen.reduce((s, v) => s - Math.min(0, v ?? 0), 0)
+  /*
+   * Spitze des Einsatzes: der höchste Stand der blossen Einlagen. Wer sein
+   * Kapital später wieder herauszieht, hat netto null eingebracht — im Spiel
+   * war es trotzdem, und die Zinsen laufen auf dem Konto weiter. Diese Zahl,
+   * nicht die Nettosumme, entscheidet darüber, ob sich eine Verzinsung
+   * ausweisen lässt.
+   */
+  let kum = 0
+  let spitzeEinsatz = 0
+  for (const v of einlagen) {
+    kum += v ?? 0
+    spitzeEinsatz = Math.max(spitzeEinsatz, kum)
+  }
+  const endwert = summe + gewinn
+  const leer: EkKonto = {
+    einlagen: summe, eingezahlt, zurueckgezogen, spitzeEinsatz, gewinn, endwert, satz: null,
+    stand: einlagen.map(() => 0), zins: einlagen.map(() => 0),
+  }
+  if (einlagen.length === 0 || spitzeEinsatz <= 0) return leer
+
+  /*
+   * Der Endstand wächst mit dem Zins — jede Einlage wird mit einer Potenz von
+   * (1 + z/4) multipliziert, jeder Rückzug entsprechend abgezogen. Die
+   * Nullstelle lässt sich deshalb schlicht einschachteln; der Bereich ist
+   * derselbe wie beim internen Zinsfuss.
+   */
+  const fehler = (z: number) => {
+    const { stand } = ekKontoStaende(einlagen, z)
+    return (stand[stand.length - 1] ?? 0) - endwert
+  }
+  let lo = -0.99
+  let hi = 10
+  let fLo = fehler(lo)
+  const fHi = fehler(hi)
+  if (fLo === 0) return { ...leer, satz: lo, ...ekKontoStaende(einlagen, lo) }
+  if (fHi === 0) return { ...leer, satz: hi, ...ekKontoStaende(einlagen, hi) }
+  if (fLo * fHi > 0) return leer
+  for (let k = 0; k < 200 && hi - lo > 1e-12; k++) {
+    const mitte = (lo + hi) / 2
+    const fM = fehler(mitte)
+    if (fM === 0) { lo = mitte; hi = mitte; break }
+    if (fM * fLo < 0) hi = mitte
+    else { lo = mitte; fLo = fM }
+  }
+  const satz = (lo + hi) / 2
+  return { ...leer, satz, ...ekKontoStaende(einlagen, satz) }
 }

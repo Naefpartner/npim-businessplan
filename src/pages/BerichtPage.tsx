@@ -120,7 +120,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const anlagekosten = useAnlagekostenDaten(variantId, umfang, etappenAuswahl)
   const wirtschaftlichkeit = useWirtschaftlichkeitDaten(variantId, umfang, etappenAuswahl)
   const limiten = useLimitenDaten(variantId, umfang, etappenAuswahl)
-  const kapitalSteuern = useKapitalSteuernDaten(variantId)
+  const kapitalSteuern = useKapitalSteuernDaten(projektId, variantId)
   const mittelfluss = useMittelflussDaten(projektId, variantId)
 
   const uebersicht = useUebersichtDaten(

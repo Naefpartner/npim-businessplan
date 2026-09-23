@@ -17,8 +17,8 @@ import { formatNumber } from '@/lib/utils'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { buildUnits } from '@/lib/mengenAnalyse'
 import {
-  analysiereReihe, barwerteKalender, finanzierungsreihe,
-  type FinanzierungsReihe, type ReihenKennzahlen,
+  analysiereReihe, ekKontoverzinsung, finanzierungsreihe,
+  type EkKonto, type FinanzierungsReihe, type ReihenKennzahlen,
 } from '@/lib/irr'
 import { CI } from '@/lib/ci'
 import {
@@ -73,6 +73,13 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
    */
   const { loaded: ksDoc } = useKapitalSteuern(variantId)
   const landerloes = ksDoc?.landprovider.ertrag ?? 0
+  /*
+   * Was die Kapitalstruktur in „Kapital und Steuern" an Eigenkapital führt —
+   * die Bezugsgrösse zu den Einlagen, die hier über die Quartale verteilt
+   * werden. Sie steht in der Spalte „Gesamt" der Eingabezeile, wie bei den
+   * Kostenpositionen der erfasste Betrag neben der verteilten Summe.
+   */
+  const ekErfasst = (ksDoc?.investoren ?? []).reduce((s, i) => s + i.kapital, 0)
 
   // ── Persistenz (JSONB pro Variante) + globales Undo/Redo, robuster Save ──────
   const { loaded, loading, save } = useMittelfluss(variantId)
@@ -307,11 +314,13 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
   /*
    * Tabelle und Kennzahlen rechnen aus derselben Reihe: der Bedarf je Quartal
    * (Kosten und Steuern abzüglich Erlöse) wird zuerst vom erfassten
-   * Eigenkapital getragen, der Rest vom Fremdkapital. Früher lief die Zeile
-   * „beanspruchtes Eigenkapital" über eine eigene Formel und der interne
-   * Zinsfuss über ein Wasserfallmodell — die beiden konnten sich widersprechen,
-   * und ohne erfasste Einlagen fehlte dem Zinsfuss jede Auszahlung. Jetzt
-   * trägt die Zeile „Zahlungsfluss Eigenkapital" beides.
+   * Eigenkapital getragen, der Rest vom Fremdkapital. Früher lief das
+   * beanspruchte Eigenkapital über eine eigene Formel und der interne Zinsfuss
+   * über ein Wasserfallmodell — die beiden konnten sich widersprechen, und
+   * ohne erfasste Einlagen fehlte dem Zinsfuss jede Auszahlung. Jetzt kommt
+   * beides aus `finanzierungsreihe`. Die Tabelle zeigt davon die Stände bis
+   * zum Saldo Fremdkapital; die abgeleiteten Reihen tragen nur noch die
+   * Kennzahlen.
    */
   /**
    * Anlagekosten inklusive Mehrwertsteuer und Gewinnsteuern — die Kopfzeile der
@@ -344,31 +353,25 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
     const fin = finanzierungsreihe(projekt.map((v) => -v), ek, tranche)
     // Satz für den modifizierten Zinsfuss: der erfasste Finanzierungssatz.
     const satzProQuartal = doc.fremdZinssatz / 100 / 4
+    const projektKennzahlen = analysiereReihe(projekt, { satzProQuartal, tage: zahlungsTage })
     return {
       ek,
       fin,
       projektReihe: projekt,
-      projekt: analysiereReihe(projekt, { satzProQuartal, tage: zahlungsTage }),
-      eigenKennzahlen: analysiereReihe(fin.ekFluss, { satzProQuartal, tage: zahlungsTage }),
+      projekt: projektKennzahlen,
       // Spitze der Beanspruchung — die Bezugsgrösse des Eigenkapital-Zinsfusses.
       spitzeEk: fin.beanspruchtesEk.reduce((m, v) => Math.max(m, v), 0),
+      /*
+       * Neben dem internen Zinsfuss die Verzinsung des eingebrachten
+       * Eigenkapitals als Konto: die Einlagen quartalsweise verzinst, der
+       * Endstand ist das Kapital zurück und der Projektgewinn obendrauf. Der
+       * Gewinn ist die Summe der Projektreihe — Erlöse abzüglich aller Kosten
+       * inklusive Bau- und Steuerzahlungen; das Fremdkapital ist darin mit
+       * seinem Zins enthalten, sein Kapital geht rein und wieder raus.
+       */
+      konto: ekKontoverzinsung(ek, projektKennzahlen.summe),
     }
   }, [calc, doc.verteilung, doc.fremdZinssatz, fremdScope, erloese, kostenJeQuartal, zahlungsTage])
-
-  /*
-   * Probe zum ausgewiesenen Zinsfuss: die Barwerte der Eigenkapitalreihe. Ihre
-   * Summe muss null sein — genau das definiert den internen Zinsfuss. Die
-   * Zeile steht in der Tabelle unter dem Zahlungsfluss, damit die Rechnung
-   * nachvollziehbar ist, ohne sie im Excel nachzubauen.
-   */
-  const barwertProbe = useMemo(() => {
-    const satz = irr.eigenKennzahlen.xirrJahr ?? irr.eigenKennzahlen.irrJahr
-    if (satz == null) return null
-    const werte = barwerteKalender(satz, irr.fin.ekFluss, zahlungsTage)
-    const summe = werte.reduce((s, v) => s + v, 0)
-    // Restbeträge aus der Näherung sind kein Befund — als null zeigen.
-    return { satz, werte, summe: Math.abs(summe) < 0.5 ? 0 : summe }
-  }, [irr, zahlungsTage])
 
   // ── Setter ───────────────────────────────────────────────────────────────────
   const setPct = (scope: string, posKey: string, qKey: string, val: number) => setDoc((d) => {
@@ -519,26 +522,36 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
                 cols={tableCols} canWrite={canWrite} onSetPct={setPct}
                 fremdScope={fremdScope}
                 ekVert={doc.verteilung[fremdScope]?.['eigenkapital'] ?? {}}
+                ekErfasst={ekErfasst}
                 trancheVert={doc.verteilung[fremdScope]?.['tranche'] ?? {}}
                 erloesScope={erloesScope} erloesTotal={erloesTotal}
                 erloese={erloese} verkaufPct={verkaufPct} objektReihen={objektReihen}
-                steuerScope={steuerScope} steuerReihen={steuerReihen} fin={irr.fin}
-                barwertProbe={barwertProbe}
+                steuerScope={steuerScope} steuerReihen={steuerReihen} fin={irr.fin} konto={irr.konto}
                 kostenJeQuartal={kostenJeQuartal}
                 verkauf={doc.verkauf} onSetVerkauf={setVerkauf}
               />
             </div>
           </div>
 
-          <IrrKennzahlen
-            quartale={quartale}
-            erloesTotal={erloesTotal}
-            projekt={irr.projekt}
-            eigen={irr.eigenKennzahlen}
-            unterdeckung={irr.fin.deckungsluecke.some((v) => v > 0.5)}
-            spitzeEk={irr.spitzeEk}
-            eingelegt={irr.ek.reduce((a, v) => a + v, 0)}
-          />
+          {/*
+            * Kennzahlen und Erläuterung stehen auf der Breite der Tabelle, nicht
+            * auf der des Containers: die Tabelle ist aus festen Spalten gebaut
+            * und endet bei `totalW`, der Rest rechts davon ist leerer Grund.
+            * Ohne diese Fessel liefen die Kacheln auf einem breiten Bildschirm
+            * weit über die letzte Spalte hinaus. Ist die Tabelle breiter als das
+            * Fenster, scrollt sie — dann bleiben die Kacheln bei 100 %.
+            */}
+          <div style={{ width: totalW, maxWidth: '100%' }}>
+            <IrrKennzahlen
+              quartale={quartale}
+              erloesTotal={erloesTotal}
+              projekt={irr.projekt}
+              unterdeckung={irr.fin.deckungsluecke.some((v) => v > 0.5)}
+              spitzeEk={irr.spitzeEk}
+              eingelegt={irr.ek.reduce((a, v) => a + v, 0)}
+              konto={irr.konto}
+            />
+          </div>
         </div>
       ))}
     </section>
@@ -546,25 +559,25 @@ export function MittelflussSection({ projectId, variantId, defaultExpanded = fal
 }
 
 /**
- * Kennzahlen der Zahlungsreihe. Der interne Zinsfuss steht zweimal da: einmal
- * für das ganze Projekt, einmal aus Sicht des Eigenkapitals — der Unterschied
- * ist der Hebel der Fremdfinanzierung.
+ * Kennzahlen der Zahlungsreihe: was das Eigenkapital abwirft, wie viel Geld
+ * das Projekt maximal bindet, wann es dreht und was unter dem Strich bleibt.
+ * Die internen Zinsfüsse stehen im Bericht, nicht mehr hier.
  */
 function IrrKennzahlen({
-  quartale, erloesTotal, projekt, eigen, unterdeckung, spitzeEk, eingelegt,
+  quartale, erloesTotal, projekt, unterdeckung, spitzeEk, eingelegt, konto,
 }: {
   quartale: MfQuartal[]
   erloesTotal: number
   projekt: ReihenKennzahlen
-  eigen: ReihenKennzahlen
   unterdeckung: boolean
   spitzeEk: number
   eingelegt: number
+  konto: EkKonto
 }) {
   if (erloesTotal <= 0) {
     return (
       <p className="text-xs text-slate-400">
-        Für den internen Zinsfuss braucht es Einnahmen: in „Mengen und Erträge" Verkaufspreise
+        Für die Kennzahlen braucht es Einnahmen: in „Mengen und Erträge" Verkaufspreise
         bei den Verkaufsobjekten erfassen. Rendite- und Genossenschaftsbauten bleiben im
         Bestand und haben während der Projektdauer keine Verkaufserlöse.
       </p>
@@ -573,33 +586,21 @@ function IrrKennzahlen({
   const pct = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
   const quartalLabel = (i: number | null) =>
     (i == null || !quartale[i] ? '—' : `${quartale[i].jahr} Q${quartale[i].q}`)
-  /*
-   * In der Kachel steht der interne Zinsfuss, kalendergenau gerechnet wie
-   * XINTZINSFUSS im Excel — dieselbe Zahl, die eine Zielwertsuche über die
-   * Barwerte der Reihe findet. Nur wenn es gar keine Nullstelle gibt, tritt der
-   * modifizierte Zinsfuss an seine Stelle; er ist dann als „mod."
-   * gekennzeichnet. Bei mehreren Nullstellen steht die da, die eine
-   * Zielwertsuche mit üblichem Startwert findet; die übrigen nennt der Hinweis
-   * darunter.
-   */
-  const zinsfuss = (k: ReihenKennzahlen, bezug: string) => (
-    k.xirrJahr != null || k.irrJahr != null
-      ? { wert: pct(k.xirrJahr ?? k.irrJahr), hinweis: `p. a., ${bezug}` }
-      : k.mirrJahr != null
-        ? { wert: pct(k.mirrJahr), hinweis: `mod. Zinsfuss p. a., ${bezug}` }
-        : { wert: '—', hinweis: bezug }
-  )
-  const zfProjekt = zinsfuss(projekt, 'auf dem Gesamtkapital, Bauzinsen in den Kosten')
-  const zfEigen = zinsfuss(eigen, `auf ${formatNumber(spitzeEk)} CHF beanspruchtem Eigenkapital`)
-  const mehrdeutig = projekt.irrMehrdeutig || eigen.irrMehrdeutig
-  const ersetzt = (projekt.xirrJahr == null && projekt.irrJahr == null && projekt.mirrJahr != null)
-    || (eigen.xirrJahr == null && eigen.irrJahr == null && eigen.mirrJahr != null)
 
   return (
     <div className="space-y-2">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Kennzahl label="IRR Projekt" wert={zfProjekt.wert} hinweis={zfProjekt.hinweis} />
-        <Kennzahl label="IRR Eigenkapital" wert={zfEigen.wert} hinweis={zfEigen.hinweis} />
+      {/* Vier Kacheln auf der Breite der Tabelle darüber — `minmax(0,1fr)`
+          über `min-w-0` in der Kachel, sonst sperrt sich eine lange Zahl gegen
+          das Schrumpfen und die Reihe schiebt sich über den Rand hinaus. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
+        {/* Das Eigenkapital als verzinstes Konto — die Zahl, die sich gegen
+            eine andere Anlage halten lässt. */}
+        <Kennzahl label="Verzinsung Eigenkapital" wert={pct(konto.satz)}
+          hinweis={konto.satz != null
+            ? `p. a., höchster Einsatz ${formatNumber(konto.spitzeEinsatz)} CHF, quartalsweise verzinst`
+            : konto.spitzeEinsatz <= 0
+              ? 'keine Einlagen erfasst'
+              : 'kein Satz führt auf den Endwert'} />
         <Kennzahl label="Kapitalbindung" wert={formatNumber(projekt.kapitalbindung)}
           hinweis="grösster Mittelbedarf, CHF" />
         <Kennzahl label="Break-even" wert={quartalLabel(projekt.breakEven)}
@@ -608,37 +609,42 @@ function IrrKennzahlen({
           hinweis="Summe der Zahlungsreihe, CHF" />
       </div>
 
-      {eigen.xirrJahr != null && (
+      {/* Herleitung — die Rechnung soll man in der Tabelle nachlesen können,
+          dort stehen Zins und Kontostand Quartal für Quartal. */}
+      {konto.satz != null && (
         <p className="text-xs text-slate-500">
-          Gerechnet wie XINTZINSFUSS: jede Quartalszahlung wird über ihre tatsächlichen Tage
-          abgezinst (Zahlungstag = Quartalsende, 365 Tage je Jahr), gesucht ist der Jahressatz,
-          der die Summe der Barwerte auf null stellt. Auf der reinen Quartalsachse ergäben sich
-          {' '}{pct(eigen.irrProQuartal)} je Quartal oder {pct(eigen.irrJahr)} p. a.
+          <span className="font-medium text-slate-700">Verzinsung des Eigenkapitals:</span>{' '}
+          Das eingebrachte Eigenkapital wird gerechnet wie ein Konto mit Quartalszins. Jedes
+          Quartal gilt: Saldo des Vorquartals + Zins des Vorquartals + Einlage des laufenden
+          Quartals; verzinst wird dieser Saldo mit einem Viertel des Jahreszinses, und der Zins
+          kommt im nächsten Quartal dazu und verzinst sich mit. Gesucht ist der Satz, bei dem das
+          Konto am Schluss genau auf den Gewinn kommt:
+          {konto.zurueckgezogen > 0.5 ? (
+            <>
+              {' '}{formatNumber(konto.eingezahlt)} CHF Einlagen abzüglich
+              {' '}{formatNumber(konto.zurueckgezogen)} CHF, die wieder herausgenommen wurden —
+              netto {formatNumber(konto.einlagen)} CHF —, plus
+            </>
+          ) : (
+            <>{' '}{formatNumber(konto.einlagen)} CHF Einlagen plus</>
+          )}
+          {' '}{formatNumber(konto.gewinn)} CHF Projektgewinn ergeben einen Endstand von
+          {' '}{formatNumber(konto.endwert)} CHF. Das leistet ein Zins von
+          {' '}<span className="font-medium text-slate-700">{pct(konto.satz)} p. a.</span> Der
+          Kontostand steht in der Tabelle unter dem eingebrachten Eigenkapital. Anders als der interne
+          Zinsfuss unterstellt diese Rechnung keine Wiederanlage von Rückflüssen.
+          {konto.zurueckgezogen > 0.5 && (
+            <> Zurückgezogenes Kapital verlässt das Konto und wird ab dann nicht mehr verzinst;
+            die bis dahin angefallenen Zinsen bleiben liegen und laufen weiter — auch wenn das
+            eingebrachte Kapital vollständig zurück ist.</>
+          )}
         </p>
       )}
-      {mehrdeutig && (
+      {konto.satz == null && konto.spitzeEinsatz <= 0 && projekt.summe > 0 && (
         <p className="text-xs text-amber-700">
-          Die Zahlungsreihe wechselt mehrfach das Vorzeichen und hat deshalb mehr als eine
-          Lösung: {eigen.wurzelnJahr.length > 1 ? eigen.wurzelnJahr.map((w) => pct(w)).join(', ') : projekt.wurzelnJahr.map((w) => pct(w)).join(', ')} p. a. —
-          alle setzen die Summe der Barwerte auf null. Ausgewiesen ist die Lösung nächst null;
-          eine Zielwertsuche findet je nach Startwert eine andere. Eindeutig ist in solchen
-          Fällen nur der modifizierte Zinsfuss (siehe unten).
-        </p>
-      )}
-      {ersetzt && (
-        <p className="text-xs text-slate-500">
-          Für die Zahlungsreihe gibt es keinen internen Zinsfuss — der Barwert wird bei keinem
-          Satz null. Ausgewiesen ist deshalb der modifizierte Zinsfuss, gekennzeichnet als
-          „mod."
-        </p>
-      )}
-      {(projekt.mirrJahr != null || eigen.mirrJahr != null) && !ersetzt && (
-        <p className="text-xs text-slate-500">
-          Zum Vergleich der modifizierte Zinsfuss (MIRR) zum erfassten Finanzierungssatz —
-          Fehlbeträge zu diesem Satz finanziert, Überschüsse zu demselben angelegt statt zum
-          internen Zinsfuss: {pct(projekt.mirrJahr)} auf dem Gesamtkapital,
-          {' '}{pct(eigen.mirrJahr)} auf dem Eigenkapital. Für den Variantenvergleich ist er
-          die vorsichtigere Zahl.
+          Für die Verzinsung des Eigenkapitals braucht es Einlagen — die Zeile „Eingebrachtes
+          Eigenkapital" ist leer. Ohne eingesetztes Kapital gibt es keinen Satz, auf den sich
+          der Gewinn beziehen liesse.
         </p>
       )}
       {projekt.summe <= 0 && (
@@ -666,10 +672,12 @@ function IrrKennzahlen({
 
 function Kennzahl({ label, wert, hinweis }: { label: string; wert: string; hinweis: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="text-[11px] font-medium text-slate-500">{label}</div>
-      <div className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{wert}</div>
-      <div className="text-[10px] text-slate-400">{hinweis}</div>
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
+      {/* Die Beschriftung darf kürzen — sie steht vollständig im Tooltip. Zahl
+          und Hinweis brechen lieber um, als dass etwas verloren geht. */}
+      <div className="truncate text-[11px] font-medium text-slate-500" title={label}>{label}</div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 [overflow-wrap:anywhere]">{wert}</div>
+      <div className="text-[10px] text-slate-400 [overflow-wrap:anywhere]">{hinweis}</div>
     </div>
   )
 }
@@ -683,7 +691,21 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   )
 }
 
-const stickyLeft: React.CSSProperties = { position: 'sticky', left: 0, zIndex: 5 }
+/*
+ * Die Beschriftungsspalte bleibt beim seitlichen Scrollen stehen. Damit die
+ * Zahlen nicht unter ihr durchscheinen, braucht jede Zelle darin einen
+ * deckenden Hintergrund — durchscheinende Tailwind-Töne wie `bg-slate-50/60`
+ * genügen nicht. Die Farben unten sind dieselben Töne, fertig auf dem weissen
+ * Grund der Sektion verrechnet. Die Linie rechts markiert die Kante, an der
+ * die Tabelle wegläuft.
+ */
+const stickyLeft: React.CSSProperties = {
+  position: 'sticky', left: 0, zIndex: 5, borderRight: '1px solid rgb(226 232 240)',
+}
+/** slate-50 auf Weiss: deckend statt `bg-slate-50/40`. */
+const STICKY_ZART = '#fcfdfe'
+/** slate-50 auf Weiss: deckend statt `bg-slate-50/70`. */
+const STICKY_TON = '#fafcfd'
 
 // ── Terminplan (quartalsbasiert, anteilige Balkenfüllung je Quartal) ──────────
 function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWrite, onSetPhase, onDelPhase, onReorder }: {
@@ -711,7 +733,7 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
     <div className="border-b-2 border-slate-200 bg-slate-50/40">
       {/* Jahres-Kopf */}
       <div className="grid items-stretch" style={{ gridTemplateColumns: cols }}>
-        <div style={stickyLeft} className="bg-slate-50/40 px-3 py-1 text-[11px] font-semibold text-slate-500">Terminplan</div>
+        <div style={{ ...stickyLeft, backgroundColor: STICKY_ZART }} className="px-3 py-1 text-[11px] font-semibold text-slate-500">Terminplan</div>
         <div className="bg-slate-50/40" />
         {jahre.map((y, i) => (
           <div key={i} style={{ gridColumn: `span ${y.span}` }} className="border-l border-slate-200 py-1 text-center text-[11px] font-semibold text-slate-600">{y.jahr}</div>
@@ -719,7 +741,7 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
       </div>
       {/* Quartals-Kopf */}
       <div className="grid items-stretch border-b border-slate-200" style={{ gridTemplateColumns: cols }}>
-        <div style={stickyLeft} className="bg-slate-50/40" />
+        <div style={{ ...stickyLeft, backgroundColor: STICKY_ZART }} />
         <div className="bg-slate-50/40" />
         {quartale.map((q) => (
           <div key={q.key} className="border-l border-slate-100 py-0.5 text-center text-[10px] font-medium text-slate-400">Q{q.q}</div>
@@ -812,7 +834,7 @@ function TerminplanGantt({ phasen, quartale, quartalGeo, startMonat, cols, canWr
 }
 
 // ── Kostentabelle (Positionen × Quartale), gleiche Geometrie wie der Terminplan ──
-function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, trancheVert, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, kostenJeQuartal, barwertProbe }: {
+function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrite, onSetPct, fremdScope, ekVert, ekErfasst, trancheVert, erloesScope, erloesTotal, erloese, verkaufPct, objektReihen, steuerScope, steuerReihen, verkauf, onSetVerkauf, fin, konto, kostenJeQuartal }: {
   rows: MfDispRow[]
   quartale: MfQuartal[]
   calc: MfCalc
@@ -822,6 +844,8 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   onSetPct: (scope: string, posKey: string, qKey: string, val: number) => void
   fremdScope: string
   ekVert: Record<string, number>
+  /** Eigenkapital der Investoren aus „Kapital und Steuern". */
+  ekErfasst: number
   trancheVert: Record<string, number>
   erloesScope: string
   erloesTotal: number
@@ -833,8 +857,9 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   verkauf: MfVerkauf
   onSetVerkauf: (patch: Partial<MfVerkauf>) => void
   fin: FinanzierungsReihe
+  /** Das Eigenkapital als verzinstes Konto — Zins und Stand je Quartal. */
+  konto: EkKonto
   kostenJeQuartal: number[]
-  barwertProbe: { satz: number; werte: number[]; summe: number } | null
 }) {
   const anzWarn = rows.filter((r) => {
     if (!r.editable) return false
@@ -890,21 +915,21 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
   /*
    * Alles Abgeleitete — Schuldstand, beanspruchtes Eigenkapital und dessen
    * Zahlungsfluss — kommt aus `finanzierungsreihe` in der Sektion. Damit
-   * rechnet der Eigenkapital-IRR auf genau den Zahlen, die hier stehen.
+   * rechnen die Kennzahlen auf genau den Zahlen, die hier stehen.
    */
 
   return (
     <div>
       {/* Kopf */}
       <div className="grid items-stretch border-b border-slate-200 bg-slate-50 text-slate-500" style={{ gridTemplateColumns: cols }}>
-        <div style={stickyLeft} className="bg-slate-50 px-3 py-2 text-left text-xs font-medium">Position</div>
-        <div className="px-2 py-2 text-right text-[11px] font-medium">Gesamt</div>
+        <div style={stickyLeft} className="bg-slate-50 px-3 py-1.5 text-left text-xs font-medium">Position</div>
+        <div className="px-2 py-1.5 text-right text-[11px] font-medium">Gesamt</div>
         {quartale.map((q, i) => (
-          <div key={q.key} className="border-l border-slate-100 px-1 py-2 text-center text-[10px] font-medium"
+          <div key={q.key} className="border-l border-slate-100 px-1 py-1.5 text-center text-[10px] font-medium"
             style={{ background: segBackground(quartalMonthColors[i], '22') }}>Q{q.q}</div>
         ))}
-        <div className="px-2 py-2 text-right text-[10px] font-medium">nicht verteilt</div>
-        <div className="px-2 py-2 text-right text-[11px] font-medium">Σ Quartale</div>
+        <div className="px-2 py-1.5 text-right text-[10px] font-medium">nicht verteilt</div>
+        <div className="px-2 py-1.5 text-right text-[11px] font-medium">Σ Quartale</div>
       </div>
 
       {/* Anlagekosten als Kopfzeile über ihren Positionen — zuklappbar */}
@@ -926,15 +951,16 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         const abweichung = r.editable && Math.abs(sumBrutto - r.brutto) > Math.max(1, Math.abs(r.brutto) * 0.001)
         return (
           <div key={r.key} className={`grid items-stretch border-b border-slate-100 text-xs hover:bg-slate-50/40 ${r.isHeader ? 'bg-slate-50/70' : ''}`} style={{ gridTemplateColumns: cols }}>
-            <div style={stickyLeft} className={`flex items-start gap-1 px-3 py-1.5 ${r.isHeader ? 'bg-slate-50/70 font-medium text-slate-800' : 'bg-white text-slate-700'}`} title={r.label}>
+            <div style={{ ...stickyLeft, backgroundColor: r.isHeader ? STICKY_TON : '#ffffff' }}
+              className={`flex items-start gap-1 px-3 py-1 ${r.isHeader ? 'font-medium text-slate-800' : 'text-slate-700'}`} title={r.label}>
               {r.indent > 0 && <span className="w-4 shrink-0" />}
               {r.kind === 'honorar' && r.indent === 0 && <span className="mt-px shrink-0 rounded bg-[#F2D3C2] px-1 text-[9px] text-[#5A3F2E]">Honorar</span>}
               {isFin && <span className="mt-px shrink-0 rounded bg-blue-100 px-1 text-[9px] text-blue-700">Zins</span>}
               <span className={`min-w-0 leading-tight ${r.indent > 0 ? 'text-slate-500' : ''}`}>{r.label}</span>
             </div>
-            <div className="px-2 py-1.5 text-right tabular-nums text-slate-500">{formatNumber(r.brutto)}</div>
+            <div className="px-2 py-1 text-right tabular-nums text-slate-500">{formatNumber(r.brutto)}</div>
             {rc.map((c, i) => (
-              <div key={i} className="flex flex-col justify-center border-l border-slate-100 px-1 py-1"
+              <div key={i} className="flex flex-col justify-center border-l border-slate-100 px-1 py-0.5"
                 style={{ background: segBackground(quartalMonthColors[i], '14') }}>
                 {readOnly ? (
                   <span className={`text-right text-[11px] tabular-nums ${isFin ? 'text-blue-700' : 'text-slate-500'}`}>{isFin || c.brutto ? formatNumber(c.brutto) : ''}</span>
@@ -943,18 +969,18 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
                     <div className="flex items-center justify-end gap-0.5 rounded px-0.5" style={{ background: segBackground(quartalMonthColors[i], '40') ?? '#f1f5f9' }}>
                       <NumFeld value={c.pct} disabled={!canWrite} negativ
                         onChange={(v) => onSetPct(r.scope, r.posKey, calc.qKeys[i], v)}
-                        className="min-w-0 flex-1 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
-                      <span className="text-[9px] text-slate-500">%</span>
+                        className="min-w-0 flex-1 border-0 bg-transparent py-0 text-right text-[11px] leading-tight tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
+                      <span className="text-[9px] leading-none text-slate-500">%</span>
                     </div>
-                    <span className="mt-0.5 text-right text-[9px] tabular-nums text-slate-400">{formatNumber(c.brutto)}</span>
+                    <span className="text-right text-[9px] leading-tight tabular-nums text-slate-400">{formatNumber(c.brutto)}</span>
                   </>
                 )}
               </div>
             ))}
-            <div className={`px-2 py-1.5 text-right tabular-nums ${readOnly ? 'text-slate-300' : Math.abs(unverteilt) < 0.1 ? 'text-emerald-600' : 'text-amber-600'}`}>
+            <div className={`px-2 py-1 text-right tabular-nums ${readOnly ? 'text-slate-300' : Math.abs(unverteilt) < 0.1 ? 'text-emerald-600' : 'text-amber-600'}`}>
               {readOnly ? '—' : `${formatNumber(unverteilt, 1)} %`}
             </div>
-            <div className="flex items-center justify-end gap-1 px-2 py-1.5 text-right tabular-nums font-medium text-slate-700">
+            <div className="flex items-center justify-end gap-1 px-2 py-1 text-right tabular-nums font-medium text-slate-700">
               {abweichung && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />}
               {formatNumber(sumBrutto)}
             </div>
@@ -1028,7 +1054,34 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
 
       {/* Eingebrachtes Eigenkapital (Eingabe, CHF je Quartal) */}
       <ChfInputRow label="Eingebrachtes Eigenkapital" scope={fremdScope} posKey="eigenkapital" values={ek} total={sumEK}
+        gesamt={ekErfasst > 0 ? ekErfasst : undefined} gesamtTitel={'Eigenkapital der Investoren aus \u201eKapital und Steuern\u201c'}
         qKeys={calc.qKeys} cols={cols} quartalMonthColors={quartalMonthColors} canWrite={canWrite} onSet={onSetPct} />
+
+      {/* Erst der blosse Stand der Einlagen, dann dasselbe Konto verzinst: die
+          Differenz der beiden Zeilen sind die aufgelaufenen Zinsen. Der
+          Endstand ist das eingebrachte Eigenkapital plus den Projektgewinn —
+          dafür wurde der Satz gesucht; er steht in der Spalte „Gesamt" noch
+          einmal als Probe. Ohne Einlagen gibt es keinen Satz, dann bleibt es
+          beim blossen Saldo. */}
+      <FootRow label="Saldo Eigenkapital ohne Zinsen" values={fin.eingelegt}
+        total={fin.eingelegt[fin.eingelegt.length - 1] ?? 0}
+        cols={cols} quartalMonthColors={quartalMonthColors} />
+
+      {konto.satz != null && (
+        <>
+          <FootRow label={`Saldo Eigenkapital mit Zins (${(konto.satz * 100).toFixed(2)} % p. a.)`}
+            values={konto.stand} total={konto.stand[konto.stand.length - 1] ?? 0}
+            gesamt={konto.endwert}
+            cols={cols} quartalMonthColors={quartalMonthColors} />
+          {/* Kontrolle: der Zins, den der Saldo des Quartals abwirft — er kommt
+              im nächsten Quartal dazu. Seine Summe hinten muss dem Gewinn in
+              der Spalte „Gesamt" entsprechen, sonst passt der Satz nicht. */}
+          <FootRow label={`Zins je Quartal (${(konto.satz * 100 / 4).toFixed(3)} % des Saldos)`}
+            values={konto.zins} total={konto.zins.reduce((sum, v) => sum + v, 0)}
+            gesamt={konto.gewinn}
+            cols={cols} quartalMonthColors={quartalMonthColors} />
+        </>
+      )}
 
       {/* Benötigtes Fremdkapital = kumulierter Saldo − kumuliertes Eigenkapital */}
       <FootRow label="Benötigtes Fremdkapital (Saldo − Eigenkapital)" values={fin.benoetigtesFk} total={fin.benoetigtesFk[fin.benoetigtesFk.length - 1] ?? 0} cols={cols} quartalMonthColors={quartalMonthColors} />
@@ -1042,33 +1095,12 @@ function KostenTabelle({ rows, quartale, calc, quartalMonthColors, cols, canWrit
         total={fin.schuld[fin.schuld.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
 
-      {/* Was nach dem Fremdkapital vom Mittelbedarf bleibt — der Teil, den das
-          Eigenkapital trägt. Der Zins steckt im Saldo, er steht in den
-          Anlagekosten. */}
-      <FootRow label="Beanspruchtes Eigenkapital (Saldo − Fremdkapital)" values={fin.beanspruchtesEk}
-        total={fin.beanspruchtesEk[fin.beanspruchtesEk.length - 1] ?? 0}
+      {/* Was bereitsteht und noch nicht gebraucht ist: der Saldo — während des
+          Baus negativ — plus die beiden Finanzierungsstände. Negativ ist die
+          Deckungslücke, dann reichen Eigenkapital und Tranchen zusammen nicht. */}
+      <FootRow label="Finanzierungsreserven (Saldo + Eigenkapital + Fremdkapital)" values={fin.reserveFk}
+        total={fin.reserveFk[fin.reserveFk.length - 1] ?? 0}
         cols={cols} quartalMonthColors={quartalMonthColors} />
-
-      {/* Was vom eingebrachten Eigenkapital noch nicht gebunden ist. */}
-      <FootRow label="Eigenkapitalreserve" values={fin.reserve}
-        total={fin.reserve[fin.reserve.length - 1] ?? 0}
-        cols={cols} quartalMonthColors={quartalMonthColors} />
-
-      {/* Delta des beanspruchten Eigenkapitals von Quartal zu Quartal:
-          wächst die Beanspruchung, fliesst Geld ab — Einlage negativ,
-          Rückfluss positiv. Diese Reihe trägt den Eigenkapital-Zinsfuss. */}
-      <FootRow label="Zahlungsfluss Eigenkapital" values={fin.ekFluss}
-        total={fin.ekFluss.reduce((s, v) => s + v, 0)}
-        cols={cols} quartalMonthColors={quartalMonthColors} strong />
-
-      {/* Probe: die Barwerte zum ausgewiesenen Zinsfuss. Ihre Summe ist null —
-          steht sie hinten nicht auf null, passt der Satz nicht zur Reihe. */}
-      {barwertProbe && (
-        <FootRow
-          label={`Barwert je Quartal bei ${(barwertProbe.satz * 100).toFixed(2)} % p. a. (Kontrollsumme hinten)`}
-          values={barwertProbe.werte} total={barwertProbe.summe}
-          cols={cols} quartalMonthColors={quartalMonthColors} muted />
-      )}
 
       {anzWarn > 0 && (
         <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -1169,15 +1201,15 @@ function PctInputRow({ label, scope, posKey, werte, betraege, total, einzug, qKe
       </div>
       <div className="bg-white px-2 py-1.5 text-right tabular-nums text-slate-500">{formatNumber(total)}</div>
       {werte.map((v, i) => (
-        <div key={i} className="flex flex-col gap-0.5 border-l border-slate-100 px-1 py-1"
+        <div key={i} className="flex flex-col border-l border-slate-100 px-1 py-0.5"
           style={{ background: segBackground(quartalMonthColors[i], '14') }}>
           <div className="flex w-full items-center rounded px-0.5"
             style={{ background: segBackground(quartalMonthColors[i], '40') ?? '#f1f5f9' }}>
             <NumFeld value={v} disabled={!canWrite} placeholder="0" negativ
               onChange={(neu) => onSet(scope, posKey, qKeys[i], neu)}
-              className="w-full min-w-0 border-0 bg-transparent py-0.5 text-right text-[11px] tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
+              className="w-full min-w-0 border-0 bg-transparent py-0 text-right text-[11px] leading-tight tabular-nums text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#B98C74]" />
           </div>
-          <div className="px-0.5 text-right text-[10px] tabular-nums text-slate-400">
+          <div className="px-0.5 text-right text-[10px] leading-tight tabular-nums text-slate-400">
             {betraege[i] ? formatNumber(betraege[i]) : ''}
           </div>
         </div>
@@ -1208,11 +1240,18 @@ function NumFeld({ value, disabled, placeholder, className, negativ, onChange }:
   onChange: (v: number) => void
 }) {
   const [roh, setRoh] = useState<string | null>(null)
+  /*
+   * Ausser Gebrauch steht die Zahl gesetzt da — mit Tausenderzeichen wie
+   * überall sonst in der Tabelle. Beim Tippen bleibt sie roh, sonst käme das
+   * Trennzeichen der Eingabe in die Quere; beim Verlassen des Feldes wird es
+   * ohnehin wieder weggeputzt.
+   */
+  const gesetzt = new Intl.NumberFormat('de-CH', { maximumFractionDigits: 10 }).format(value)
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={roh ?? (value || value === 0 ? String(value) : '')}
+      value={roh ?? (value || value === 0 ? gesetzt : '')}
       disabled={disabled}
       placeholder={placeholder}
       onFocus={() => setRoh(String(value))}
@@ -1253,7 +1292,7 @@ function KopfZeile({ label, values, total, gesamt, cols, quartalMonthColors, zu,
         type="button"
         onClick={onToggle}
         style={{ ...stickyLeft, backgroundColor: '#FAEFE9' }}
-        className="flex items-center gap-1 px-3 py-1.5 text-left font-semibold text-slate-800"
+        className="flex items-center gap-1 px-3 py-1 text-left font-semibold text-slate-800"
       >
         {zu
           ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
@@ -1278,38 +1317,48 @@ function KopfZeile({ label, values, total, gesamt, cols, quartalMonthColors, zu,
   )
 }
 
-function FootRow({ label, values, total, cols, quartalMonthColors, muted, strong, wieZeile, gesamt }: {
+/*
+ * Abgeleitete Zeile. Sie ist im Satz genau gleich gebaut wie die Eingabezeile
+ * darüber oder darunter — dieselbe Schriftgrösse, dasselbe Gewicht, dieselben
+ * Farben: im Finanzierungsblock stehen Eingaben und Abgeleitetes gleichwertig
+ * nebeneinander, und nichts davon soll wichtiger aussehen als der Rest.
+ * Abgesetzt wird nur, was wirklich eine Summe ist: `strong` für den Saldo,
+ * `wieZeile` für eine Zwischensumme innerhalb der Positionen.
+ */
+function FootRow({ label, values, total, cols, quartalMonthColors, strong, wieZeile, gesamt }: {
   label: string
   values: number[]
   total: number
   cols: string
   quartalMonthColors: (string | undefined)[][]
-  muted?: boolean
   strong?: boolean
   /** Im Grad der Positionszeilen gesetzt, nur fett — eine Zwischensumme, die
    *  zu den Zeilen darüber gehört und nicht über ihnen stehen soll. */
   wieZeile?: boolean
   gesamt?: number
 }) {
-  const bg = strong ? '#FAEFE9' : muted ? 'rgb(248 250 252 / 0.6)' : 'rgb(248 250 252 / 0.6)'
-  const txt = strong || wieZeile
-    ? 'font-semibold text-slate-800'
-    : muted ? 'text-slate-400' : 'text-slate-700'
+  const bg = strong ? '#FAEFE9' : 'rgb(248 250 252 / 0.6)'
+  // Derselbe Ton, deckend — die Beschriftung steht still, die Zahlen laufen darunter durch.
+  const bgFest = strong ? '#FAEFE9' : '#fbfcfd'
+  const hervor = strong || wieZeile
+  // Beschriftung und Summe halbfett, die Quartalszahlen mager — wie in ChfInputRow.
+  const txtLabel = hervor ? 'font-semibold text-slate-800' : 'font-medium text-slate-700'
+  const txtZahl = hervor ? 'font-semibold text-slate-800' : 'text-slate-700'
   return (
-    <div className={`grid items-stretch ${wieZeile ? 'text-xs ' : ''}${strong ? 'border-t border-slate-300' : 'border-t border-slate-200'}`} style={{ gridTemplateColumns: cols }}>
-      <div style={{ ...stickyLeft, backgroundColor: bg }} className={`px-3 py-1.5 text-left ${txt}`}>{label}</div>
-      <div className={`px-2 py-1.5 text-right tabular-nums ${strong ? txt : 'text-slate-400'}`} style={{ backgroundColor: bg }}>{gesamt != null ? formatNumber(gesamt) : ''}</div>
+    <div className={`grid items-stretch text-xs ${strong ? 'border-t border-slate-300' : 'border-t border-slate-100'}`} style={{ gridTemplateColumns: cols }}>
+      <div style={{ ...stickyLeft, backgroundColor: bgFest }} className={`flex items-center px-3 py-1.5 text-left ${txtLabel}`}>{label}</div>
+      <div className={`px-2 py-1.5 text-right tabular-nums ${strong ? txtLabel : 'text-slate-500'}`} style={{ backgroundColor: bg }}>{gesamt != null ? formatNumber(gesamt) : ''}</div>
       {values.map((v, i) => (
-        <div key={i} className={`border-l border-slate-100 px-1 py-1.5 text-right text-[11px] tabular-nums ${txt}`} style={{ background: segBackground(quartalMonthColors[i], strong ? '20' : '10') ?? bg }}>{v ? formatNumber(v) : ''}</div>
+        <div key={i} className={`border-l border-slate-100 px-1 py-1.5 text-right text-[11px] tabular-nums ${txtZahl}`} style={{ background: segBackground(quartalMonthColors[i], strong ? '20' : '10') ?? bg }}>{v ? formatNumber(v) : ''}</div>
       ))}
       <div style={{ backgroundColor: bg }} />
-      <div className={`px-2 py-1.5 text-right tabular-nums ${txt}`} style={{ backgroundColor: bg }}>{formatNumber(total)}</div>
+      <div className={`px-2 py-1.5 text-right tabular-nums ${txtLabel}`} style={{ backgroundColor: bg }}>{formatNumber(total)}</div>
     </div>
   )
 }
 
 // Editierbare CHF-Zeile je Quartal (Eigenkapital, Finanzierungstranchen).
-function ChfInputRow({ label, scope, posKey, values, total, qKeys, cols, quartalMonthColors, canWrite, onSet }: {
+function ChfInputRow({ label, scope, posKey, values, total, qKeys, cols, quartalMonthColors, canWrite, onSet, gesamt, gesamtTitel }: {
   label: string
   scope: string
   posKey: string
@@ -1320,11 +1369,20 @@ function ChfInputRow({ label, scope, posKey, values, total, qKeys, cols, quartal
   quartalMonthColors: (string | undefined)[][]
   canWrite: boolean
   onSet: (scope: string, posKey: string, qKey: string, val: number) => void
+  /** Erfasster Betrag für die Spalte „Gesamt"; ohne ihn steht dort die
+   *  verteilte Summe. Geht er mit ihr auseinander, wird er gelb. */
+  gesamt?: number
+  gesamtTitel?: string
 }) {
+  const abweichung = gesamt != null
+    && Math.abs(gesamt - total) > Math.max(1, Math.abs(gesamt) * 0.001)
   return (
     <div className="grid items-stretch border-t border-slate-100 text-xs" style={{ gridTemplateColumns: cols }}>
       <div style={stickyLeft} className="flex items-center bg-white px-3 py-1.5 font-medium text-slate-700">{label}</div>
-      <div className="bg-white px-2 py-1.5 text-right tabular-nums text-slate-500">{formatNumber(total)}</div>
+      <div title={gesamtTitel}
+        className={`bg-white px-2 py-1.5 text-right tabular-nums ${abweichung ? 'text-amber-600' : 'text-slate-500'}`}>
+        {formatNumber(gesamt ?? total)}
+      </div>
       {values.map((v, i) => (
         <div key={i} className="flex items-center border-l border-slate-100 px-1 py-1" style={{ background: segBackground(quartalMonthColors[i], '14') }}>
           <div className="flex w-full items-center rounded px-0.5" style={{ background: segBackground(quartalMonthColors[i], '40') ?? '#f1f5f9' }}>

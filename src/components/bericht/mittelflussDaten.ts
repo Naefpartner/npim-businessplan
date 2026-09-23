@@ -12,27 +12,34 @@ import {
   honorarPhasenGewichte, projektEnde, quartaleZwischen, resolvePhasen,
   verkaufsVerteilung, defaultMittelflussDoc,
 } from '@/lib/mittelfluss'
-import { analysiereReihe, finanzierungsreihe } from '@/lib/irr'
+import { analysiereReihe, ekKontoverzinsung, finanzierungsreihe } from '@/lib/irr'
 import { buildUnits } from '@/lib/mengenAnalyse'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { eigentumsartForBuilding } from '@/types'
-import { mittelflussKapitel } from '@/components/bericht/mittelflussKapitel'
+import {
+  mittelflussKapitel, type MfKapitelZahlen,
+} from '@/components/bericht/mittelflussKapitel'
 import type { BereichsKapitelDaten } from '@/components/bericht/BerichtDokument'
 
 const EMPTY_HON: HonorarInput = { anlagekosten: {}, factors: {}, pauschal: {} }
 
 /**
- * Stellt das Kapitel „Mittelflussrechnung" zusammen.
+ * Die gerechneten Reihen der Mittelflussrechnung.
  *
  * Gerechnet wird mit denselben Funktionen wie im Reiter der Variante — Zeilen,
- * Quartalsverteilung, Finanzierung und interner Zinsfuss. Gedruckt wird die
- * Gesamtsicht über alle Eigentumsarten, weil die Finanzierung des Projekts
- * über ihnen liegt; das ist auch die Ansicht, in der der Reiter aufgeht.
+ * Quartalsverteilung, Finanzierung und Verzinsung des Eigenkapitals. Gerechnet
+ * wird die Gesamtsicht über alle Eigentumsarten, weil die Finanzierung des
+ * Projekts über ihnen liegt; das ist auch die Ansicht, in der der Reiter
+ * aufgeht.
+ *
+ * Eigener Hook, weil nicht nur das Kapitel „Mittelflussrechnung" davon lebt:
+ * „Kapital und Steuern" weist dieselbe Verzinsung des Eigenkapitals aus und
+ * soll sie nicht ein zweites Mal rechnen.
  */
-export function useMittelflussDaten(
+export function useMittelflussZahlen(
   projectId: string | undefined,
   variantId: string | undefined,
-): BereichsKapitelDaten | undefined {
+): MfKapitelZahlen | undefined {
   const ak = useAnlagekostenShared()
   const { loaded: mfDoc } = useMittelfluss(variantId ?? '')
   const { loaded: ksDoc } = useKapitalSteuern(variantId ?? '')
@@ -123,14 +130,13 @@ export function useMittelflussDaten(
      */
     const tage = quartale.map((q) => Date.UTC(q.jahr, q.q * 3, 0) / 86_400_000)
     const satzProQuartal = doc.fremdZinssatz / 100 / 4
-    const kEigen = analysiereReihe(fin.ekFluss, { satzProQuartal, tage })
+    const kProjekt = analysiereReihe(projektReihe, { satzProQuartal, tage })
     const kumSaldo: number[] = []
     { let run = 0; for (const v of projektReihe) { run += v; kumSaldo.push(run) } }
 
-    return mittelflussKapitel({
+    return {
       quartale,
       phasen: resolvePhasen(doc.phasen),
-      fremdZinssatz: doc.fremdZinssatz,
       nettoAK: calc.totNetto,
       mwst: calc.totMwst,
       ggst,
@@ -141,9 +147,24 @@ export function useMittelflussDaten(
       ek,
       tranchen,
       fin,
-      kProjekt: analysiereReihe(projektReihe, { satzProQuartal, tage }),
-      kEigen,
-    })
+      kProjekt,
+      /*
+       * Verzinsung des eingebrachten Eigenkapitals: Gewinn ist die Summe der
+       * Projektreihe — Erlöse abzüglich aller Kosten. Dieselbe Rechnung wie im
+       * Reiter, damit Bericht und Bildschirm dieselbe Zahl zeigen.
+       */
+      konto: ekKontoverzinsung(ek, kProjekt.summe),
+      ekInvestoren: (ksDoc?.investoren ?? []).reduce((s, i) => s + i.kapital, 0),
+    }
   }, [mfDoc, ksDoc, honGewichte, ak.presentEig, ak.positionsByEig, ak.typForByEig,
     ak.konsolidiertEffektiv, ak.benchmarkAktiv, ak.keeValueAktiv, ak.buildings, ak.etappen])
+}
+
+/** Stellt das Kapitel „Mittelflussrechnung" aus diesen Reihen zusammen. */
+export function useMittelflussDaten(
+  projectId: string | undefined,
+  variantId: string | undefined,
+): BereichsKapitelDaten | undefined {
+  const zahlen = useMittelflussZahlen(projectId, variantId)
+  return useMemo(() => (zahlen ? mittelflussKapitel(zahlen) : undefined), [zahlen])
 }

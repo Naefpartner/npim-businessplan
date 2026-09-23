@@ -3,7 +3,7 @@
 // und nachmessen lässt, ohne Datenbank und ohne React.
 
 import { monatAdd, type MfPhase, type MfQuartal } from '@/lib/mittelfluss'
-import type { FinanzierungsReihe, ReihenKennzahlen } from '@/lib/irr'
+import type { EkKonto, FinanzierungsReihe, ReihenKennzahlen } from '@/lib/irr'
 import { formatNumber } from '@/lib/utils'
 import { BERICHT_FARBE } from '@/lib/bericht'
 import type {
@@ -52,7 +52,6 @@ export interface MfKapitelZahlen {
   quartale: MfQuartal[]
   /** Terminplan, Verkettungen aufgelöst. */
   phasen: MfPhase[]
-  fremdZinssatz: number
   /** Anlagekosten netto je Quartal, Bauzinsen eingeschlossen. */
   nettoAK: number[]
   mwst: number[]
@@ -67,7 +66,14 @@ export interface MfKapitelZahlen {
   tranchen: number[]
   fin: FinanzierungsReihe
   kProjekt: ReihenKennzahlen
-  kEigen: ReihenKennzahlen
+  /** Das Eigenkapital als verzinstes Konto — Satz, Einlagen und Endwert. */
+  konto: EkKonto
+  /**
+   * Summe der Investorengelder aus „Kapital und Steuern" — das erfasste
+   * Eigenkapital des Projekts. Die Zeitachse steht in `ek`; wo die beiden
+   * auseinandergehen, ist nicht alles auf Quartale verteilt.
+   */
+  ekInvestoren: number
 }
 
 /**
@@ -75,8 +81,8 @@ export interface MfKapitelZahlen {
  * Mittelfluss je Jahr, die Zahlungsreihe je Quartal und die Kennzahlen daraus.
  *
  * Für die Bank in dieser Reihenfolge: zuerst die Annahmen, dann die Übersicht,
- * dann der Nachweis Quartal für Quartal — die Barwertspalte am rechten Rand
- * summiert sich auf null und belegt damit den ausgewiesenen Zinsfuss.
+ * dann der Nachweis Quartal für Quartal — und zuletzt die Kennzahlen, die sich
+ * aus diesen Reihen ergeben.
  */
 export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
   // Farbsystematik des Berichts: das Kapitel betrifft das ganze Projekt und
@@ -179,26 +185,31 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
         jahrZeile('Verkaufserlöse', z.erloese, 'summe', true),
         jahrZeile('Saldo, Stand am Jahresende', z.kumSaldo, 'stand'),
         jahrZeile('Eingebrachtes Eigenkapital', z.ek, 'summe'),
+        jahrZeile('Saldo Eigenkapital, Stand am Jahresende', z.fin.eingelegt, 'stand'),
         jahrZeile('Finanzierungstranchen', z.tranchen, 'summe'),
         jahrZeile('Saldo Fremdkapital, Stand am Jahresende', z.fin.schuld, 'stand'),
-        jahrZeile('Beanspruchtes Eigenkapital, Stand am Jahresende',
-          z.fin.beanspruchtesEk, 'stand'),
-        jahrZeile('Zahlungsfluss Eigenkapital', z.fin.ekFluss, 'summe', true),
+        /*
+         * Was bereitsteht und noch nicht gebraucht ist: Saldo des Jahres plus
+         * Saldo Eigenkapital plus Saldo Fremdkapital — die drei Zeilen darüber.
+         * Negativ ist die Deckungslücke, dann tragen Eigenkapital und Tranchen
+         * den Mittelbedarf nicht.
+         */
+        jahrZeile('Finanzierungsreserven, Stand am Jahresende', z.fin.reserveFk, 'stand'),
       ],
     }],
   })
 
   // ── Kennzahlen ────────────────────────────────────────────────────────────
-  const zinsfuss = (k: ReihenKennzahlen): string => (
-    k.xirrJahr != null ? pct(k.xirrJahr)
-      : k.irrJahr != null ? pct(k.irrJahr)
-        : k.mirrJahr != null ? `${pct(k.mirrJahr)} (mod.)`
-          : '—')
+  /*
+   * Die verteilte Summe steht nur da, wenn sie von den erfassten
+   * Investorengeldern abweicht — sonst wäre es dieselbe Zahl zweimal.
+   */
+  const summeEk = z.ek.reduce((s, v) => s + v, 0)
+  const verteiltesEk = Math.abs(summeEk - z.ekInvestoren) > 0.5 ? summeEk : null
   const beIdx = z.kProjekt.breakEven
   const breakEven = beIdx != null && z.quartale[beIdx]
     ? `${z.quartale[beIdx].jahr} Q${z.quartale[beIdx].q}`
     : '—'
-  const spitzeEk = z.fin.beanspruchtesEk.reduce((m, v) => Math.max(m, v), 0)
   bereiche.push({
     titel: '',
     ...farben,
@@ -209,21 +220,17 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
       linksBis: 1,
       zeilen: [
         {
-          zellen: ['Interner Zinsfuss Projekt',
-            'auf dem Gesamtkapital, Bauzinsen in den Anlagekosten enthalten',
-            zinsfuss(z.kProjekt)],
+          /*
+           * Die Verzinsung des Eigenkapitals als Konto: die Einlagen
+           * quartalsweise verzinst, bis der Stand am Schluss auf dem Gewinn
+           * steht. Eine eindeutige Zahl, die sich mit einer Anlage vergleichen
+           * lässt — anders als der interne Zinsfuss, der hier früher stand.
+           */
+          zellen: ['Durchschnittliche Verzinsung Eigenkapital',
+            `Einlagen quartalsweise verzinst bis zum Endstand von ${chf0(z.konto.endwert)} CHF,`
+            + ` höchster Einsatz ${chf0(z.konto.spitzeEinsatz)} CHF`,
+            pct(z.konto.satz)],
           total: true,
-        },
-        {
-          zellen: ['Interner Zinsfuss Eigenkapital',
-            `auf dem beanspruchten Eigenkapital, Spitze ${chf0(spitzeEk)} CHF`,
-            zinsfuss(z.kEigen)],
-          total: true,
-        },
-        {
-          zellen: ['Modifizierter Zinsfuss Eigenkapital',
-            `Fehlbeträge und Überschüsse zu ${z.fremdZinssatz.toFixed(2)} % p. a.`,
-            pct(z.kEigen.mirrJahr)],
         },
         {
           zellen: ['Kapitalbindung', 'grösster Mittelbedarf des Projekts, CHF',
@@ -239,8 +246,16 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
           total: true,
         },
         {
-          zellen: ['Eingebrachtes Eigenkapital', 'erfasste Einlagen, CHF',
-            chf0(z.ek.reduce((s, v) => s + v, 0))],
+          /*
+           * Ausgewiesen ist, was die Kapitalstruktur führt — die Summe der
+           * Investorengelder. Was davon auf Quartale verteilt ist, steht
+           * daneben, sobald die beiden auseinandergehen.
+           */
+          zellen: ['Eingebrachtes Eigenkapital',
+            verteiltesEk != null
+              ? `Summe der Investorengelder; auf Quartale verteilt ${chf0(verteiltesEk)} CHF`
+              : 'Summe der Investorengelder aus „Kapital und Steuern", CHF',
+            chf0(z.ekInvestoren)],
         },
       ],
     }],

@@ -8,6 +8,7 @@ import {
   type KapitalSteuernDoc, type KsGesellschaft, type KsGesellschaftErgebnis,
   type KsKostenZeile,
 } from '@/lib/kapitalSteuern'
+import { ekKontoverzinsung } from '@/lib/irr'
 import { formatNumber } from '@/lib/utils'
 import { BERICHT_FARBE } from '@/lib/bericht'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
@@ -24,8 +25,33 @@ const EIG = 'verkaufsobjekt' as const
  */
 const RASTER_ERFOLG = { breiten: [96, 20, 26, 18], spaltenAbstand: 3 }
 
-/** Raster der Kapitaltabelle: Investor, Einlage, Anteile, Zins, Gewinn. */
-const RASTER_KAPITAL = { breiten: [62, 26, 16, 20, 16, 26], spaltenAbstand: 3 }
+/**
+ * Raster der Kapitaltabelle: Investor, Einlage, Anteile, Verzinsung, Gewinn,
+ * Multiple. Die Zahlenspalten sind schmal gehalten — der Name des Investors
+ * braucht den Platz.
+ *
+ * Die letzte Breite ist nicht frei gewählt: sie stellt die Spalte „Gewinn nach
+ * Steuern" genau auf die Kante der Spalte „CHF" der Erfolgsrechnungen. Die
+ * Breiten sind Anteile, die Spaltenabstände dagegen feste Millimeter — die
+ * beiden Raster fluchten deshalb nur bei diesem Wert:
+ *
+ *     Erfolg   (167.5 − 2·2.3 − 3·3) · (96+20+26)/160     + 2·3 = 142.59 mm
+ *     Kapital  (167.5 − 2·2.3 − 6·3) · 157/(157 + 21.3)   + 5·3 = 142.59 mm
+ *
+ * Wer an einer der beiden Reihen dreht, rechnet den Wert neu.
+ */
+const RASTER_KAPITAL = { breiten: [56, 25, 15, 19, 17, 25, 21.3], spaltenAbstand: 3 }
+
+/**
+ * Multiple des eingesetzten Kapitals: was am Ende zurückkommt, geteilt durch
+ * das, was eingelegt wurde. 1.00× heisst, das Kapital kommt zurück und sonst
+ * nichts. Neben der Verzinsung die zweite geläufige Lesart des Ergebnisses —
+ * sie sagt nichts über die Dauer, dafür trifft sie keine Annahme über sie.
+ */
+function multiple(einlage: number, gewinn: number): string {
+  if (einlage <= 0) return '—'
+  return `${((einlage + gewinn) / einlage).toFixed(2)}×`
+}
 
 /**
  * Betrag in Franken, gerundet. Negative Beträge tragen das Minuszeichen
@@ -65,6 +91,14 @@ export interface KsKapitelZahlen {
    * einen Balken in der Farbe der Verkaufsobjekte; sonst bleibt es bei Kupfer.
    */
   mehrereEig: boolean
+  /**
+   * Eingebrachtes Eigenkapital je Quartal aus der Mittelflussrechnung — die
+   * Zeitachse, auf der die Verzinsung rechnet. `null`, solange keine
+   * Mittelflussrechnung vorliegt.
+   */
+  ekEinlagen: number[] | null
+  /** Gewinn, der in der Mittelflussrechnung an das Eigenkapital geht. */
+  ekGewinn: number
 }
 
 /**
@@ -75,7 +109,9 @@ export interface KsKapitelZahlen {
  * Variante — wer beides nebeneinander legt, findet jede Zahl wieder.
  */
 export function kapitalSteuernKapitel(
-  { doc: ksDoc, betraege, landpreis, verkaufserloes, mehrereEig }: KsKapitelZahlen,
+  {
+    doc: ksDoc, betraege, landpreis, verkaufserloes, mehrereEig, ekEinlagen, ekGewinn,
+  }: KsKapitelZahlen,
 ): BereichsKapitelDaten {
   // Farbsystematik: solange nur eine Eigentumsart vorkommt, trägt das Kapitel
   // Kupfer — ein Balken „Verkaufsobjekte" sagte dort nichts. Bei mehreren
@@ -212,6 +248,21 @@ export function kapitalSteuernKapitel(
   const bereiche: KapitelBereich[] = []
 
   // ── Kapitalstruktur ──────────────────────────────────────────────────────
+  /*
+   * Mittlere Verzinsung eines Kapitalanteils: die Einlagen der
+   * Mittelflussrechnung auf den Anteil heruntergerechnet, der Gewinn auf den
+   * Gewinnanteil — und dann derselbe Kontosatz gesucht wie fürs Ganze. Wer am
+   * Gewinn gleich beteiligt ist wie am Kapital, kommt damit auf genau den Satz
+   * des Totals; wer anders beteiligt ist, sieht hier, was das für ihn
+   * bedeutet. Unterstellt ist, dass alle im selben Rhythmus einzahlen — die
+   * Mittelflussrechnung kennt die Einlagen nur als Summe.
+   */
+  const ekSatz = (kapitalAnteil: number, gewinnAnteil: number): number | null => (
+    ekEinlagen == null ? null
+      : ekKontoverzinsung(ekEinlagen.map((v) => v * kapitalAnteil), ekGewinn * gewinnAnteil).satz
+  )
+  const satzZelle = (v: number | null): string => (v == null ? '—' : pct(v))
+
   if (kapital.investoren.length > 0) {
     const zeilen: TabellenZeile[] = kapital.investoren.map((inv) => ({
       zellen: [
@@ -219,15 +270,24 @@ export function kapitalSteuernKapitel(
         chf(inv.kapital),
         pct(inv.kapitalAnteil),
         pct(inv.gewinnAnteil),
-        inv.zinssatzPct > 0 ? `${inv.zinssatzPct.toFixed(2)} %` : '—',
+        satzZelle(ekSatz(inv.kapitalAnteil, inv.gewinnAnteil)),
         chf(inv.gewinnAnteilChf),
+        multiple(inv.kapital, inv.gewinnAnteilChf),
       ],
     }))
     zeilen.push({
       zellen: [
         'Total', chf(kapital.kapitalTotal), pct(1), pct(kapital.gewinnAnteilTotal),
-        kapital.zinsProJahrTotal > 0 ? chf(kapital.zinsProJahrTotal) : '—',
+        /*
+         * In der Spalte „Verzinsung" steht nicht der vereinbarte Satz auf der
+         * Einlage, sondern was das Eigenkapital im Projekt tatsächlich
+         * abwirft: die durchschnittliche Verzinsung aus der
+         * Mittelflussrechnung. Das ist die Zahl, die sich mit einer anderen
+         * Anlage vergleichen lässt.
+         */
+        satzZelle(ekSatz(1, 1)),
         chf(gewinnNachSteuernTotal),
+        multiple(kapital.kapitalTotal, gewinnNachSteuernTotal),
       ],
       total: true,
     })
@@ -237,15 +297,12 @@ export function kapitalSteuernKapitel(
       tabellen: [{
         titel: 'Kapitalstruktur und Gewinnverteilung',
         kopf: ['Investor', 'Einlage CHF', 'Anteil', 'Gewinnanteil', 'Verzinsung',
-          'Gewinn nach Steuern'],
+          'Gewinn nach Steuern', 'Multiple'],
         breiten: RASTER_KAPITAL.breiten,
         spaltenAbstand: RASTER_KAPITAL.spaltenAbstand,
         linksBis: 0,
         zeilen,
       }],
-      hinweis: 'Ohne eigenen Gewinnanteil gilt der Anteil am eingebrachten Kapital. '
-        + 'Die Verzinsung ist der Satz auf der Einlage; in der Spalte Total steht '
-        + 'der Zins aller Einlagen pro Jahr.',
     })
   }
 
