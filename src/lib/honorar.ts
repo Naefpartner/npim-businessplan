@@ -63,6 +63,18 @@ export interface HonorarDoc {
   honorar690?: Record<string, Honorar690>
 }
 
+/**
+ * Die Felder des Honorardokuments, die nach Variante geschlüsselt sind.
+ *
+ * Der Honorarrechner hängt am Projekt, seine Eingaben aber an der Variante —
+ * wird ein Stand kopiert, muss jeder dieser Schlüssel mitkopiert werden
+ * (`copyVariantContents`). Kommt ein neues Feld je Variante dazu, gehört es
+ * hier hinein, sonst fehlt es in der Kopie.
+ */
+export const HONORAR_JE_VARIANTE = [
+  'inputs', 'prozentOverride', 'gesamtManuell', 'akSourceMap', 'direktModeMap', 'honorar690',
+] as const satisfies readonly (keyof HonorarDoc)[]
+
 // Kennwerte für 690a (SIA-Phasen 31–41) und 690b (ab Phase 51), als Anteil an BKP 1–4.
 export interface Honorar690 { kennwertBis41: number; kennwertAb51: number }
 

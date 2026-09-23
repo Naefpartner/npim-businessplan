@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchDefaultMwst } from '@/hooks/useAppSettings'
+import { HONORAR_JE_VARIANTE } from '@/lib/honorar'
 import type {
   ProjectPhase,
   ProjectVariant,
@@ -17,6 +18,48 @@ interface VariantInput {
 
 type Row = Record<string, unknown>
 
+/*
+ * ────────────────────────────────────────────────────────────────────────────
+ * Was zu einem Stand gehört
+ *
+ * Wird ein Stand kopiert, muss alles mit, was an der Variante hängt — sonst
+ * steht der Nutzer vor einer Kopie, in der einzelne Reiter leer sind, und
+ * merkt es erst spät. Die Tabellen stehen deshalb hier und nicht verstreut im
+ * Code:
+ *
+ *   • EINFACHE_TABELLEN — eine `variant_id`, sonst keine Fremdschlüssel. Sie
+ *     werden Zeile für Zeile übernommen; meist ist es genau eine Zeile mit
+ *     einem JSON-Dokument.
+ *   • Die übrigen brauchen eine Umsetzung ihrer Fremdschlüssel und stehen
+ *     einzeln in `copyVariantContents`: variant_etappen, variant_buildings,
+ *     building_mietflaechen, building_mieteinheiten, building_ertragsobjekte,
+ *     variant_bkp_custom_position, variant_bkp_kosten,
+ *     variant_etappe_gsf_alloc.
+ *   • Dazu die nach Variante geschlüsselten Felder in `project_honorar` —
+ *     der Honorarrechner hängt am Projekt, seine Eingaben an der Variante.
+ *
+ * NEUE TABELLE MIT `variant_id`? Hier eintragen (oder, wenn sie eigene
+ * Fremdschlüssel hat, in `copyVariantContents` einbauen). `npm run check:kopie`
+ * vergleicht die Migrationen mit dieser Datei und meldet, was fehlt.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+const EINFACHE_TABELLEN = [
+  // Wirtschaftlichkeit
+  'variant_kostenmiete',
+  'variant_rendite',
+  'variant_tragbarkeit',
+  // Vorgaben der öffentlichen Hand
+  'variant_wbf_zh',
+  'variant_bwo',
+  // Kostenmethoden
+  'variant_benchmark_kosten',
+  'variant_keevalue_import',
+  'variant_keevalue_ergaenzung',
+  // Zeit und Kapital
+  'variant_mittelfluss',
+  'variant_kapital_steuern',
+] as const
+
 // Volatile Felder, die beim Kopieren neu vergeben werden.
 function stripRow(row: Row): Row {
   const rest = { ...row }
@@ -27,10 +70,10 @@ function stripRow(row: Row): Row {
 }
 
 /**
- * Kopiert ALLE variantengebundenen Inhalte von `sourceId` in `targetId`
- * (Mengengerüst, Erträge, Anlagekosten, Kostenmiete …) mit Neuvergabe der
- * IDs und Remapping der Fremdschlüssel. Projektgebundene Stammdaten
- * (Parzellen, Bestandsbauten, Fotos) bleiben geteilt und werden nicht kopiert.
+ * Kopiert ALLE variantengebundenen Inhalte von `sourceId` in `targetId` — mit
+ * Neuvergabe der IDs und Remapping der Fremdschlüssel. Was dazugehört, steht
+ * in der Liste oben; projektgebundene Stammdaten (Parzellen, Bestandsbauten,
+ * Fotos) bleiben geteilt und werden nicht kopiert.
  * Gibt `null` bei Erfolg zurück, sonst eine Fehlermeldung.
  */
 export async function copyVariantContents(sourceId: string, targetId: string): Promise<string | null> {
@@ -126,8 +169,8 @@ export async function copyVariantContents(sourceId: string, targetId: string): P
       if (error) throw error
     }
 
-    // 7) Kostenmiete + WBF + BWO + Rendite-Parameter (nur variant_id umsetzen)
-    for (const table of ['variant_kostenmiete', 'variant_wbf_zh', 'variant_bwo', 'variant_rendite'] as const) {
+    // 7) Alle Tabellen, die nur an der variant_id hängen (siehe Liste oben)
+    for (const table of EINFACHE_TABELLEN) {
       const rows = (await supabase.from(table).select('*').eq('variant_id', sourceId)).data ?? []
       if (rows.length) {
         const { error } = await supabase
@@ -148,6 +191,35 @@ export async function copyVariantContents(sourceId: string, targetId: string): P
           etappe_id: etappeMap.get(r.etappe_id as string) ?? r.etappe_id,
         })))
       if (error) throw error
+    }
+
+    // 9) Honorarrechner: er hängt am Projekt, seine Eingaben aber an der
+    //    Variante. Die nach Variante geschlüsselten Felder bekommen einen
+    //    Eintrag für den neuen Stand — eine tiefe Kopie, damit die beiden
+    //    Stände sich nachher nicht gegenseitig verändern.
+    const quelle = (await supabase.from('project_variants')
+      .select('project_id').eq('id', sourceId).maybeSingle()).data as Row | null
+    const projectId = quelle?.project_id as string | undefined
+    if (projectId) {
+      const hon = (await supabase.from('project_honorar')
+        .select('id, doc').eq('project_id', projectId).maybeSingle()).data as Row | null
+      const doc = hon?.doc as Record<string, unknown> | undefined
+      if (hon && doc) {
+        let geaendert = false
+        for (const key of HONORAR_JE_VARIANTE) {
+          const map = doc[key]
+          if (!map || typeof map !== 'object') continue
+          const jeVariante = map as Record<string, unknown>
+          if (!(sourceId in jeVariante)) continue
+          jeVariante[targetId] = JSON.parse(JSON.stringify(jeVariante[sourceId]))
+          geaendert = true
+        }
+        if (geaendert) {
+          const { error } = await supabase.from('project_honorar')
+            .update({ doc }).eq('id', hon.id as string)
+          if (error) throw error
+        }
+      }
     }
 
     return null

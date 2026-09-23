@@ -536,7 +536,7 @@ function CreateVariantDialog({
           <DialogTitle>{snapshotFrom ? 'Stand abspeichern (Kopie)' : 'Neuer Stand / Szenario'}</DialogTitle>
           <DialogDescription>
             {snapshotFrom
-              ? `Erstellt einen neuen Stand / Szenario als vollständige Kopie von "${snapshotFrom.name}" — inkl. Mengengerüst, Erträgen, Anlagekosten und Kostenmiete.`
+              ? `Erstellt einen neuen Stand / Szenario als vollständige Kopie von "${snapshotFrom.name}" — mit allen erfassten Daten: Mengengerüst, Erträge, Anlagekosten, Wirtschaftlichkeit, Mittelfluss, Kapital und Steuern sowie die Honorareingaben dieses Stands.`
               : 'Ein neuer, leerer Stand / Szenario. Inhalte erfassen Sie anschliessend in der Detailseite.'}
           </DialogDescription>
         </DialogHeader>
