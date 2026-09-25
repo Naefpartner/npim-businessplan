@@ -41,16 +41,20 @@ function friendlyError(code: string, description: string | null): string {
 /**
  * Felder im Auftritt der Website: rechte Winkel, schwarze Linie, kein Schatten.
  * Der Fokus greift die Primärfarbe des Designsystems auf (Kupfer 7).
+ *
+ * Gesetzt in 16 px statt 14: die Maske steht allein auf der Seite und soll sich
+ * lesen lassen, ohne hinzusehen — und Safari auf dem iPhone zoomt beim Tippen
+ * in jedes Feld, das kleiner als 16 px gesetzt ist.
  */
 const inputClass =
-  'w-full border border-black/20 bg-white px-3.5 py-3 text-sm text-black '
+  'w-full border border-black/20 bg-white px-3.5 py-3 text-base text-black '
   + 'placeholder:text-black/40 outline-none transition '
   + 'focus:border-[#B98C74] focus:ring-1 focus:ring-[#B98C74] disabled:opacity-50'
 
 /** Knopf ebenso: schwarze Fläche, im Überfahren Kupfer. */
 const buttonClass =
   'inline-flex w-full items-center justify-center gap-2 bg-black px-4 py-3 '
-  + 'text-sm font-bold text-white transition hover:bg-[#8B6956] '
+  + 'text-base font-bold text-white transition hover:bg-[#8B6956] '
   + 'disabled:cursor-not-allowed disabled:opacity-60'
 
 export function LoginPage() {
