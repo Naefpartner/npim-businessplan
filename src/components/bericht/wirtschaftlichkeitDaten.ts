@@ -567,12 +567,12 @@ export function useWirtschaftlichkeitDaten(
           {
             total: true,
             /*
-             * „ohne Steuern": hier stehen Erlös und Anlagekosten gegenüber,
+             * „vor Steuern": hier stehen Erlös und Anlagekosten gegenüber,
              * sonst nichts. Grundstückgewinn- und Gewinnsteuer rechnet das
              * Kapitel „Kapital und Steuern" — ohne den Zusatz liest sich die
              * Zeile wie ein Ergebnis nach Steuern.
              */
-            zellen: gewinnZeile('Verkaufsgewinn ohne Steuern', chf(resultat), anteil(resultat)),
+            zellen: gewinnZeile('Verkaufsgewinn vor Steuern', chf(resultat), anteil(resultat)),
           },
           {
             einzug: true,
