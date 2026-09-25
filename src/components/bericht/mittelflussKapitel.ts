@@ -200,12 +200,6 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
   })
 
   // ── Kennzahlen ────────────────────────────────────────────────────────────
-  /*
-   * Die verteilte Summe steht nur da, wenn sie von den erfassten
-   * Investorengeldern abweicht — sonst wäre es dieselbe Zahl zweimal.
-   */
-  const summeEk = z.ek.reduce((s, v) => s + v, 0)
-  const verteiltesEk = Math.abs(summeEk - z.ekInvestoren) > 0.5 ? summeEk : null
   const beIdx = z.kProjekt.breakEven
   const breakEven = beIdx != null && z.quartale[beIdx]
     ? `${z.quartale[beIdx].jahr} Q${z.quartale[beIdx].q}`
@@ -246,15 +240,10 @@ export function mittelflussKapitel(z: MfKapitelZahlen): BereichsKapitelDaten {
           total: true,
         },
         {
-          /*
-           * Ausgewiesen ist, was die Kapitalstruktur führt — die Summe der
-           * Investorengelder. Was davon auf Quartale verteilt ist, steht
-           * daneben, sobald die beiden auseinandergehen.
-           */
+          // Ausgewiesen ist, was die Kapitalstruktur führt — die Summe der
+          // Investorengelder.
           zellen: ['Eingebrachtes Eigenkapital',
-            verteiltesEk != null
-              ? `Summe der Investorengelder; auf Quartale verteilt ${chf0(verteiltesEk)} CHF`
-              : 'Summe der Investorengelder aus „Kapital und Steuern", CHF',
+            'Summe der Investorengelder aus „Kapital und Steuern", CHF',
             chf0(z.ekInvestoren)],
         },
       ],
