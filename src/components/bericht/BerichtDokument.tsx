@@ -1,7 +1,8 @@
 import { Document, Page, View, Text, Image, StyleSheet, Svg, Path, Circle } from '@react-pdf/renderer'
 import {
   SEITE, RAND, TITELBLATT, LOGO, INHALT, SCHRIFT, BERICHT_FARBE,
-  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, fussBreite, satzBreite,
+  FUSSZEILE_FIRMA, FUSSZEILE_TITEL, FUSSZEILE_LINKS, KAPITEL_NUMMER_LINKS,
+  fussBreite, satzBreite,
   kapitelFuer,
   type BerichtKapitel, type SeitenFormat, type AuftragAnrede, type EtappenUmfang,
 } from '@/lib/bericht'
@@ -143,7 +144,13 @@ export interface MengenSicht {
   eigentumsarten: (EigBlock & {
     kopf: string[]
     haeuser: { name: string; zeilen: TabellenZeile[]; total: TabellenZeile }[]
-    total: TabellenZeile
+    /**
+     * Balken und Schlusssumme der Eigentumsart entfallen, wo nur eine
+     * vorkommt: der Name wiederholte dann das Kapitel, und die Summe stünde
+     * ein zweites Mal unter der Häuserübersicht.
+     */
+    ohneBalken?: boolean
+    total: TabellenZeile | null
   })[]
   /** Wohnungsmix je Eigentumsart: Zimmerzahl, Anzahl, Fläche. */
   wohnungsmix: (EigBlock & { segmentFarben?: string[]; zeilen: TabellenZeile[] })[]
@@ -232,6 +239,12 @@ export interface AnlagekostenDaten {
 export interface BereichsKapitelDaten {
   /** Ob mehr als eine Sicht gedruckt wird; dann trägt jede ihren Obertitel. */
   mehrereSichten: boolean
+  /**
+   * Die Bereiche als nummerierte Unterkapitel setzen — „7.1", „7.2" vor ihrem
+   * Titel, fortlaufend über das Kapitel. Für Kapitel, deren Abschnitte man
+   * einzeln ansprechen können muss; die Nummer kommt vom Kapitel selbst.
+   */
+  nummeriert?: boolean
   /** Gesamtprojekt und/oder Etappen — je Sicht dieselben Bereiche. */
   sichten: KapitelSicht[]
 }
@@ -344,6 +357,12 @@ export interface TabellenZeile {
   dunkelSpalte?: number
   /** Untergeordnete Zeile — eingerückt und leiser gesetzt (Mieteinheiten). */
   einzug?: boolean
+  /**
+   * Zwischenüberschrift innerhalb der Tabelle — fett, aber ohne Fläche. Für
+   * Zeilen, die eine Gruppe ankündigen („Landkosten und deren Finanzierung")
+   * und keine Zahl tragen; eine Summenzeile wären sie nicht.
+   */
+  fett?: boolean
 }
 
 /** Eine Betragszeile mit Netto und Brutto (Anlagekosten je Hauptgruppe). */
@@ -605,13 +624,15 @@ const s = StyleSheet.create({
    * Das Inhaltsverzeichnis behält den Wert der Vorlage.
    */
   h1Kapitel: { marginBottom: 0 },
-  /** Kapitelüberschrift: Nummer links, Titel daneben. */
-  h1Zeile: { flexDirection: 'row' },
   /**
-   * Breite der Nummernspalte — weit genug für zweistellige Zahlen und weit
-   * genug vom Titel weg, dass beide als eigene Angaben lesbar bleiben.
+   * Kapitelüberschrift: Nummer links, Titel daneben — wie in der Word-Vorlage.
+   * Der negative linke Rand holt die Nummer aus dem Satzspiegel heraus auf
+   * 18 mm ab Papierrand; der Titel beginnt dadurch genau auf der Textkante und
+   * steht über dem Fliesstext darunter.
    */
-  h1Nummer: { width: mm(9) },
+  h1Zeile: { flexDirection: 'row', marginLeft: mm(KAPITEL_NUMMER_LINKS - RAND.links) },
+  /** Nummernspalte: vom Hängerand bis zur Textkante. */
+  h1Nummer: { width: mm(RAND.links - KAPITEL_NUMMER_LINKS) },
 
   // ── Kapitel und Feldtabellen ──────────────────────────────────────────────
   /**
@@ -621,8 +642,8 @@ const s = StyleSheet.create({
    * eingerückt.
    */
   h2: {
-    fontSize: SCHRIFT.h2,
-    lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
+    fontSize: SCHRIFT.h2Balken,
+    lineHeight: SCHRIFT.h2BalkenZeile / SCHRIFT.h2Balken,
     fontWeight: 700,
     backgroundColor: BERICHT_FARBE.primaer,
     paddingLeft: mm(EINZUG),
@@ -632,6 +653,23 @@ const s = StyleSheet.create({
     marginTop: mm(6.3),
     marginBottom: mm(1.4),
   },
+  /**
+   * Unterkapitel: Nummer und Titel nebeneinander, ohne Fläche. Die Nummer
+   * hängt wie die Kapitelnummer im linken Rand — so fluchten „7" und „7.1"
+   * auf derselben Kante, und beide Titel stehen auf der Textkante.
+   */
+  h2Zeile: {
+    flexDirection: 'row',
+    marginTop: mm(6.3),
+    marginBottom: mm(1.4),
+    marginLeft: mm(KAPITEL_NUMMER_LINKS - RAND.links),
+  },
+  h2Unter: {
+    fontSize: SCHRIFT.h2,
+    lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
+    fontWeight: 700,
+  },
+  h2Nummer: { width: mm(RAND.links - KAPITEL_NUMMER_LINKS) },
   /**
    * Feldtabelle im Stil des Titelblatts: dünne Linien, Label links.
    *
@@ -723,6 +761,13 @@ const s = StyleSheet.create({
    */
   spalteEins: { flexGrow: 0.85, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
   spalteZwei: { flexGrow: 1.3, flexShrink: 1, flexBasis: '0%' },
+  /*
+   * Dieselbe Teilung, nur andersherum: die breite Spalte links, die schmale
+   * rechts. Die Breiten bleiben, was sie waren — so stimmt die
+   * Höhenvorausberechnung weiter, die mit SPALTE_EINS und SPALTE_ZWEI rechnet.
+   */
+  spalteBreitLinks: { flexGrow: 1.3, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
+  spalteSchmalRechts: { flexGrow: 0.85, flexShrink: 1, flexBasis: '0%' },
   /** Zwei gleich breite Spalten — für Blöcke ohne unterschiedlichen Bedarf. */
   spalteHalbLinks: { flexGrow: 1, flexShrink: 1, flexBasis: '0%', marginRight: mm(6) },
   spalteHalbRechts: { flexGrow: 1, flexShrink: 1, flexBasis: '0%' },
@@ -963,6 +1008,8 @@ const s = StyleSheet.create({
    * Trägt der Block eine Farbe der Nutzungsart, überschreibt sie den Grundton.
    */
   tabTotal: { fontWeight: 700, backgroundColor: BERICHT_FARBE.primaerZart },
+  /** Zwischenüberschrift in der Tabelle: fett, ohne Fläche. */
+  tabFett: { fontWeight: 700 },
   /**
    * Untergeordnete Zeile — kleiner und leiser gesetzt, damit sie sich der Zeile
    * darüber unterordnet. Die kleinere Schrift macht die Zeile auch niedriger;
@@ -1180,6 +1227,12 @@ function textBreite(text: string): number {
  * rücken Blöcke weiter, obwohl sie noch Platz hätten.
  */
 function textZeilen(text: string, breite: number, grad: number): number {
+  // Gesetzte Umbrüche zählen mit: eine Zelle, die drei Zeilen vorgibt, ist
+  // drei Zeilen hoch, auch wenn jede für sich in die Spalte passte. Ohne das
+  // rechnet das Modell die Zeile zu niedrig, und die Seite kippt.
+  if (text.includes('\n')) {
+    return text.split('\n').reduce((s, t) => s + textZeilen(t, breite, grad), 0)
+  }
   const woerter = text.split(/\s+/).filter(Boolean)
   if (woerter.length === 0 || breite <= 0) return 1
   const leer = textBreite(' ') * grad
@@ -1815,6 +1868,7 @@ function Datenzeile({ t, zeile }: { t: Tabelle; zeile: TabellenZeile }) {
         ? [{ backgroundColor: t.hellFarbe ?? BERICHT_FARBE.primaerZart }] : []),
       ...(zeile.total ? [s.tabTotal] : []),
       ...(zeile.total && t.totalFarbe ? [{ backgroundColor: t.totalFarbe }] : []),
+      ...(zeile.fett ? [s.tabFett] : []),
       ...(zeile.einzug ? [s.tabEinzug] : []),
     ]}>
       <Zellen t={t} werte={zeile.zellen} dunkelSpalte={zeile.dunkelSpalte} />
@@ -2031,8 +2085,9 @@ function UebersichtBaustein({ el, u }: { el: UebersichtElement; u: UebersichtDat
         </View>
       )
 
-    // Je Eigentumsart eine Zeile: Wirtschaftlichkeit links, Erträge rechts —
-    // die Erträge tragen vier Spalten und brauchen die breitere Seite.
+    // Je Eigentumsart eine Zeile: Erträge links, Wirtschaftlichkeit rechts —
+    // zuerst, woraus der Ertrag kommt, dann was unter dem Strich bleibt. Die
+    // Erträge tragen vier Spalten und behalten dabei die breitere Seite.
     case 'block': {
       const b = el.block
       return (
@@ -2043,7 +2098,19 @@ function UebersichtBaustein({ el, u }: { el: UebersichtElement; u: UebersichtDat
             </Text>
           )}
           <View style={s.zweiSpalten}>
-            <View style={s.spalteEins}>
+            <View style={s.spalteBreitLinks}>
+              {b.ertraege && (
+                <Datentabelle
+                  titel={b.ertraege.titel}
+                  titelFarbe={b.farbeUnter}
+                  anschluss={Boolean(b.titel)}
+                  kopf={b.ertraege.kopf}
+                  breiten={[1.8, 1.2, 1.7, 1.55]}
+                  zeilen={b.ertraege.zeilen}
+                />
+              )}
+            </View>
+            <View style={s.spalteSchmalRechts}>
               {/* Der Spaltenkopf hat hier keine eigene Aussage, er hält aber
                   die Zeilen auf der Höhe der Ertragstabelle nebenan: ohne ihn
                   begännen die Feldzeilen um die Kopfzeilenhöhe weiter oben. */}
@@ -2056,18 +2123,6 @@ function UebersichtBaustein({ el, u }: { el: UebersichtElement; u: UebersichtDat
                   felder={b.wirtschaft.felder}
                   labelBreite={33.5}
                   einheitBreite={11.5}
-                />
-              )}
-            </View>
-            <View style={s.spalteZwei}>
-              {b.ertraege && (
-                <Datentabelle
-                  titel={b.ertraege.titel}
-                  titelFarbe={b.farbeUnter}
-                  anschluss={Boolean(b.titel)}
-                  kopf={b.ertraege.kopf}
-                  breiten={[1.8, 1.2, 1.7, 1.55]}
-                  zeilen={b.ertraege.zeilen}
                 />
               )}
             </View>
@@ -2350,15 +2405,17 @@ function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: bool
           </View>
         </View>
       ) : (
+        // Seitenverkehrt wie der Block darüber: der Wohnungsmix auf die breite
+        // Seite links, die beiden Ringe rechts.
         <View style={s.zweiSpalten}>
-          <View style={s.spalteEins}>
+          <View style={s.spalteBreitLinks}>
+            <Wohnungsmix zeilen={mix.wohnungsmix} anschluss titelFarbe={unterFarbe} />
+          </View>
+          <View style={s.spalteSchmalRechts}>
             <Ringdiagramm titel={mix.flaechenTitel} segmente={flaechen} einheit="m²"
               anschluss titelFarbe={unterFarbe} />
             <Ringdiagramm titel={mix.ertraegeTitel} segmente={ertraege} einheit="CHF"
               titelFarbe={unterFarbe} />
-          </View>
-          <View style={s.spalteZwei}>
-            <Wohnungsmix zeilen={mix.wohnungsmix} anschluss titelFarbe={unterFarbe} />
           </View>
         </View>
       )}
@@ -2377,10 +2434,15 @@ function Mixbereich({ mix, dreispaltig }: { mix: Nutzungsmix; dreispaltig?: bool
 const MH = {
   /** Kapiteltitel; den Abstand darunter bringt der erste Block mit. */
   h1: 6.7,
-  /** Balken der Eigentumsart mit vollem Vorabstand. */
-  eigTitel: 13.9,
-  /** Balken eines Hauses mit knappem Vorabstand. */
-  hausTitel: 10.1,
+  /*
+   * Die beiden Balkenhöhen folgen dem Schriftgrad der Fläche: Vorabstand und
+   * Nachabstand plus Innenabstand (0.95 mm) plus die Zeile selbst
+   * (12 pt = 4.23 mm). Wer an SCHRIFT.h2Balken dreht, rechnet sie neu.
+   */
+  /** Balken der Eigentumsart mit vollem Vorabstand (6.3 + 1.4 mm). */
+  eigTitel: 12.9,
+  /** Balken eines Hauses mit knappem Vorabstand (3.9 mm). */
+  hausTitel: 9.1,
   kopfzeile: 5.0,
   /** Quartalszeile unter den Jahren im Balkenplan — kleiner gesetzt. */
   balkenKopf: 3.6,
@@ -2518,10 +2580,12 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
   for (const eig of sicht.eigentumsarten) {
     // Der Titel der Eigentumsart trägt den Umbruch für alles, was ihm folgt —
     // ein Umbruch vor dem ersten Haus liesse ihn allein am Seitenfuss stehen.
-    lege({
-      art: 'eigTitel', block: eig, kopf: eig.kopf,
-      key: `${sk}:eig:${eig.key}`, label: eig.label,
-    })
+    if (!eig.ohneBalken) {
+      lege({
+        art: 'eigTitel', block: eig, kopf: eig.kopf,
+        key: `${sk}:eig:${eig.key}`, label: eig.label,
+      })
+    }
     // Die Übersicht der Häuser steht zwischen dem Balken der Eigentumsart und
     // ihren Häusern: erst wovon die Rede ist, dann alle auf einen Blick, dann
     // jedes für sich.
@@ -2574,10 +2638,12 @@ function mengenSeiten(sicht: MengenSicht, gesetzt: ReadonlySet<string>): MengenE
         erste = false
       }
     }
-    lege({
-      art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total,
-      key: '', label: eig.label,
-    })
+    if (eig.total) {
+      lege({
+        art: 'eigTotal', block: eig, kopf: eig.kopf, zeile: eig.total,
+        key: '', label: eig.label,
+      })
+    }
   }
   if (laufend.length > 0) seiten.push(laufend)
   return seiten
@@ -2664,15 +2730,30 @@ function sichtTitel(basis: string, sicht: MengenSicht): string {
  * oder „2. UG" Platz brachlag. Die Summe der beiden bleibt gleich, damit die
  * Zahlenspalten mit der Häuserübersicht fluchten.
  */
-const MENGEN_BREITEN = [1.05, 2.2, 0.8, 0.95, 1.05, 0.95, 1.05, 1.05, 1.3]
+/*
+ * Geschoss, Nutzung, Zimmer, Stück, GF, GV, VMF/VKF und die drei Geldspalten.
+ *
+ * Die Nutzungsspalte trägt den längsten Begriff, den die Erfassung kennt —
+ * „Geschosswohnung", am Breitenmodell 30.1 mm. Mit 30.6 mm geht er auf eine
+ * Zeile. Den Platz bringt der engere Spaltenabstand (MENGEN_ABSTAND), nicht
+ * eine andere Spalte; alle übrigen werden dadurch sogar etwas breiter.
+ */
+const MENGEN_BREITEN = [1.05, 2.5, 0.55, 0.7, 0.85, 0.95, 1.0, 1.0, 1.0, 1.1]
+
+/**
+ * Spaltenabstand der Mengentabellen. Die Höhenvorausberechnung rechnete immer
+ * schon mit 2.4 mm, gesetzt wurde mit der Vorgabe 3 — die Spalten waren damit
+ * schmaler, als das Modell annahm. Jetzt sind beide gleich.
+ */
+const MENGEN_ABSTAND = 2.4
 
 /**
  * Dieselben Spalten für die Häuserübersicht, nur die ersten beiden getauscht:
  * dort steht der Hausname, der mehr Platz braucht als eine Geschossangabe. Die
- * Summe bleibt gleich, damit die Zahlenspalten mit den Tabellen darunter
- * fluchten.
+ * Summe der beiden bleibt dieselbe wie oben (3.55), damit die Zahlenspalten
+ * mit den Tabellen darunter fluchten.
  */
-const UEBERSICHT_BREITEN = [2.0, 1.25, ...MENGEN_BREITEN.slice(2)]
+const UEBERSICHT_BREITEN = [2.1, 1.45, ...MENGEN_BREITEN.slice(2)]
 
 /** Eine Mengenseite: Kennzahlen, Häuser und Zwischensummen in der Reihenfolge. */
 function MengenSeite({
@@ -2699,13 +2780,18 @@ function MengenSeite({
               titel={e.titel}
               // Dieselbe Stufe wie die Haustitel darunter — die Übersicht ist
               // dieselbe Ebene, nur zusammengefasst.
-              titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerMittel}
+              // Ohne Eigentumsart-Farbe dieselbe Stufe wie die Hauptgruppen
+              // der Anlagekosten und die Blocktitel der Kennwerte — Kupfer 3.
+              titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerHell}
               anschluss
               // Ihre letzte Zeile ist das Total der ganzen Sicht.
               totalFarbe={e.block.farbeTotal ?? BERICHT_FARBE.primaerHell}
               kopf={e.kopf}
               breiten={UEBERSICHT_BREITEN}
-              linksBis={2}
+              spaltenAbstand={MENGEN_ABSTAND}
+              // Haus und Nutzung linksbündig; alles ab der Zimmerspalte sind
+              // Zahlen und stehen rechts.
+              linksBis={1}
               zeilen={e.zeilen}
             />
           )
@@ -2724,6 +2810,7 @@ function MengenSeite({
               zeile={e.zeile}
               kopf={e.kopf}
               breiten={MENGEN_BREITEN}
+              spaltenAbstand={MENGEN_ABSTAND}
               grund={e.block.farbeTotal ?? BERICHT_FARBE.primaerHell}
             />
           )
@@ -2732,11 +2819,12 @@ function MengenSeite({
           <Datentabelle
             key={i}
             titel={e.fortsetzung ? `${e.name} (Fortsetzung)` : e.name}
-            titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerMittel}
+            titelFarbe={e.block.farbeHaus ?? BERICHT_FARBE.primaerHell}
             anschluss
             totalFarbe={e.block.farbeGrund}
             kopf={e.kopf}
             breiten={MENGEN_BREITEN}
+            spaltenAbstand={MENGEN_ABSTAND}
             linksBis={1}
             zeilen={e.zeilen}
           />
@@ -2762,7 +2850,10 @@ const ANLAGE_SUMMEN = [0.5, 3.0, 1.3, 1.1, 1.3, 0.7]
  * wie eine achtstellige Zahl belegt. Vorher waren sie überbreit und die
  * Bezeichnung brach um.
  */
-const ANLAGE_DETAIL = [9, 109, 17, 24, 21, 20, 19, 20, 13]
+// BKP, Position, Bezug, Menge, Ansatz, drei Geldspalten, Anteil. Die
+// Bezugsspalte trägt bei der Finanzierung Hauptgruppen, Bezugssumme und
+// Anteil — sie bekommt dafür, was die Positionsbezeichnung entbehren kann.
+const ANLAGE_DETAIL = [9, 100, 26, 24, 21, 20, 19, 20, 13]
 
 type AnlageElement = Umbruchpunkt & (
   /** Obertitel einer Sicht — nur, wenn mehr als eine gedruckt wird. */
@@ -2966,8 +3057,13 @@ function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: Anlage
         }
         if (e.art === 'balken') {
           return (
+            // Die Totalzeile trägt dieselbe Hinterlegung wie jede Summenzeile
+            // im Bericht — die zarte Kupferstufe. Kupfer 7 machte sie zum
+            // lautesten Element des Kapitels und fiel aus der Systematik.
             <View key={i} style={[s.kompaktTitel, s.kompaktBalken,
-              { backgroundColor: e.stark ? BERICHT_FARBE.primaer : BERICHT_FARBE.primaerMittel }]}>
+              { backgroundColor: e.stark
+                ? BERICHT_FARBE.primaerZart
+                : BERICHT_FARBE.primaerHell }]}>
               <Zellen t={t} werte={e.zellen} />
             </View>
           )
@@ -2975,8 +3071,10 @@ function AnlageBausteine({ elemente, a }: { elemente: AnlageElement[]; a: Anlage
         if (e.art === 'gruppe') {
           return (
             <View key={i} style={s.kompaktBlock}>
+              {/* Der Balken der BKP-Hauptgruppe trägt dieselbe Stufe wie die
+                  Blocktitel der Kennwerte („… · exkl. MWST") — Kupfer 3. */}
               <View style={[s.kompaktTitel, s.kompaktBalken,
-                { backgroundColor: BERICHT_FARBE.primaerMittel }]}>
+                { backgroundColor: BERICHT_FARBE.primaerHell }]}>
                 <Zellen t={t} werte={e.balken} />
               </View>
               {e.zeilen.map((z, r) => (
@@ -3087,11 +3185,16 @@ function Mietspiegel({ daten, ohneTitel }: { daten: MietspiegelDaten; ohneTitel?
 
 /** Freistehende Summenzeile — das Total einer Eigentumsart ohne eigene Tabelle. */
 function Summenzeile({
-  zeile, kopf, breiten, grund,
-}: { zeile: TabellenZeile; kopf: string[]; breiten: number[]; grund: string }) {
+  zeile, kopf, breiten, grund, spaltenAbstand,
+}: {
+  zeile: TabellenZeile; kopf: string[]; breiten: number[]; grund: string
+  spaltenAbstand?: number
+}) {
   // Die Hinterlegung kommt über die Zeile selbst, nicht über den Block —
   // sonst läge sie auch unter dem Abstand darunter.
-  const t: Tabelle = { kopf, zeilen: [zeile], breiten, linksBis: 1, totalFarbe: grund }
+  const t: Tabelle = {
+    kopf, zeilen: [zeile], breiten, linksBis: 1, totalFarbe: grund, spaltenAbstand,
+  }
   return (
     <View style={s.feldBlock}>
       <Datenzeile t={t} zeile={zeile} />
@@ -3622,7 +3725,11 @@ type BereichsElement = Umbruchpunkt & (
   /** Obertitel einer Sicht — nur, wenn mehr als eine gedruckt wird. */
   | { art: 'sicht'; titel: string }
   /** Balken über einem Bereich. */
-  | { art: 'bereich'; titel: string; farbe: string; umbruch?: boolean }
+  | {
+    art: 'bereich'; titel: string; farbe: string; umbruch?: boolean
+    /** Nummer des Unterkapitels („7.1"); dann steht der Titel ohne Balken. */
+    nr?: string
+  }
   | {
     art: 'balken'; b: KapitelBalken
     titelFarbe: string
@@ -3666,8 +3773,18 @@ function bereichsHoehe(e: BereichsElement, breite: number): number {
  * Bausteine des Kapitels in Druckreihenfolge. Der Kapitelschlüssel steckt in
  * den Umbruchschlüsseln — sonst kämen sich die beiden Kapitel ins Gehege.
  */
-function bereichsElemente(w: BereichsKapitelDaten, kapitelKey: string): BereichsElement[] {
+function bereichsElemente(
+  w: BereichsKapitelDaten, kapitelKey: string, nummer?: number,
+): BereichsElement[] {
   const el: BereichsElement[] = []
+  // Fortlaufend über das ganze Kapitel, gezählt werden nur Bereiche, die
+  // überhaupt einen Titel tragen.
+  let unterNr = 0
+  const nummerFuer = (): string | undefined => {
+    if (!w.nummeriert || nummer == null) return undefined
+    unterNr += 1
+    return `${nummer}.${unterNr}`
+  }
   for (const sicht of w.sichten) {
     if (w.mehrereSichten) {
       el.push({
@@ -3679,9 +3796,11 @@ function bereichsElemente(w: BereichsKapitelDaten, kapitelKey: string): Bereichs
       // Ohne Balken beginnt der Bereich mit seiner ersten Tabelle; der Umbruch
       // davor hängt dann an ihr.
       if (b.titel) {
+        const nr = nummerFuer()
         el.push({
-          art: 'bereich', titel: b.titel, farbe: b.farbe, umbruch: b.neueSeite,
-          key: `${kapitelKey}:bereich:${sicht.titel}:${b.titel}`, label: b.titel,
+          art: 'bereich', titel: b.titel, nr, farbe: b.farbe, umbruch: b.neueSeite,
+          key: `${kapitelKey}:bereich:${sicht.titel}:${b.titel}`,
+          label: nr ? `${nr} ${b.titel}` : b.titel,
         })
       }
       if (b.balken) {
@@ -3718,7 +3837,7 @@ function bereichsElemente(w: BereichsKapitelDaten, kapitelKey: string): Bereichs
  */
 function bereichsSeiten(
   w: BereichsKapitelDaten, kapitelKey: string, gesetzt: ReadonlySet<string>,
-  format: SeitenFormat = BEREICHS_FORMAT,
+  format: SeitenFormat = BEREICHS_FORMAT, nummer?: number,
 ): BereichsElement[][] {
   const hoeheJeSeite = seitenHoehe(format)
   const breite = satzBreite(format)
@@ -3739,12 +3858,29 @@ function bereichsSeiten(
     const bricht = gesetzt.has(e.key)
       || (e.art === 'bereich' && e.umbruch)
       || hoehe + h > hoeheJeSeite
-    if (laufend.length > 0 && bricht) neueSeite()
+    if (laufend.length > 0 && bricht) {
+      /*
+       * Der Umbruch gehört vor den Titel, nicht hinter ihn: steht ein
+       * Abschnittstitel als Letztes auf der Seite, wandert er mit auf die
+       * neue. Allein am Seitenfuss kündigt er etwas an, was erst nach dem
+       * Blättern kommt.
+       */
+      const letzte = laufend[laufend.length - 1]
+      if (letzte?.art === 'bereich' && e.art !== 'bereich') {
+        laufend.pop()
+        hoehe -= bereichsHoehe(letzte, breite)
+        neueSeite()
+        laufend.push(letzte)
+        hoehe += bereichsHoehe(letzte, breite)
+      } else {
+        neueSeite()
+      }
+    }
     laufend.push(e)
     hoehe += h
   }
 
-  for (const e of bereichsElemente(w, kapitelKey)) {
+  for (const e of bereichsElemente(w, kapitelKey, nummer)) {
     if (e.art !== 'tabelle' || bereichsHoehe(e, breite) <= hoeheJeSeite) { lege(e); continue }
     // Zu hoch für eine ganze Seite: zeilenweise aufteilen.
     const steg = e.t.spaltenAbstand ?? 3
@@ -3880,6 +4016,17 @@ function BereichsBausteine({ elemente, breite }: {
       {elemente.map((e, i) => {
         if (e.art === 'sicht') return <Text key={i} style={s.h2}>{e.titel}</Text>
         if (e.art === 'bereich') {
+          // Nummeriert: zweispaltig wie die Kapitelüberschrift, damit „7.1"
+          // unter der „7" steht — und ohne Kupferfläche, sonst stünde ein
+          // Unterkapitel so laut da wie ein Kapitel.
+          if (e.nr) {
+            return (
+              <View key={i} style={s.h2Zeile}>
+                <Text style={[s.h2Unter, s.h2Nummer]}>{e.nr}</Text>
+                <Text style={s.h2Unter}>{e.titel}</Text>
+              </View>
+            )
+          }
           return <Text key={i} style={titelStil(e.farbe)}>{e.titel}</Text>
         }
         if (e.art === 'hinweis') {
@@ -3938,7 +4085,7 @@ function BereichsKapitel({
   }
   return (
     <>
-      {bereichsSeiten(inhalt, kapitelKey, umbruchSet(daten), format).map((elemente, n) => (
+      {bereichsSeiten(inhalt, kapitelKey, umbruchSet(daten), format, nummer).map((elemente, n) => (
         <InhaltsSeite key={n} format={format} daten={daten}
           seite={seite + n} seitenTotal={seitenTotal}>
           {n === 0 && <KapitelTitel nummer={nummer} text={titel} />}

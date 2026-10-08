@@ -84,7 +84,7 @@ export function useUebersichtDaten(
     const hatVerkauf = ak.presentEig.includes('verkaufsobjekt')
     const hatMiete = ak.presentEig.some((e) => e !== 'verkaufsobjekt')
     const flaechenLabel = hatVerkauf && hatMiete
-      ? 'Miet-/Verkaufsfläche' : hatVerkauf ? 'Verkaufsfläche' : 'Mietfläche'
+      ? 'Miet-/Verkaufsfläche' : hatVerkauf ? 'Verkaufsfläche VKF' : 'Mietfläche'
 
 
 

@@ -42,6 +42,60 @@ export const AUFTRAG_ANREDEN: AuftragAnrede[] = ['Auftraggeberin', 'Auftraggeber
  */
 export type EtappenUmfang = 'gesamt' | 'etappen' | 'beide'
 
+/**
+ * Die Einstellungen eines Berichts, so wie sie gespeichert werden.
+ *
+ * Nicht dabei sind die Seitenumbrüche: die zeigen auf Häuser, Etappen und
+ * Positionen einer bestimmten Variante und stehen deshalb an ihr
+ * (`project_variants.bericht_umbrueche`). Ein Bericht, auf eine andere
+ * Variante geladen, nähme sie ins Leere mit.
+ */
+export interface BerichtEinstellungen {
+  /** Gewählte Fachkapitel, ohne Titelblatt und Inhaltsverzeichnis. */
+  kapitel: string[]
+  anrede: AuftragAnrede
+  umfang: EtappenUmfang
+  /** Gewählte Etappen; leer heisst alle. */
+  etappen: string[]
+}
+
+/** Vorauswahl für einen Bericht, der noch nie eingestellt wurde. */
+export const BERICHT_STANDARD: BerichtEinstellungen = {
+  kapitel: [
+    'projektuebersicht', 'stammdaten', 'mengengeruest', 'wohnungsmix', 'benchmarks',
+    'anlagekosten', 'wirtschaftlichkeit',
+  ],
+  anrede: 'Auftraggeberin',
+  // Das Gesamtprojekt steht in jedem Bericht, die Etappen sind der Zusatz.
+  umfang: 'gesamt',
+  etappen: [],
+}
+
+/**
+ * Gespeicherte Einstellungen einlesen. Was fehlt oder nicht passt, bekommt den
+ * Vorgabewert — ein Bericht aus einer älteren Fassung soll sich öffnen lassen,
+ * nicht scheitern.
+ */
+export function normalizeBerichtEinstellungen(
+  raw: unknown, kapitel?: unknown,
+): BerichtEinstellungen {
+  const d = BERICHT_STANDARD
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const texte = (v: unknown): string[] | null => (
+    Array.isArray(v) && v.every((x) => typeof x === 'string') ? v as string[] : null)
+  // Die Kapitel stehen in der Vorlage in einer eigenen Spalte, im Arbeitsstand
+  // der Variante im selben Dokument — beide Wege führen hierher.
+  const kap = texte(kapitel) ?? texte(o.kapitel)
+  return {
+    kapitel: kap ? sortiereKapitel(kap) : [...d.kapitel],
+    anrede: AUFTRAG_ANREDEN.includes(o.anrede as AuftragAnrede)
+      ? o.anrede as AuftragAnrede : d.anrede,
+    umfang: ETAPPEN_UMFANG.some((x) => x.key === o.umfang)
+      ? o.umfang as EtappenUmfang : d.umfang,
+    etappen: texte(o.etappen) ?? [...d.etappen],
+  }
+}
+
 export const ETAPPEN_UMFANG: { key: EtappenUmfang; label: string; beschrieb: string }[] = [
   { key: 'gesamt',  label: 'Gesamt',  beschrieb: 'Nur das Gesamtprojekt' },
   { key: 'etappen', label: 'Etappen', beschrieb: 'Nur die Etappen einzeln' },
@@ -227,6 +281,15 @@ export const SCHRIFT = {
   h1Zeile: 19,
   h2: 11,
   h2Zeile: 15,
+  /**
+   * Titel auf einer Fläche — die Kupferbalken über Bereichen und Tabellen.
+   * Im Grad der Grundschrift: auf der Farbfläche trägt die Schrift ohnehin
+   * weiter, und ein Balken soll die Zahlen darunter nicht erschlagen. Damit
+   * sind alle Balken des Berichts gleich gross, auch die der
+   * Anlagekostentabelle, die schon immer so gesetzt war.
+   */
+  h2Balken: 9,
+  h2BalkenZeile: 12,
   h3: 9,
   klein: 8,       // Kopf-, Fusszeile, Legenden
   kleinZeile: 11,
@@ -326,3 +389,10 @@ export const FUSSZEILE_FIRMA = 'Naef & Partner Immobilien AG'
 export const FUSSZEILE_TITEL = 'Naef & Partner Immobilien AG  |  Bleicherweg 10  |  8002 Zürich  |  naefpartner.com'
 /** Die Fusszeile bündelt links auf der Kante der Titelfläche, nicht am Satzspiegel. */
 export const FUSSZEILE_LINKS = 17.5
+
+/**
+ * Linke Kante der Kapitelnummern, in Millimeter ab Papierrand — wie in der
+ * Word-Vorlage. Die Nummer hängt damit im linken Rand, und der Titel beginnt
+ * auf der Kante des Satzspiegels, also genau über dem Text darunter.
+ */
+export const KAPITEL_NUMMER_LINKS = 18

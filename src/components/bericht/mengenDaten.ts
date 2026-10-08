@@ -41,6 +41,16 @@ function zimmerRampe(familie: CiFamily, anzahl: number): string[] {
   return Array.from({ length: anzahl }, (_, i) => rampOf(familie, 1 - (i / (anzahl - 1)) * 0.8))
 }
 
+/**
+ * Die blosse Zimmerzahl einer Wohnungskategorie — „3.5", „2.5". Sie steht in
+ * einer eigenen Spalte, damit sich die Wohnungen über alle Geschosse hinweg
+ * nach Grösse überblicken lassen. Joker und Wohnungen ohne Angabe haben keine.
+ */
+function zimmerZahl(key: string): string {
+  if (key === WOHNUNG_FALLBACK_KEY || key === 'joker') return '—'
+  return WOHNUNGSMIX_LABEL[key as keyof typeof WOHNUNGSMIX_LABEL] ?? key
+}
+
 /** Beschriftung einer Wohnungskategorie. */
 function zimmerLabel(key: string): string {
   if (key === WOHNUNG_FALLBACK_KEY) return 'Wohnungen'
@@ -62,6 +72,15 @@ function flaechenKuerzel(verkauf: boolean, uebrige: boolean): string {
 /** Zahl oder Gedankenstrich — leere Mengen sollen sichtbar leer sein. */
 function z(v: number | null | undefined): string {
   return v != null && v !== 0 ? formatNumber(Math.round(v)) : '—'
+}
+
+/**
+ * Vermiet- und Verkaufsflächen mit einer Nachkommastelle. Sie werden so
+ * erfasst und so verhandelt; gerundet gingen beim Aufsummieren über viele
+ * Einheiten sichtbare Quadratmeter verloren.
+ */
+function zF(v: number | null | undefined): string {
+  return v != null && v !== 0 ? formatNumber(v, 1) : '—'
 }
 
 /** Jahresertrag einer Mietfläche; Verkaufsobjekte führen Preise statt Mieten. */
@@ -168,6 +187,11 @@ export function useMengenDaten(
           return {
             key: eig,
             label,
+            // Kommt nur eine Eigentumsart vor, sagt ihr Balken nichts, was das
+            // Kapitel nicht schon sagt — und das Total darunter wäre dasselbe
+            // wie die Summe des einzigen Hauses beziehungsweise der
+            // Häuserübersicht. Beides entfällt dann.
+            ohneBalken: einzeln,
             farbe: mehrere ? EIGENTUMSART_COLOR[eig] : undefined,
             farbeUnter: mehrere ? USE_TYPE_COLOR_3[eig] : undefined,
             farbeGrund: mehrere ? USE_TYPE_COLOR_1[eig] : undefined,
@@ -184,7 +208,7 @@ export function useMengenDaten(
               b, verkauf, eig === 'genossenschaft' ? kostenmieteJeTyp : null)),
             // Bezeichnung in der zweiten Spalte: „Total Genossenschaft" bricht
             // in der schmalen Geschossspalte sonst um.
-            total: summenZeile(
+            total: einzeln ? null : summenZeile(
               'Total', label, haeuser, verkauf,
               eig === 'genossenschaft' ? kostenmieteJeTyp : null),
           }
@@ -282,10 +306,14 @@ function hausBlock(
       zellen: [
         m.geschoss_bezeichnung ?? '—',
         [m.nutzung, m.unterirdisch ? '(UT)' : ''].filter(Boolean).join(' '),
+        // Die Zimmerzahl steht bei den Einheiten darunter, nicht bei der
+        // Fläche: eine Geschossfläche kann Wohnungen verschiedener Grösse
+        // tragen.
+        '',
         m.anzahl != null && m.anzahl > 0 ? formatNumber(m.anzahl) : '—',
         z(m.gf_m2),
         z(m.volumen_m3),
-        z(m.flaeche_m2),
+        zF(m.flaeche_m2),
         ...ansaetze(m.flaeche_m2, m.anzahl, ertrag, verkauf),
         z(ertrag),
       ],
@@ -307,14 +335,17 @@ function hausBlock(
           zellen: [
             '',
             zimmerLabel(key),
+            zimmerZahl(key),
             formatNumber(anzahl),
-            '—',
-            '—',
+            // Geschossfläche und Volumen gehören zur Fläche darüber; auf der
+            // Einheit wären sie eine erfundene Aufteilung.
+            '',
+            '',
             ...(() => {
               const flaeche = stkTotal > 0 ? (m.flaeche_m2 || 0) * (anzahl / stkTotal) : 0
               const ertragWhg = jeMonat * anzahl * 12
               return [
-                z(flaeche),
+                zF(flaeche),
                 flaeche > 0 && ertragWhg > 0 ? z(ertragWhg / flaeche) : '—',
                 jeMonat > 0 ? z(jeMonat) : '—',
                 z(ertragWhg),
@@ -342,10 +373,11 @@ function hausBlock(
         zellen: [
           '',
           name || (e.zimmer != null ? `${e.zimmer} Zi.` : 'Einheit'),
+          zimmerZahl(zimmerFromEinheit(e).key),
           e.anzahl > 0 ? formatNumber(e.anzahl) : '—',
-          z(e.gf_m2),
-          z(e.volumen_m3),
-          z(e.flaeche_m2),
+          '',
+          '',
+          zF(e.flaeche_m2),
           ...ansaetze(e.flaeche_m2, e.anzahl, eErtrag, verkauf),
           z(eErtrag),
         ],
@@ -402,7 +434,7 @@ function summenZeile(
     total: true,
     // Die Ansätze bleiben leer: über verschiedene Nutzungen gemittelt sagten
     // sie nichts.
-    zellen: [label, bezug, z(t.anzahl), z(t.gf), z(t.gv), z(t.vmf), '', '', z(t.ertrag)],
+    zellen: [label, bezug, '', z(t.anzahl), z(t.gf), z(t.gv), zF(t.vmf), '', '', z(t.ertrag)],
   }
 }
 
@@ -417,8 +449,8 @@ function hausZeile(
   const t = summeVon([b], verkauf, jeTyp)
   return {
     zellen: [
-      b.name, b.nutzung_haupt ?? '—',
-      z(t.anzahl), z(t.gf), z(t.gv), z(t.vmf),
+      b.name, b.nutzung_haupt ?? '—', '',
+      z(t.anzahl), z(t.gf), z(t.gv), zF(t.vmf),
       ...ansaetze(t.vmf, t.anzahl, t.ertrag, verkauf),
       z(t.ertrag),
     ],
@@ -433,7 +465,7 @@ function hausZeile(
  */
 function mengenKopf(verkauf: boolean, erste: string): string[] {
   return [
-    erste, 'Nutzung', 'Stk', 'GF m²', 'GV m³',
+    erste, 'Nutzung', 'Zi.', 'Stk', 'GF m²', 'GV m³',
     verkauf ? 'VKF m²' : 'VMF m²',
     'CHF/m²', verkauf ? 'CHF/Stk' : 'CHF/Mt,Stk',
     verkauf ? 'CHF' : 'CHF/Jahr',

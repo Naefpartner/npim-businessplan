@@ -27,20 +27,39 @@ const RASTER_ERFOLG = { breiten: [96, 20, 26, 18], spaltenAbstand: 3 }
 
 /**
  * Raster der Kapitaltabelle: Investor, Einlage, Anteile, Verzinsung, Gewinn,
- * Multiple. Die Zahlenspalten sind schmal gehalten — der Name des Investors
- * braucht den Platz.
+ * Multiple.
+ *
+ * Jede Spalte ist so breit, dass ihr längster Inhalt auf eine Zeile geht —
+ * nachgerechnet am Breitenmodell des Satzes (Spaltenbreite gegen Bedarf, mm):
+ *
+ *     Investor      44.3 / 43.7   „Eingebrachtes Eigenkapital"
+ *     Einlage CHF   17.3 / 17.1   Beschriftung
+ *     Anteil        12.1 / 11.9   „100.0 %"
+ *     Gewinnanteil  12.1 / 11.9   „100.0 %"
+ *     Ø Verzinsung  18.9 / 18.6   Beschriftung
+ *     Gewinn n. St. 15.9 / 15.6   siebenstellige Beträge
+ *     Multiple      18.3 / 11.6   Beschriftung
+ *
+ * Den Platz dafür gibt der Spaltenabstand her: 2 statt 3 mm bringt über sechs
+ * Stege 6 mm zurück. Enger darf er nicht werden, sonst laufen die
+ * rechtsbündigen Zahlenspalten ineinander.
  *
  * Die letzte Breite ist nicht frei gewählt: sie stellt die Spalte „Gewinn nach
  * Steuern" genau auf die Kante der Spalte „CHF" der Erfolgsrechnungen. Die
  * Breiten sind Anteile, die Spaltenabstände dagegen feste Millimeter — die
  * beiden Raster fluchten deshalb nur bei diesem Wert:
  *
- *     Erfolg   (167.5 − 2·2.3 − 3·3) · (96+20+26)/160     + 2·3 = 142.59 mm
- *     Kapital  (167.5 − 2·2.3 − 6·3) · 157/(157 + 21.3)   + 5·3 = 142.59 mm
+ *     Erfolg   (167.5 − 2·2.3 − 3·3) · (96+20+26)/160        + 2·3 = 142.59 mm
+ *     Kapital  (167.5 − 2·2.3 − 6·2) · 132.7/(132.7 + 18.3) + 5·2 = 142.59 mm
+ *
+ * Untereinander dürfen die ersten sechs Breiten beliebig umverteilt werden;
+ * ihr Verhältnis zur siebten und der Spaltenabstand müssen bleiben.
  *
  * Wer an einer der beiden Reihen dreht, rechnet den Wert neu.
  */
-const RASTER_KAPITAL = { breiten: [56, 25, 15, 19, 17, 25, 21.3], spaltenAbstand: 3 }
+const RASTER_KAPITAL = {
+  breiten: [46.3, 19.3, 14.1, 14.1, 20.9, 17.9, 18.3], spaltenAbstand: 2,
+}
 
 /**
  * Multiple des eingesetzten Kapitals: was am Ende zurückkommt, geteilt durch
@@ -209,15 +228,15 @@ export function kapitalSteuernKapitel(
       { zellen: [erloesLabel, '', chf(erloes), anteil(erloes)], total: true },
     ]
     if (g.landkosten.length > 0) {
-      zeilen.push({ zellen: ['Landkosten und deren Finanzierung', '', '', ''] })
+      zeilen.push({ fett: true, zellen: ['Landkosten und deren Finanzierung', '', '', ''] })
       for (const z of g.landkosten) zeilen.push(kostenZeile(z))
     }
     if (g.anlagekosten.length > 0) {
-      zeilen.push({ zellen: ['Anlagekosten', '', '', ''] })
+      zeilen.push({ fett: true, zellen: ['Anlagekosten', '', '', ''] })
       for (const z of kostenBlock(g.anlagekosten, aufHauptgruppen)) zeilen.push(z)
     }
     zeilen.push({
-      zellen: ['Kosten total', '', kostenBetrag(e.kostenTotal),
+      zellen: ['Total Kosten', '', kostenBetrag(e.kostenTotal),
           anteil(Math.abs(e.kostenTotal))],
       total: true,
     })
@@ -292,12 +311,12 @@ export function kapitalSteuernKapitel(
       total: true,
     })
     bereiche.push({
-      titel: mehrereEig ? 'Kapitalstruktur' : '',
+      titel: 'Kapitalstruktur und Gewinnverteilung',
       ...farben,
       tabellen: [{
-        titel: 'Kapitalstruktur und Gewinnverteilung',
-        kopf: ['Investor', 'Einlage CHF', 'Anteil', 'Gewinnanteil', 'Verzinsung',
-          'Gewinn nach Steuern', 'Multiple'],
+        titel: 'Investorenübersicht',
+        kopf: ['Investor', 'Einlage CHF', 'Anteil', 'Gewinnanteil', 'Ø Verzinsung',
+          'Gewinn nach Steuern CHF', 'Multiple'],
         breiten: RASTER_KAPITAL.breiten,
         spaltenAbstand: RASTER_KAPITAL.spaltenAbstand,
         linksBis: 0,
@@ -307,8 +326,10 @@ export function kapitalSteuernKapitel(
   }
 
   // ── Die beiden Gesellschaften und ihr Ergebnis ───────────────────────────
-  // Alles in einem Bereich: die Erfolgsrechnungen und ihre Zusammenführung
-  // gehören auf eine Seite, sonst blättert man beim Lesen hin und her.
+  // Je ein Abschnitt: die beiden Erfolgsrechnungen und ihre Zusammenführung
+  // tragen eigene Nummern, damit man sie einzeln ansprechen kann. Auf eine
+  // neue Seite zwingt das nichts — sie stehen weiter beieinander, solange der
+  // Platz reicht.
   const ergebnisZeilen: TabellenZeile[] = [
     {
       zellen: [`Gewinn nach Steuern ${ksDoc.landprovider.name}`, '',
@@ -341,17 +362,34 @@ export function kapitalSteuernKapitel(
   }
 
   bereiche.push({
-    titel: mehrereEig ? 'Gesellschaften' : '',
+    titel: 'Gewinn und Steuern Landprovider',
     ...farben,
     tabellen: [
       erfolgsTabelle(
-        `${ksDoc.landprovider.name} · Landprovider`, ksDoc.landprovider, lp,
+        // Ohne Zusatz: der Abschnittstitel darüber nennt den Landprovider
+        // schon, im Balken bliebe er eine Wiederholung.
+        ksDoc.landprovider.name, ksDoc.landprovider, lp,
         'Verkaufserlös Land', ksDoc.landprovider.ertrag, 'Grundstückgewinnsteuer'),
+    ],
+  })
+
+  bereiche.push({
+    titel: 'Gewinn und Steuern Totalunternehmer',
+    ...farben,
+    tabellen: [
       // Der Totalunternehmer trägt die Baukosten — Position für Position wären
       // es dutzende Zeilen, und die Erfolgsrechnung fiele auf die nächste Seite.
       erfolgsTabelle(
-        `${ksDoc.totalunternehmer.name} · Totalunternehmer`, ksDoc.totalunternehmer, tu,
+        // Wie beim Landprovider: der Abschnittstitel nennt die Rolle schon.
+        ksDoc.totalunternehmer.name, ksDoc.totalunternehmer, tu,
         'Verkaufserlös Werk', werkerloes, 'Gewinnsteuer Totalunternehmer', true),
+    ],
+  })
+
+  bereiche.push({
+    titel: 'Übersicht Gewinn und Steuern',
+    ...farben,
+    tabellen: [
       {
         titel: 'Ergebnis der beiden Gesellschaften',
         kopf: ['Position', 'Ansatz', 'CHF', '% Erlös'],
@@ -372,6 +410,9 @@ export function kapitalSteuernKapitel(
 
   return {
     mehrereSichten: false,
+    // Die Abschnitte tragen Nummern — „7.1 Kapitalstruktur und
+    // Gewinnbeteiligung" und so fort. Die Kapitelnummer kommt vom Bericht.
+    nummeriert: true,
     sichten: [{ titel: 'Gesamtprojekt', gesamt: true, bereiche }],
   }
 }
