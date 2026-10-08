@@ -153,6 +153,12 @@ export interface ProjectVariant {
    */
   bericht_umbrueche: string[]
   /**
+   * Zuletzt benutzte Berichtseinstellungen dieser Variante (Migration 073):
+   * Kapitelauswahl, Anrede, Etappenumfang und Etappenauswahl. Form siehe
+   * `BerichtEinstellungen` in lib/bericht.ts.
+   */
+  bericht_einstellungen: Record<string, unknown>
+  /**
    * Bemerkungen zu den Anlagekosten als ausgezeichneter Freitext
    * (Migration 068) — Abgrenzungen, ausgenommene Leistungen, Annahmen.
    */
@@ -194,6 +200,13 @@ export interface BerichtVorlage {
   beschreibung: string | null
   /** Kapitelschlüssel in Druckreihenfolge, siehe lib/bericht.ts. */
   kapitel: string[]
+  /**
+   * Projekt, zu dem dieser Bericht gehört. `null` heisst projektübergreifend —
+   * eine Vorlage wie „Vollbericht", die in jedem Projekt zur Wahl steht.
+   */
+  project_id: string | null
+  /** Anrede, Etappenumfang und Etappenauswahl; siehe BerichtEinstellungen. */
+  einstellungen: Record<string, unknown>
   created_by: string | null
   created_at: string
   updated_at: string

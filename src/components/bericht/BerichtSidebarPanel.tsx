@@ -16,13 +16,21 @@ export function BerichtSidebarPanel() {
   const { canWrite } = useAuth()
   const { kontext, auswahl, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
           anrede, setAnrede, umfang, setUmfang,
-          etappenAuswahl, etappeUmschalten, setEtappenAuswahl } = useBericht()
+          etappenAuswahl, etappeUmschalten, setEtappenAuswahl, einstellungen } = useBericht()
   // Etappen der Variante — nur wo es mehr als eine gibt, ist eine Auswahl
   // überhaupt eine Frage.
   const { etappen } = useVariantEtappen(kontext?.variantId)
-  const { vorlagen, loading, speichern, loeschen } = useBerichtVorlagen()
+  const projektId = kontext?.projektId
+  const { projektVorlagen, allgemeineVorlagen, loading, speichern, loeschen } =
+    useBerichtVorlagen(projektId)
 
   const [name, setName] = useState('')
+  /*
+   * Wohin der Bericht gehört. Vorgabe ist das Projekt: so entsteht er meistens
+   * — aus der Arbeit an einem bestimmten Projekt. Wer eine Zusammenstellung
+   * fürs ganze Büro meint, schaltet um.
+   */
+  const [fuersProjekt, setFuersProjekt] = useState(true)
   const [fehler, setFehler] = useState<string | null>(null)
   const [gesichert, setGesichert] = useState(false)
   const [speichertGerade, setSpeichertGerade] = useState(false)
@@ -31,7 +39,8 @@ export function BerichtSidebarPanel() {
     setFehler(null)
     setSpeichertGerade(true)
     try {
-      const v = await speichern(name, auswahl)
+      const v = await speichern(
+        name, einstellungen, null, fuersProjekt ? projektId ?? null : null)
       if (v) {
         vorlageGesetzt(v)
         setName('')
@@ -43,7 +52,37 @@ export function BerichtSidebarPanel() {
     } finally {
       setSpeichertGerade(false)
     }
-  }, [speichern, name, auswahl, vorlageGesetzt])
+  }, [speichern, name, einstellungen, fuersProjekt, projektId, vorlageGesetzt])
+
+  /** Ein Eintrag der Liste — gleich gebaut für beide Gruppen. */
+  const eintrag = (v: typeof projektVorlagen[number]) => {
+    const aktiv = aktiveVorlage?.id === v.id
+    return (
+      <li key={v.id} className="group/v flex items-center">
+        <button
+          type="button"
+          onClick={() => vorlageLaden(v)}
+          style={aktiv ? { backgroundColor: PRIMARY_LIGHT, color: PRIMARY_DARK } : undefined}
+          className={cn(
+            'min-w-0 flex-1 truncate rounded-lg px-3 py-1.5 text-left text-sm transition',
+            aktiv ? 'font-medium' : 'text-slate-700 hover:bg-slate-100',
+          )}
+        >
+          {v.name}
+        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => void loeschen(v.id)}
+            title="Bericht löschen"
+            className="mr-1 shrink-0 rounded p-1 text-slate-300 opacity-0 transition group-hover/v:opacity-100 hover:bg-slate-100 hover:text-red-600"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </li>
+    )
+  }
 
   return (
     <div className="mt-6 border-t border-slate-200 pt-4">
@@ -180,48 +219,39 @@ export function BerichtSidebarPanel() {
       </div>
 
       <h2 className="mt-5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-        Vorlagen
+        Gespeicherte Berichte
       </h2>
 
       {loading ? (
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Wird geladen…
         </div>
-      ) : vorlagen.length === 0 ? (
+      ) : projektVorlagen.length === 0 && allgemeineVorlagen.length === 0 ? (
         <p className="px-3 py-2 text-xs leading-snug text-slate-400">
-          Noch keine gesichert.
+          Noch keiner gesichert. Der zuletzt eingestellte Stand bleibt ohnehin
+          erhalten — gespeichert werden Zusammenstellungen, die du wieder
+          hervorholen willst.
         </p>
       ) : (
-        <ul className="mt-1.5 space-y-0.5">
-          {vorlagen.map((v) => {
-            const aktiv = aktiveVorlage?.id === v.id
-            return (
-              <li key={v.id} className="group/v flex items-center">
-                <button
-                  type="button"
-                  onClick={() => vorlageLaden(v)}
-                  style={aktiv ? { backgroundColor: PRIMARY_LIGHT, color: PRIMARY_DARK } : undefined}
-                  className={cn(
-                    'min-w-0 flex-1 truncate rounded-lg px-3 py-1.5 text-left text-sm transition',
-                    aktiv ? 'font-medium' : 'text-slate-700 hover:bg-slate-100',
-                  )}
-                >
-                  {v.name}
-                </button>
-                {canWrite && (
-                  <button
-                    type="button"
-                    onClick={() => void loeschen(v.id)}
-                    title="Vorlage löschen"
-                    className="mr-1 shrink-0 rounded p-1 text-slate-300 opacity-0 transition group-hover/v:opacity-100 hover:bg-slate-100 hover:text-red-600"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+        <>
+          {/* Zwei Gruppen: was zu diesem Projekt gehört, steht oben. */}
+          {projektVorlagen.length > 0 && (
+            <>
+              <p className="mt-1.5 px-3 text-[10px] uppercase tracking-wider text-slate-300">
+                Dieses Projekt
+              </p>
+              <ul className="space-y-0.5">{projektVorlagen.map(eintrag)}</ul>
+            </>
+          )}
+          {allgemeineVorlagen.length > 0 && (
+            <>
+              <p className="mt-2 px-3 text-[10px] uppercase tracking-wider text-slate-300">
+                Alle Projekte
+              </p>
+              <ul className="space-y-0.5">{allgemeineVorlagen.map(eintrag)}</ul>
+            </>
+          )}
+        </>
       )}
 
       {canWrite && (
@@ -232,14 +262,14 @@ export function BerichtSidebarPanel() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) void sichern() }}
-              placeholder="Auswahl sichern als…"
+              placeholder="Bericht sichern als…"
               className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
             />
             <button
               type="button"
               onClick={() => void sichern()}
               disabled={!name.trim() || speichertGerade}
-              title="Auswahl als Vorlage sichern"
+              title="Bericht unter diesem Namen sichern"
               className="shrink-0 rounded-lg border border-slate-200 p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {speichertGerade
@@ -247,6 +277,24 @@ export function BerichtSidebarPanel() {
                 : gesichert ? <Check className="h-3.5 w-3.5" style={{ color: PRIMARY_DARK }} />
                 : <Save className="h-3.5 w-3.5" />}
             </button>
+          </div>
+          {/* Geltungsbereich: zum Projekt oder für alle. */}
+          <div className="mt-1.5 flex gap-1 text-[11px]">
+            {([[true, 'Dieses Projekt'], [false, 'Alle Projekte']] as const).map(([wert, label]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setFuersProjekt(wert)}
+                style={fuersProjekt === wert
+                  ? { backgroundColor: PRIMARY_LIGHT, color: PRIMARY_DARK } : undefined}
+                className={cn(
+                  'rounded px-1.5 py-0.5 transition',
+                  fuersProjekt === wert ? 'font-medium' : 'text-slate-400 hover:bg-slate-100',
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           {fehler && (
             <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-red-700">

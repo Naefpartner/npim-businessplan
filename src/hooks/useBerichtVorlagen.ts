@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { sortiereKapitel } from '@/lib/bericht'
+import { sortiereKapitel, type BerichtEinstellungen } from '@/lib/bericht'
 import type { BerichtVorlage } from '@/types'
 
 /**
- * Lädt/speichert die vordefinierten Berichte (Migration 063).
+ * Lädt und speichert gespeicherte Berichte (Migrationen 063 und 073).
  *
- * Bewusst projektübergreifend und für alle Benutzer sichtbar — eine Vorlage
- * wie „Machbarkeitsstudie kurz" ist Teamwissen, nicht Privatsache.
+ * Zwei Geltungsbereiche: ein Bericht gehört entweder zu einem Projekt — dann
+ * erscheint er nur dort — oder zu keinem; dann steht er in jedem Projekt zur
+ * Wahl. Eine Zusammenstellung wie „Machbarkeitsstudie kurz" ist Teamwissen,
+ * ein „Bankdossier Altendorf" gehört zum Projekt.
+ *
+ * Gespeichert werden Kapitel und Einstellungen, nicht die Seitenumbrüche: die
+ * zeigen auf Bausteine einer bestimmten Variante und bleiben an ihr.
  */
-export function useBerichtVorlagen() {
-  const [vorlagen, setVorlagen] = useState<BerichtVorlage[]>([])
+export function useBerichtVorlagen(projektId?: string) {
+  const [alle, setAlle] = useState<BerichtVorlage[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,26 +26,48 @@ export function useBerichtVorlagen() {
       .select('*')
       .order('name')
     if (error) { setError(error.message); console.error('[Bericht] Laden fehlgeschlagen:', error.message) }
-    setVorlagen((data as BerichtVorlage[] | null) ?? [])
+    setAlle((data as BerichtVorlage[] | null) ?? [])
     setLoading(false)
   }, [])
 
   useEffect(() => { void load() }, [load])
 
-  /** Legt eine Vorlage an oder überschreibt die gleichnamige. */
+  /** Was in diesem Projekt zur Wahl steht: seine eigenen und die allgemeinen. */
+  const vorlagen = useMemo(
+    () => alle.filter((v) => v.project_id == null || v.project_id === projektId),
+    [alle, projektId],
+  )
+  const projektVorlagen = useMemo(
+    () => vorlagen.filter((v) => v.project_id != null), [vorlagen])
+  const allgemeineVorlagen = useMemo(
+    () => vorlagen.filter((v) => v.project_id == null), [vorlagen])
+
+  /**
+   * Legt einen Bericht an oder überschreibt den gleichnamigen im selben
+   * Geltungsbereich. Zwei Projekte dürfen beide ein „Bankdossier" führen.
+   */
   const speichern = useCallback(async (
-    name: string, kapitel: string[], beschreibung?: string | null,
+    name: string,
+    einstellungen: BerichtEinstellungen,
+    beschreibung?: string | null,
+    /** Projekt, zu dem der Bericht gehört; `null` = projektübergreifend. */
+    gehoertZuProjekt: string | null = null,
   ): Promise<BerichtVorlage | null> => {
     const sauber = name.trim()
     if (!sauber) return null
     const { data: auth } = await supabase.auth.getUser()
-    // Gleichnamige Vorlage aktualisieren statt eine zweite anzulegen — der
-    // eindeutige Index auf lower(name) würde das ohnehin verhindern.
-    const bestehend = vorlagen.find((v) => v.name.toLowerCase() === sauber.toLowerCase())
+    const bestehend = alle.find((v) => v.name.toLowerCase() === sauber.toLowerCase()
+      && (v.project_id ?? null) === gehoertZuProjekt)
     const nutzlast = {
       name: sauber,
       beschreibung: beschreibung ?? null,
-      kapitel: sortiereKapitel(kapitel),
+      kapitel: sortiereKapitel(einstellungen.kapitel),
+      project_id: gehoertZuProjekt,
+      einstellungen: {
+        anrede: einstellungen.anrede,
+        umfang: einstellungen.umfang,
+        etappen: einstellungen.etappen,
+      },
     }
     const abfrage = bestehend
       ? supabase.from('bericht_vorlagen').update(nutzlast).eq('id', bestehend.id)
@@ -54,7 +81,7 @@ export function useBerichtVorlagen() {
     setError(null)
     await load()
     return (data as BerichtVorlage | null) ?? null
-  }, [vorlagen, load])
+  }, [alle, load])
 
   const loeschen = useCallback(async (id: string) => {
     const { error } = await supabase.from('bericht_vorlagen').delete().eq('id', id)
@@ -62,5 +89,8 @@ export function useBerichtVorlagen() {
     await load()
   }, [load])
 
-  return { vorlagen, loading, error, speichern, loeschen, reload: load }
+  return {
+    vorlagen, projektVorlagen, allgemeineVorlagen,
+    loading, error, speichern, loeschen, reload: load,
+  }
 }

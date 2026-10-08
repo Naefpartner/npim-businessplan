@@ -1,18 +1,14 @@
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from 'react'
 import { useLocation } from 'react-router-dom'
+import { supabase } from '@/lib/supabase'
 import {
-  FIXE_KAPITEL, sortiereKapitel, type AuftragAnrede, type EtappenUmfang,
+  BERICHT_STANDARD, FIXE_KAPITEL, normalizeBerichtEinstellungen, sortiereKapitel,
+  type AuftragAnrede, type BerichtEinstellungen, type EtappenUmfang,
 } from '@/lib/bericht'
 import type { BerichtVorlage } from '@/types'
-
-/** Vorauswahl für einen neuen Bericht. */
-const STANDARD_AUSWAHL = [
-  'projektuebersicht', 'stammdaten', 'mengengeruest', 'wohnungsmix', 'benchmarks',
-  'anlagekosten', 'wirtschaftlichkeit',
-]
 
 interface BerichtWert {
   /** Variante, für die gerade ein Bericht zusammengestellt wird; null ausserhalb. */
@@ -39,6 +35,8 @@ interface BerichtWert {
   etappenAuswahl: string[]
   etappeUmschalten: (id: string) => void
   setEtappenAuswahl: (ids: string[]) => void
+  /** Der aktuelle Stand als speicherbares Dokument. */
+  einstellungen: BerichtEinstellungen
 }
 
 const Ctx = createContext<BerichtWert | null>(null)
@@ -53,28 +51,69 @@ function berichtsKontext(pfad: string): { projektId: string; variantId: string }
  * Hält die Kapitelauswahl des Berichts. Liegt im Layout, weil sie von der
  * Sidebar bedient und im Hauptfenster als Vorschau gerendert wird — beide
  * brauchen denselben Zustand.
+ *
+ * Der Stand wird gemerkt: beim Wechsel auf eine Variante kommt er aus deren
+ * `bericht_einstellungen`, jede Änderung geht gesammelt zurück. Wer einen
+ * Bericht einmal eingestellt hat, findet ihn beim nächsten Mal so vor.
  */
 export function BerichtProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
   const kontext = useMemo(() => berichtsKontext(pathname), [pathname])
+  const variantId = kontext?.variantId ?? null
 
-  const [auswahl, setAuswahl] = useState<string[]>(STANDARD_AUSWAHL)
+  const [auswahl, setAuswahl] = useState<string[]>(BERICHT_STANDARD.kapitel)
   const [aktiveVorlage, setAktiveVorlage] = useState<BerichtVorlage | null>(null)
-  const [anrede, setAnrede] = useState<AuftragAnrede>('Auftraggeberin')
-  // Standard ist das Gesamtprojekt: es steht in jedem Bericht, die Etappen
-  // sind der Zusatz.
-  const [umfang, setUmfang] = useState<EtappenUmfang>('gesamt')
-  const [etappenAuswahl, setEtappenAuswahl] = useState<string[]>([])
+  const [anrede, setAnrede] = useState<AuftragAnrede>(BERICHT_STANDARD.anrede)
+  const [umfang, setUmfang] = useState<EtappenUmfang>(BERICHT_STANDARD.umfang)
+  const [etappenAuswahl, setEtappenAuswahl] = useState<string[]>(BERICHT_STANDARD.etappen)
 
-  // Beim Wechsel der Variante auf die Vorauswahl zurück — die Kapitel einer
-  // anderen Variante sagen über diese nichts aus.
+  /*
+   * Solange geladen wird, darf nichts zurückgeschrieben werden: sonst
+   * überschriebe der Vorgabestand, mit dem die Seite aufgeht, den gemerkten,
+   * bevor er überhaupt angekommen ist.
+   */
+  const geladenFuer = useRef<string | null>(null)
+
   useEffect(() => {
-    if (!kontext) return
-    setAuswahl(STANDARD_AUSWAHL)
-    setAktiveVorlage(null)
-    // Die Etappen einer anderen Variante gibt es hier nicht.
-    setEtappenAuswahl([])
-  }, [kontext?.variantId])  // eslint-disable-line react-hooks/exhaustive-deps
+    if (!variantId) { geladenFuer.current = null; return }
+    let abgebrochen = false
+    geladenFuer.current = null
+    void (async () => {
+      const { data } = await supabase.from('project_variants')
+        .select('bericht_einstellungen').eq('id', variantId).maybeSingle()
+      if (abgebrochen) return
+      const e = normalizeBerichtEinstellungen(data?.bericht_einstellungen)
+      setAuswahl(e.kapitel)
+      setAnrede(e.anrede)
+      setUmfang(e.umfang)
+      setEtappenAuswahl(e.etappen)
+      setAktiveVorlage(null)
+      geladenFuer.current = variantId
+    })()
+    return () => { abgebrochen = true }
+  }, [variantId])
+
+  const einstellungen = useMemo<BerichtEinstellungen>(
+    () => ({ kapitel: auswahl, anrede, umfang, etappen: etappenAuswahl }),
+    [auswahl, anrede, umfang, etappenAuswahl],
+  )
+
+  /*
+   * Zurückschreiben, aber nicht bei jedem Klick: eine halbe Sekunde Ruhe
+   * genügt, und beim Durchklicken der Kapitelliste bleibt es bei einem
+   * Schreibvorgang.
+   */
+  useEffect(() => {
+    if (!variantId || geladenFuer.current !== variantId) return
+    const t = setTimeout(() => {
+      void supabase.from('project_variants')
+        .update({ bericht_einstellungen: einstellungen }).eq('id', variantId)
+        .then(({ error }) => {
+          if (error) console.error('[Bericht] Einstellungen nicht gespeichert:', error.message)
+        })
+    }, 500)
+    return () => clearTimeout(t)
+  }, [variantId, einstellungen])
 
   const etappeUmschalten = useCallback((id: string) => {
     setEtappenAuswahl((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
@@ -85,9 +124,16 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
     setAktiveVorlage(null) // Auswahl weicht ab jetzt von der Vorlage ab
   }, [])
 
+  /** Einen gespeicherten Bericht übernehmen — Kapitel und Einstellungen. */
   const vorlageLaden = useCallback((v: BerichtVorlage) => {
+    const e = normalizeBerichtEinstellungen(v.einstellungen, v.kapitel)
     setAktiveVorlage(v)
-    setAuswahl(sortiereKapitel(v.kapitel))
+    setAuswahl(e.kapitel)
+    setAnrede(e.anrede)
+    setUmfang(e.umfang)
+    // Die Etappen einer anderen Variante gibt es hier nicht; was nicht passt,
+    // filtert die Sidebar beim Anzeigen heraus.
+    setEtappenAuswahl(e.etappen)
   }, [])
 
   /** Nach dem Sichern: Vorlage als aktiv markieren, ohne die Auswahl zu ändern. */
@@ -101,9 +147,9 @@ export function BerichtProvider({ children }: { children: ReactNode }) {
   const wert = useMemo<BerichtWert>(() => ({
     kontext, auswahl, druckKapitel, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
     anrede, setAnrede, umfang, setUmfang,
-    etappenAuswahl, etappeUmschalten, setEtappenAuswahl,
+    etappenAuswahl, etappeUmschalten, setEtappenAuswahl, einstellungen,
   }), [kontext, auswahl, druckKapitel, umschalten, aktiveVorlage, vorlageLaden, vorlageGesetzt,
-       anrede, umfang, etappenAuswahl, etappeUmschalten])
+       anrede, umfang, etappenAuswahl, etappeUmschalten, einstellungen])
 
   return <Ctx.Provider value={wert}>{children}</Ctx.Provider>
 }

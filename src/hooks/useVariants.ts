@@ -349,9 +349,20 @@ export function useVariants(projectId: string | undefined) {
     }
     if (input.snapshot_of) {
       payload.snapshot_taken_at = new Date().toISOString()
-      // Snapshot: MWST-Satz vom Quell-Stand übernehmen.
-      const src = (await supabase.from('project_variants').select('mwst_satz').eq('id', input.snapshot_of).maybeSingle()).data
+      /*
+       * Snapshot: die Felder der Variante selbst mitnehmen, die man sonst von
+       * Hand nachstellen müsste — MWST-Satz, Berichtseinstellungen und die
+       * gesetzten Seitenumbrüche. Letztere zeigen auf Bausteine, die in der
+       * Kopie dieselben sind; sie greifen also weiter.
+       */
+      const src = (await supabase.from('project_variants')
+        .select('mwst_satz, bericht_umbrueche, bericht_einstellungen')
+        .eq('id', input.snapshot_of).maybeSingle()).data
       if (src?.mwst_satz != null) payload.mwst_satz = src.mwst_satz
+      if (src?.bericht_umbrueche != null) payload.bericht_umbrueche = src.bericht_umbrueche
+      if (src?.bericht_einstellungen != null) {
+        payload.bericht_einstellungen = src.bericht_einstellungen
+      }
     } else {
       // Neuer Stand: anwendungsweiten Standard-MWST-Satz verwenden.
       payload.mwst_satz = await fetchDefaultMwst()
