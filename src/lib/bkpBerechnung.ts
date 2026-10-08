@@ -45,6 +45,12 @@ export interface BkpMengen {
 
 export interface PositionResult {
   position: BkpPosition
+  /**
+   * Der aufgelöste Berechnungstyp — mit gewählter Methode und gewählter Basis.
+   * `position.typ` ist der Katalogtyp und weiss nichts davon; wer die
+   * Bezugsgrösse ausweisen will, muss diesen hier lesen.
+   */
+  typ: BerechnungsTyp
   status: Status
   /** Eingegebener Kennwert (Einheitspreis bei Stückkosten, % bei Prozent etc.) */
   kennwert: number | null
@@ -54,6 +60,12 @@ export interface PositionResult {
   betragOverride: number | null
   /** Bezugsmenge (bei Pauschal: null; bei Prozent: Bezugssumme; bei m³: m³) */
   menge: number | null
+  /**
+   * Bezugssumme in Franken, wo die Menge etwas anderes trägt: bei der
+   * Finanzierung steht in `menge` die Laufzeit in Monaten, die Basis — die
+   * Summe der gewählten Hauptgruppen oder Positionen — hier.
+   */
+  basisNetto?: number | null
   /** Anzeige-Einheit der Menge (z.B. 'm²', 'CHF') */
   mengeEinheit: string
   /** Anzeige-Einheit des Einheitspreises (z.B. 'CHF/m²', '%') */
@@ -135,13 +147,22 @@ export function berechneAnlagekosten(
 
       let betragNetto: number | null = null
       let menge: number | null = null
+      let basisNetto: number | null = null
       let info = ''
 
       if (status !== 'beruecksichtigt') {
         betragNetto = 0
         menge = null
         info = status === 'nicht_relevant' ? 'nicht relevant' : 'nicht berücksichtigt'
-      } else if (eintrag?.betrag_override != null) {
+      } else if (eintrag?.betrag_override != null && typ.kind === 'pauschal') {
+        /*
+         * Ein überschriebener Betrag gilt nur in der Pauschale. Nur dort lässt
+         * er sich eingeben, nur dort steht er im Feld — in jeder anderen
+         * Methode wäre er ein unsichtbarer Wert, der die Formel aussticht:
+         * Menge und Ansatz blieben leer, und der Betrag käme aus dem Nichts.
+         * Solche Werte bleiben zurück, wenn eine Position von der Pauschale
+         * auf eine Formel umgestellt wird.
+         */
         betragNetto = eintrag.betrag_override
         info = 'manuell überschrieben'
       } else {
@@ -151,6 +172,7 @@ export function berechneAnlagekosten(
           (c) => refPosNetto[c] ?? 0)
         betragNetto = res.betrag
         menge = res.menge
+        basisNetto = res.basis ?? null
         info = res.info
       }
 
@@ -158,9 +180,9 @@ export function berechneAnlagekosten(
       const betragBrutto = (betragNetto ?? 0) + mwstBetrag
 
       positionen[code] = {
-        position: pos, status, kennwert, kennwert2,
+        position: pos, typ, status, kennwert, kennwert2,
         betragOverride: eintrag?.betrag_override ?? null,
-        menge, mengeEinheit, preisEinheit, betragNetto,
+        menge, basisNetto, mengeEinheit, preisEinheit, betragNetto,
         mwstAnwenden, mwstSatz, mwstBetrag, betragBrutto,
         berechnungs_info: info,
       }
@@ -200,7 +222,7 @@ function berechnePosition(
   rueckstellungNettoProGruppe: Record<BkpHauptgruppe, number>,
   mengen: BkpMengen,
   getPosNetto: (code: string) => number,
-): { betrag: number | null; menge: number | null; info: string } {
+): { betrag: number | null; menge: number | null; basis?: number; info: string } {
   switch (typ.kind) {
     case 'pauschal':
       if (kennwert == null) return { betrag: null, menge: null, info: 'pauschal — Kennwert fehlt' }
@@ -250,7 +272,9 @@ function berechnePosition(
       // Anteil der Finanzierung (z.B. 0.38). Default 0.5, falls nicht erfasst.
       const anteil = kennwert2 ?? 0.5
       const betrag = basis * kennwert * (monate / 12) * anteil
-      return { betrag, menge: monate, info: 'Basis × Zins × Mt/12 × Anteil' }
+      // Die Basis wird mitgegeben: die Menge trägt hier die Laufzeit, und ohne
+      // die Bezugssumme liesse sich der Betrag nirgends nachrechnen.
+      return { betrag, menge: monate, basis, info: 'Basis × Zins × Mt/12 × Anteil' }
     }
 
     case 'von_ertrag_vereinfacht':

@@ -16,6 +16,7 @@ import {
   aggregateBkp2, bkp2KonsolidiertRows,
   type Bkp2Aggregat,
 } from '@/lib/bkp2'
+import { istErdgeschoss } from '@/lib/keevalue'
 import type {
   VariantBkpKosten, VariantBkpCustomPosition, VariantEtappeGsfAlloc,
   Eigentumsart, BuildingMietflaeche, BaseRef, CalcMethod,
@@ -186,7 +187,38 @@ export function konsolidiertEintrag(
 type BuildingLite = {
   use_type: Parameters<typeof eigentumsartForBuilding>[0]
   etappe_id: string | null
-  mietflaechen: Pick<BuildingMietflaeche, 'flaeche_m2' | 'nutzung' | 'anzahl' | 'miete_chf_pa' | 'miete_chf_m2_pa' | 'miete_chf_stk_mt'>[]
+  mietflaechen: Pick<BuildingMietflaeche,
+    'flaeche_m2' | 'nutzung' | 'anzahl' | 'miete_chf_pa' | 'miete_chf_m2_pa' | 'miete_chf_stk_mt'
+    | 'gf_m2' | 'geschoss_bezeichnung'>[]
+}
+
+/**
+ * Bearbeitete Umgebungsfläche des ganzen Projekts: Grundstücksfläche abzüglich
+ * der überbauten — der Summe der Erdgeschossflächen. Sie ist die Bezugsgrösse
+ * von BKP 400; die blosse Grundstücksfläche zählte die Fläche unter den
+ * Gebäuden mit, die niemand umgebungsmässig bearbeitet.
+ *
+ * Immer über ALLE Gebäude gerechnet, nie über die eines Blocks: die
+ * Grundstücksfläche wird den Blöcken anteilig zugeteilt, der Fussabdruck eines
+ * Blocks aber nicht. Zöge man vom Anteil den ganzen eigenen Fussabdruck ab,
+ * käme bei kleinen Anteilen null heraus — und BKP 400 verschwände. Der Anteil
+ * gehört auf die fertige Umgebungsfläche angewandt, nicht in ihre Herleitung.
+ *
+ * Ist kein Geschoss als Erdgeschoss bezeichnet, lässt sich der Fussabdruck
+ * nicht ableiten — dann bleibt es bei der Grundstücksfläche, wie bisher.
+ * Ein grösseres Erdgeschoss als die Parzelle gibt null, nicht negativ.
+ */
+export function umgebungsflaeche(buildings: BuildingLite[], gsf: number): number {
+  let eg = 0
+  let hatEg = false
+  for (const b of buildings) {
+    for (const m of b.mietflaechen) {
+      if (!istErdgeschoss(m.geschoss_bezeichnung)) continue
+      hatEg = true
+      eg += m.gf_m2 || 0
+    }
+  }
+  return hatEg ? Math.max(0, gsf - eg) : gsf
 }
 
 /** VMF-Total (m²) der Gebäude eines Blocks (etappe × eigentumsart). */
@@ -331,6 +363,8 @@ export function blockMengen(args: {
   eig: Eigentumsart
   bkp2Aggregat: Bkp2Aggregat
   gsfForBlock: number
+  /** Grundstücksfläche des ganzen Projekts — Bezug des Blockanteils. */
+  gsfTotal: number
   mwstSatzGlobal: number
 }): BkpMengen {
   const vmf = blockVmf(args.buildings, args.etappeId, args.eig)
@@ -340,7 +374,9 @@ export function blockMengen(args: {
   return {
     gsf_total_m2:   args.gsfForBlock,
     vmf_total_m2:   vmf,
-    uf_total_m2:    args.gsfForBlock,
+    // Der Block trägt denselben Anteil an der Umgebung wie am Grundstück.
+    uf_total_m2:    umgebungsflaeche(args.buildings, args.gsfTotal)
+      * (args.gsfTotal > 0 ? args.gsfForBlock / args.gsfTotal : 0),
     bkp2_m3:        bkp2M3ForBlock(args.bkp2Aggregat, args.etappeId, args.eig),
     rueckstellungs_codes: new Set(['560', '570']),
     mwst_satz_global: args.mwstSatzGlobal,
@@ -460,7 +496,9 @@ export function konsolidiertMengen(args: {
   return {
     gsf_total_m2:   args.gsfTotal,
     vmf_total_m2:   vmf,
-    uf_total_m2:    args.gsfTotal,
+    // Wie die Grundstücksfläche darüber: das ganze Grundstück, die ganze
+    // Umgebung — die konsolidierte Sicht rechnet nicht auf einem Anteil.
+    uf_total_m2:    umgebungsflaeche(args.buildings, args.gsfTotal),
     bkp2_m3:        bkp2M3Konsolidiert(args.bkp2Aggregat, args.eig),
     rueckstellungs_codes: new Set(['560', '570']),
     mwst_satz_global: args.mwstSatzGlobal,

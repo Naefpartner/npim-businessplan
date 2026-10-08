@@ -924,6 +924,10 @@ function PositionRow({
   function onMethodChange(m: CalcMethod) {
     const patch: BkpPatch = { calc_method: m === 'standard' ? null : m }
     if (m === 'einheit') { patch.kennwert = 0; patch.bezugsmenge_override = 0 }
+    // Der überschriebene Betrag gehört zur Pauschale; wer die Methode
+    // wechselt, will rechnen lassen. Bliebe er stehen, stäche er die neue
+    // Formel aus, ohne dass man ihn irgendwo sähe.
+    if (m !== 'pauschal') patch.betrag_override = null
     onUpsert(pos.code, patch, methodScope)
     if ((m === 'prozent_von' || m === 'promille_von') && base.length === 0) setBasisOffen(true)
     if (m === 'ertrag_nutzung' && base.length === 0) setNutzungOffen(true)

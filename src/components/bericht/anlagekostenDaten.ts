@@ -31,17 +31,65 @@ function gruppenLabel(gruppen: number[]): string {
  * Rechnung dahinter bleibt unlesbar. Positionen, deren Menge eine echte
  * Grösse ist (Fläche, Volumen), brauchen die Angabe nicht.
  */
+/**
+ * Bezugsgrösse einer Position — bei der Finanzierung mit ihrer Herleitung.
+ *
+ * Dort genügt die Nennung der Hauptgruppen nicht: gerechnet wird auf einem
+ * Anteil ihrer Summe, und ohne die beiden Zahlen lässt sich der Betrag nicht
+ * nachvollziehen. Die drei Angaben stehen untereinander — Hauptgruppen,
+ * Bezugssumme, Anteil —, damit die Prozentzahl immer an derselben Stelle
+ * steht und nicht je nach Länge der Zeile wandert:
+ *
+ *     BKP 1–4
+ *     5'400'000 CHF
+ *     38 %
+ *
+ * Die Laufzeit steht in der Mengenspalte, der Zinssatz im Ansatz — damit ist
+ * die Reihe vollständig.
+ */
+function bezugMitBasis(p: PositionResult): string {
+  const grund = bezug(p.typ)
+  // Gilt für jede Finanzierungszeile — die Katalogpositionen 940 bis 960
+  // ebenso wie eine selbst angelegte Zeile mit der Methode „Finanzierung".
+  // Beide tragen nach der Auflösung denselben Typ.
+  if (p.typ.kind !== 'finanzierung') return grund
+  const anteil = p.kennwert2 ?? 0.5
+  /*
+   * Immer drei Zeilen, auch wenn eine davon nichts zu sagen hat: fehlt die
+   * Basis (kein Zinssatz, keine Laufzeit erfasst) oder ist keine gewählt,
+   * steht dort ein Gedankenstrich. Ein weggelassener Teil schöbe den
+   * Prozentsatz eine Zeile höher — und genau dessen feste Lage ist der Zweck.
+   */
+  return [
+    grund || '—',
+    p.basisNetto != null && p.basisNetto > 0
+      ? `${formatNumber(Math.round(p.basisNetto))} CHF` : '—',
+    `${(anteil * 100).toFixed(0)} %`,
+  ].join('\n')
+}
+
 function bezug(typ: BkpPosition['typ']): string {
-  const refs = (r: BaseRef[]): string => r.map((x) => (
-    x.kind === 'hauptgruppe' ? `BKP ${x.ref}`
-      : x.kind === 'position' ? `Pos. ${x.ref}`
-        : x.ref
-  )).join(', ')
+  const refs = (r: BaseRef[]): string => {
+    // Lauter Hauptgruppen fasst dieselbe Schreibweise zusammen wie die
+    // Katalogvorgabe: „BKP 1–4" statt „BKP 1, BKP 2, BKP 3, BKP 4". Sobald
+    // eine einzelne Position dabei ist, bleibt es bei der Aufzählung.
+    if (r.length > 0 && r.every((x) => x.kind === 'hauptgruppe')) {
+      return gruppenLabel(r.map((x) => Number(x.ref)).filter(Number.isFinite))
+    }
+    return r.map((x) => (
+      x.kind === 'hauptgruppe' ? `BKP ${x.ref}`
+        : x.kind === 'position' ? `Pos. ${x.ref}`
+          : x.ref
+    )).join(', ')
+  }
   switch (typ.kind) {
     case 'prozent_von_hauptgruppen': return gruppenLabel(typ.gruppen)
+    // Wie die Berechnung: sind Positionen oder Hauptgruppen gewählt, rechnet
+    // sie auf diesen — die Hauptgruppen des Katalogs gelten nur, solange nichts
+    // gewählt ist. Beide nebeneinander zu nennen hiess, eine Basis auszuweisen,
+    // auf der gar nicht gerechnet wird.
     case 'finanzierung':
-      return [gruppenLabel(typ.gruppen), typ.refs?.length ? refs(typ.refs) : '']
-        .filter(Boolean).join(', ')
+      return typ.refs?.length ? refs(typ.refs) : gruppenLabel(typ.gruppen)
     case 'prozent_von_refs':
     case 'promille_von_refs': return refs(typ.refs)
     case 'prozent_von_ertrag': return typ.refs.length > 0 ? refs(typ.refs) : 'Ertrag'
@@ -55,9 +103,12 @@ function bezug(typ: BkpPosition['typ']): string {
 /**
  * Menge mit ihrer Einheit in einer Zelle. Worauf sie sich bezieht, steht in
  * der Spalte davor — hier bleibt die Zahl.
+ *
+ * Pauschal erfasste Positionen haben keine Menge; sie tragen „pl". Ein
+ * Gedankenstrich liesse offen, ob die Menge fehlt oder keine gemeint ist.
  */
 function menge(p: PositionResult): string {
-  if (p.menge == null) return '—'
+  if (p.menge == null) return 'pl'
   const wert = formatNumber(Math.round(p.menge * 100) / 100)
   return p.mengeEinheit ? `${wert} ${p.mengeEinheit}` : wert
 }
@@ -230,9 +281,13 @@ export function useAnlagekostenDaten(
             zellen: [
               pos.displayCode ?? pos.code,
               pos.label,
-              zeige ? bezug(zeige.position.typ) : '',
+              // Der aufgelöste Typ, nicht der des Katalogs: nur er kennt die
+              // Methode und die Basis, die hier gewählt wurden.
+              zeige ? bezugMitBasis(zeige) : '',
               zeige ? menge(zeige) : '—',
-              zeige ? ansatz(zeige) : '—',
+              // Ohne Menge gibt es keinen Ansatz je Einheit — der Pauschalpreis
+              // steht schon in der Spalte „exkl. MWST".
+              zeige ? (zeige.menge != null ? ansatz(zeige) : '') : '—',
               chf(pNetto),
               chf(pMwst),
               chf(pNetto + pMwst),

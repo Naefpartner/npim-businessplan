@@ -194,7 +194,7 @@ export function useAnlagekosten(
         : (eigBlocks.length ? 1 / eigBlocks.length : 0)
       const mengenB = blockMengen({
         buildings, etappeId, eig, bkp2Aggregat,
-        gsfForBlock: gsfTotal * share, mwstSatzGlobal: mwstSatz,
+        gsfForBlock: gsfTotal * share, gsfTotal, mwstSatzGlobal: mwstSatz,
       })
       const positions = positionsByEig.get(eig) ?? BKP_POSITIONEN
       const typFor = typForByEig.get(eig)!

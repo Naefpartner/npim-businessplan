@@ -1051,6 +1051,8 @@ export function positionErgebnis(code: '010' | '970', netto: number, mwst: numbe
   const pos = BKP_POSITIONEN.find((p) => p.code === code)!
   return {
     position: pos,
+    // Hier wird nichts aufgelöst — der Betrag kommt fertig aus dem Import.
+    typ: pos.typ,
     status: 'beruecksichtigt',
     kennwert: null,
     betragOverride: null,
