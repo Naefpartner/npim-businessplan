@@ -62,8 +62,15 @@ export interface TragbarkeitParams {
    * weiter — wer in Jahr 4 ein Prozent setzt, hat es bis zum Ende.
    */
   ausfallProJahr: JahresSaetze
-  /** Bewirtschaftungskosten als Anteil des SOLL, nach derselben Regel. */
+  /** Betriebskosten als Anteil des SOLL, nach derselben Regel. */
   kostenquoteProJahr: JahresSaetze
+  /**
+   * Unterhaltskosten in CHF je m² Wohnfläche und Jahr, nach derselben Regel
+   * der Jahresstaffel. Anders als die Betriebskosten hängen sie nicht am
+   * Mietertrag, sondern an der Fläche — so rechnet und vergleicht man sie in
+   * der Branche, und so steht es auch im Excel-Blatt.
+   */
+  unterhaltProJahr: JahresSaetze
   /** 1. Hypothek in CHF; 0 heisst: aus der Belehnungsgrenze abgeleitet. */
   ersteHypothekChf: number
   /** Eigenmittel der Kontrollrechnung in CHF. */
@@ -83,6 +90,9 @@ export const TRAGBARKEIT_DEFAULTS: TragbarkeitParams = {
   // und Kosten, die steigen, wenn die Garantien auslaufen.
   ausfallProJahr: { 1: 0.05, 2: 0.02, 4: 0.01 },
   kostenquoteProJahr: { 1: 0.15, 6: 0.2 },
+  // Leer: bestehende Stände führten Betrieb und Unterhalt zusammen in der
+  // Quote oben. Ein Vorgabewert hier würde ihre Kosten still erhöhen.
+  unterhaltProJahr: {},
   ersteHypothekChf: 0,
   zusaetzlicheEigenmittel: 0,
 }
@@ -235,11 +245,23 @@ export function berechneTragbarkeit(
 export interface TragbarkeitJahr {
   /** Beschriftung der Zeile („Jahr 1", „Jahr 16 mit 5.00 %"). */
   label: string
+  /** Kurzform für den Spaltenkopf der quergestellten Tabelle („Jahr 1"). */
+  kurz: string
+  /** Zweite Kopfzeile, wo die Kurzform allein nicht genügt — der Zinssatz der
+   *  beiden Schlussspalten, die dasselbe Jahr zweimal rechnen. */
+  zusatz: string | null
   mietertragSoll: number
   ertragsausfall: number
   /** Anteil des Ausfalls am SOLL. */
   ausfallQuote: number
   mietertragIst: number
+  /** Betriebskosten in Franken und ihr Anteil am SOLL. */
+  betriebskosten: number
+  betriebsQuote: number
+  /** Unterhaltskosten in Franken und ihr Ansatz je m² Wohnfläche. */
+  unterhalt: number
+  unterhaltProM2: number
+  /** Betriebs- und Unterhaltskosten zusammen. */
   kosten: number
   /** Anteil der Kosten am SOLL. */
   kostenQuote: number
@@ -247,7 +269,8 @@ export interface TragbarkeitJahr {
   jahr: number
   /** Ob der Satz in diesem Jahr selbst gesetzt ist — sonst geerbt. */
   ausfallEigen: boolean
-  kostenEigen: boolean
+  betriebEigen: boolean
+  unterhaltEigen: boolean
   liegenschaftserfolg: number
   /** Anteil des Erfolgs am SOLL. */
   erfolgQuote: number
@@ -291,29 +314,42 @@ export function berechneVerlauf(
   const amortisation = zweiteStart / jahre
 
   const zeile = (
-    label: string, jahr: number, zweite: number, zinssatz: number, tilgt: boolean,
+    label: string, kurz: string, zusatz: string | null,
+    jahr: number, zweite: number, zinssatz: number, tilgt: boolean,
   ): TragbarkeitJahr => {
     const ausfallQuote = satzFuerJahr(p.ausfallProJahr, jahr, 0)
-    const kostenQuote = satzFuerJahr(p.kostenquoteProJahr, jahr, 0)
+    const betriebsQuote = satzFuerJahr(p.kostenquoteProJahr, jahr, 0)
+    const unterhaltProM2 = satzFuerJahr(p.unterhaltProJahr, jahr, 0)
     const soll = b.mietertragTotal
     const ausfall = soll * ausfallQuote
     const ist = soll - ausfall
-    const kosten = soll * kostenQuote
+    // Betrieb am Mietertrag, Unterhalt an der Fläche — zwei Bezugsgrössen,
+    // deshalb zwei Zeilen statt einer Quote.
+    const betriebskosten = soll * betriebsQuote
+    const unterhalt = unterhaltProM2 * b.vmfWohnen
+    const kosten = betriebskosten + unterhalt
     const erfolg = ist - kosten
     const zinsErste = erste * zinssatz
     const zinsZweite = zweite * zinssatz
     const tilgung = tilgt ? amortisation : 0
     return {
       label,
+      kurz,
+      zusatz,
       jahr,
       ausfallEigen: p.ausfallProJahr[jahr] != null,
-      kostenEigen: p.kostenquoteProJahr[jahr] != null,
+      betriebEigen: p.kostenquoteProJahr[jahr] != null,
+      unterhaltEigen: p.unterhaltProJahr[jahr] != null,
       mietertragSoll: soll,
       ertragsausfall: ausfall,
       ausfallQuote,
       mietertragIst: ist,
+      betriebskosten,
+      betriebsQuote,
+      unterhalt,
+      unterhaltProM2,
       kosten,
-      kostenQuote,
+      kostenQuote: soll > 0 ? kosten / soll : 0,
       liegenschaftserfolg: erfolg,
       erfolgQuote: soll > 0 ? erfolg / soll : 0,
       fremdkapital: erste + zweite,
@@ -330,14 +366,16 @@ export function berechneVerlauf(
   const aus: TragbarkeitJahr[] = []
   let zweite = zweiteStart
   for (let j = 1; j <= jahre; j++) {
-    aus.push(zeile(`Jahr ${j}`, j, zweite, p.hypozins, true))
+    aus.push(zeile(`Jahr ${j}`, `Jahr ${j}`, null, j, zweite, p.hypozins, true))
     zweite = Math.max(0, zweite - amortisation)
   }
   // Nach der Tilgung: nur noch die 1. Hypothek, zu beiden Sätzen gerechnet.
   const satz = (v: number) => `${(v * 100).toFixed(2)} %`
   aus.push(zeile(`Jahr ${jahre + 1} zum Tragbarkeitssatz ${satz(p.tragbarkeitszins)}`,
+    `Jahr ${jahre + 1}`, `kalk. ${satz(p.tragbarkeitszins)}`,
     jahre + 1, 0, p.tragbarkeitszins, false))
   aus.push(zeile(`Jahr ${jahre + 1} zum Hypothekarzins ${satz(p.hypozins)}`,
+    `Jahr ${jahre + 1}`, `eff. ${satz(p.hypozins)}`,
     jahre + 1, 0, p.hypozins, false))
   return aus
 }
@@ -392,6 +430,7 @@ export function normalizeTragbarkeitDoc(
     amortisationsdauer:      zahl(raw.amortisationsdauer, d.amortisationsdauer),
     ausfallProJahr:          saetze(raw.ausfallProJahr, d.ausfallProJahr),
     kostenquoteProJahr:      saetze(raw.kostenquoteProJahr, d.kostenquoteProJahr),
+    unterhaltProJahr:        saetze(raw.unterhaltProJahr, d.unterhaltProJahr),
     ersteHypothekChf:        zahl(raw.ersteHypothekChf, d.ersteHypothekChf),
     zusaetzlicheEigenmittel: zahl(raw.zusaetzlicheEigenmittel, d.zusaetzlicheEigenmittel),
     eigenesMietzinsniveau:   raw.eigenesMietzinsniveau === true,

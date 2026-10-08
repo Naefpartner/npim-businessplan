@@ -157,14 +157,15 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
    * die Reihe keinen Anfang.
    */
   const setzeSatz = (
-    feld: 'ausfallProJahr' | 'kostenquoteProJahr', jahr: number, wert: number | null,
+    feld: 'ausfallProJahr' | 'kostenquoteProJahr' | 'unterhaltProJahr', jahr: number, wert: number | null,
   ) => setDoc((d) => {
     const neu = { ...d[feld] }
     if (wert == null && jahr > 1) delete neu[jahr]
     else neu[jahr] = wert ?? 0
     return { ...d, [feld]: neu }
   }, {
-    label: feld === 'ausfallProJahr' ? 'Ertragsausfall' : 'Bewirtschaftungskosten',
+    label: feld === 'ausfallProJahr' ? 'Leerstand'
+      : feld === 'unterhaltProJahr' ? 'Unterhaltskosten' : 'Betriebskosten',
     coalesceKey: `trag:${feld}:${jahr}`,
   })
 
@@ -189,73 +190,95 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
         <div className="space-y-5 p-5">
           {/* ── Annahmen ─────────────────────────────────────────────────── */}
           <UnterKapitel titel="Annahmen">
-            <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-              <SatzFeld
-                label="Hypothekarzins (effektiv)"
-                wert={doc.hypozins} canWrite={canWrite}
-                onChange={(v) => setzen({ hypozins: v }, 'Hypothekarzins', 'hypozins')} />
-              <SatzFeld
-                label="Tragbarkeitszinssatz (kalkulatorisch)"
-                wert={doc.tragbarkeitszins} canWrite={canWrite}
-                onChange={(v) => setzen({ tragbarkeitszins: v }, 'Tragbarkeitszins', 'trz')} />
-              <AnzeigeFeld
-                label="Ertragswert"
-                wert={`${chf(ertragswert)} CHF`}
-                herkunft="aus der Wirtschaftlichkeit" />
-              <AnzeigeFeld
-                label="Kapitalisierungssatz"
-                wert={pct(kapSatzAus(basis), 2)}
-                herkunft="Mietertrag ÷ Ertragswert" />
-              <SatzFeld
-                label="Max. 1. Hypothek"
-                wert={doc.max1} canWrite={canWrite}
-                onChange={(v) => setzen({ max1: v }, 'Max. 1. Hypothek', 'max1')} />
-              <SatzFeld
-                label="Max. Hypothek total"
-                wert={doc.max2} canWrite={canWrite}
-                onChange={(v) => setzen({ max2: v }, 'Max. Hypothek total', 'max2')} />
-              <SatzFeld
-                label="Betriebs- und Unterhaltskosten, Erneuerung"
-                wert={doc.bewirtschaftungsquote} canWrite={canWrite}
-                onChange={(v) => setzen({ bewirtschaftungsquote: v }, 'Bewirtschaftungsquote', 'bew')} />
-              <ZahlFeld
-                label="Mietzinsniveau Wohnen"
-                einheit="CHF/m²·a"
-                wert={params.mietzinsniveauWohnen}
-                eigen={doc.eigenesMietzinsniveau}
-                abgeleitetWert={abgeleitet.mietzinsniveauWohnen}
-                canWrite={canWrite}
-                onChange={(v) => setzen(
-                  { mietzinsniveauWohnen: v, eigenesMietzinsniveau: true }, 'Mietzinsniveau', 'miete')}
-                onZurueck={() => setzen({ eigenesMietzinsniveau: false }, 'Mietzinsniveau aus den Mengen', 'miete')} />
-              <SatzFeld
-                label="Anteil Mietertrag Wohnen"
-                wert={params.anteilWohnen}
-                eigen={doc.eigenerAnteilWohnen}
-                abgeleitetWert={abgeleitet.anteilWohnen}
-                canWrite={canWrite}
-                onChange={(v) => setzen(
-                  { anteilWohnen: v, eigenerAnteilWohnen: true }, 'Anteil Wohnen', 'anteil')}
-                onZurueck={() => setzen({ eigenerAnteilWohnen: false }, 'Anteil Wohnen aus den Mengen', 'anteil')} />
-              <ZahlFeld
-                label="Dauer Amortisation"
-                einheit="Jahre"
-                wert={doc.amortisationsdauer} canWrite={canWrite}
-                onChange={(v) => setzen({ amortisationsdauer: v }, 'Amortisationsdauer', 'dauer')} />
-              <ZahlFeld
-                label="Zusätzliche Eigenmittel"
-                einheit="CHF"
-                wert={doc.zusaetzlicheEigenmittel} canWrite={canWrite}
-                onChange={(v) => setzen({ zusaetzlicheEigenmittel: v }, 'Eigenmittel', 'ek')} />
-              <ZahlFeld
-                label="1. Hypothek (0 = aus der Belehnungsgrenze)"
-                einheit="CHF"
-                wert={doc.ersteHypothekChf} canWrite={canWrite}
-                onChange={(v) => setzen({ ersteHypothekChf: v }, '1. Hypothek', 'hyp1')} />
+            {/*
+              Drei Gruppen statt einer Liste aus zwölf Feldern: was zusammen
+              gehört, steht beisammen, und in jeder Gruppe fluchten Werte und
+              Einheiten in einer Spalte. Vorher standen die Eingaben unter
+              verschieden langen Beschriftungen und damit auf verschiedener
+              Höhe — das war der Grund für den unruhigen Eindruck.
+            */}
+            <div className="grid items-start gap-4 lg:grid-cols-3">
+              <Gruppe titel="Ertrag und Bewertung">
+                <ZahlFeld
+                  label="Mietzinsniveau Wohnen"
+                  einheit="CHF/m²·a"
+                  wert={params.mietzinsniveauWohnen}
+                  eigen={doc.eigenesMietzinsniveau}
+                  abgeleitetWert={abgeleitet.mietzinsniveauWohnen}
+                  canWrite={canWrite}
+                  onChange={(v) => setzen(
+                    { mietzinsniveauWohnen: v, eigenesMietzinsniveau: true }, 'Mietzinsniveau', 'miete')}
+                  onZurueck={() => setzen({ eigenesMietzinsniveau: false }, 'Mietzinsniveau aus den Mengen', 'miete')} />
+                <SatzFeld
+                  label="Anteil Mietertrag Wohnen"
+                  wert={params.anteilWohnen}
+                  eigen={doc.eigenerAnteilWohnen}
+                  abgeleitetWert={abgeleitet.anteilWohnen}
+                  canWrite={canWrite}
+                  onChange={(v) => setzen(
+                    { anteilWohnen: v, eigenerAnteilWohnen: true }, 'Anteil Wohnen', 'anteil')}
+                  onZurueck={() => setzen({ eigenerAnteilWohnen: false }, 'Anteil Wohnen aus den Mengen', 'anteil')} />
+                <SatzFeld
+                  label="Betrieb, Unterhalt, Erneuerung"
+                  hinweis="Dauerwert für die Belehnung"
+                  wert={doc.bewirtschaftungsquote} canWrite={canWrite}
+                  onChange={(v) => setzen({ bewirtschaftungsquote: v }, 'Bewirtschaftungsquote', 'bew')} />
+                <AnzeigeFeld
+                  label="Ertragswert"
+                  hinweis="aus der Wirtschaftlichkeit"
+                  wert={chf(ertragswert)} einheit="CHF" />
+                <AnzeigeFeld
+                  label="Kapitalisierungssatz"
+                  hinweis="Mietertrag ÷ Ertragswert"
+                  wert={(kapSatzAus(basis) * 100).toFixed(2)} einheit="%" />
+              </Gruppe>
+
+              <Gruppe titel="Zinsen und Belehnung">
+                <SatzFeld
+                  label="Hypothekarzins"
+                  hinweis="effektiv"
+                  wert={doc.hypozins} canWrite={canWrite}
+                  onChange={(v) => setzen({ hypozins: v }, 'Hypothekarzins', 'hypozins')} />
+                <SatzFeld
+                  label="Tragbarkeitszinssatz"
+                  hinweis="kalkulatorisch"
+                  wert={doc.tragbarkeitszins} canWrite={canWrite}
+                  onChange={(v) => setzen({ tragbarkeitszins: v }, 'Tragbarkeitszins', 'trz')} />
+                <SatzFeld
+                  label="Max. 1. Hypothek"
+                  hinweis="des Ertragswerts"
+                  wert={doc.max1} canWrite={canWrite}
+                  onChange={(v) => setzen({ max1: v }, 'Max. 1. Hypothek', 'max1')} />
+                <SatzFeld
+                  label="Max. Hypothek total"
+                  hinweis="des Ertragswerts"
+                  wert={doc.max2} canWrite={canWrite}
+                  onChange={(v) => setzen({ max2: v }, 'Max. Hypothek total', 'max2')} />
+              </Gruppe>
+
+              <Gruppe titel="Finanzierung und Laufzeit">
+                <ZahlFeld
+                  label="Dauer Amortisation"
+                  einheit="Jahre"
+                  wert={doc.amortisationsdauer} canWrite={canWrite}
+                  onChange={(v) => setzen({ amortisationsdauer: v }, 'Amortisationsdauer', 'dauer')} />
+                <ZahlFeld
+                  label="1. Hypothek"
+                  hinweis="0 = aus der Belehnungsgrenze"
+                  einheit="CHF"
+                  wert={doc.ersteHypothekChf} canWrite={canWrite}
+                  onChange={(v) => setzen({ ersteHypothekChf: v }, '1. Hypothek', 'hyp1')} />
+                <ZahlFeld
+                  label="Zusätzliche Eigenmittel"
+                  einheit="CHF"
+                  wert={doc.zusaetzlicheEigenmittel} canWrite={canWrite}
+                  onChange={(v) => setzen({ zusaetzlicheEigenmittel: v }, 'Eigenmittel', 'ek')} />
+              </Gruppe>
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Ertragsausfall und Bewirtschaftungskosten stehen als Sätze in der Tabelle
-              unten — dort lassen sie sich Jahr für Jahr setzen.
+              Leerstand, Betriebs- und Unterhaltskosten stehen als Ansätze in der Tabelle
+              unten — dort lassen sie sich Jahr für Jahr setzen. Leerstand und Betrieb als
+              Anteil des SOLL-Ertrags, der Unterhalt in CHF je m² Wohnfläche.
             </p>
           </UnterKapitel>
 
@@ -307,43 +330,87 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
 
           {/* ── Verlauf Jahr für Jahr ─────────────────────────────────────── */}
           <UnterKapitel titel="Erfolgsrechnung und Fremdkapital über die Laufzeit">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-xs">
+            {/*
+              Jahre stehen auf der Waagrechten, die Positionen untereinander —
+              wie in der Mittelflussrechnung. So liest man eine Position über
+              die ganze Laufzeit in einer Zeile, statt sie Jahr für Jahr aus
+              einer Spalte zusammenzusuchen. Die Beschriftung bleibt beim
+              Scrollen stehen und braucht dafür einen deckenden Hintergrund.
+            */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              {/*
+                `border-separate` ist kein Geschmack, sondern Bedingung: mit dem
+                voreingestellten `border-collapse: collapse` bleibt eine
+                klebende Spalte in Chrome stehen, wo sie will. Die Linien sitzen
+                deshalb auf den Zellen statt auf den Zeilen.
+              */}
+              <table className="border-separate border-spacing-0 text-xs tabular-nums"
+                style={{ minWidth: SPALTE_POS + verlauf.length * SPALTE_JAHR }}>
                 <thead>
-                  <tr className="border-b border-slate-300 text-[11px] uppercase tracking-wider text-slate-500">
-                    <th className="py-2 pr-3 text-left font-medium">Jahr</th>
-                    <th className="py-2 pr-3 text-right font-medium">Mietertrag SOLL</th>
-                    <th className="py-2 pr-3 text-right font-medium">Ertragsausfall</th>
-                    <th className="py-2 pr-3 text-right font-medium">Mietertrag IST</th>
-                    <th className="py-2 pr-3 text-right font-medium">Kosten</th>
-                    <th className="py-2 pr-3 text-right font-medium">Liegenschafts&shy;erfolg</th>
-                    <th className="py-2 pr-3 text-right font-medium">Fremdkapital</th>
-                    <th className="py-2 pr-3 text-right font-medium">1. Hypothek</th>
-                    <th className="py-2 pr-3 text-right font-medium">2. Hypothek</th>
-                    <th className="py-2 pr-3 text-right font-medium">Zins 1. Hyp.</th>
-                    <th className="py-2 pr-3 text-right font-medium">Zins 2. Hyp.</th>
-                    <th className="py-2 pr-3 text-right font-medium">Amortisation</th>
-                    <th className="py-2 text-right font-medium">Überschuss</th>
+                  <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+                    <th style={{ ...klebt, backgroundColor: '#ffffff', width: SPALTE_POS, minWidth: SPALTE_POS }}
+                      className="border-b border-slate-300 px-3 py-1.5 text-left font-medium">Position</th>
+                    {verlauf.map((j, i) => (
+                      <th key={j.label}
+                        className="border-b border-slate-300 px-1.5 py-1.5 text-right font-medium"
+                        style={{
+                          width: SPALTE_JAHR,
+                          minWidth: SPALTE_JAHR,
+                          ...(i >= verlauf.length - 2 ? { backgroundColor: HILITE } : {}),
+                        }}>
+                        <div>{j.kurz}</div>
+                        {j.zusatz && <div className="text-[9px] normal-case tracking-normal text-slate-400">{j.zusatz}</div>}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {verlauf.map((j, i) => (
-                    <JahrZeile
-                      key={j.label}
-                      jahr={j}
-                      nachLaufzeit={i >= verlauf.length - 2}
-                      canWrite={canWrite}
-                      onSatz={(feld, wert) => setzeSatz(feld, j.jahr, wert)}
-                    />
-                  ))}
+                  <PosZeile label="SOLL-Ertrag" verlauf={verlauf} wert={(j) => j.mietertragSoll} />
+                  <PosZeile label="Leerstand" verlauf={verlauf}
+                    wert={(j) => j.ertragsausfall} anteil={(j) => j.ausfallQuote}
+                    satz={{
+                      feld: 'ausfallProJahr', prozent: true,
+                      roh: (j) => j.ausfallQuote, eigen: (j) => j.ausfallEigen,
+                    }}
+                    canWrite={canWrite} onSatz={setzeSatz} />
+                  <PosZeile label="IST-Ertrag" verlauf={verlauf}
+                    wert={(j) => j.mietertragIst} anteil={(j) => 1 - j.ausfallQuote} />
+                  <PosZeile label="Betriebskosten" verlauf={verlauf}
+                    wert={(j) => j.betriebskosten}
+                    satz={{
+                      feld: 'kostenquoteProJahr', prozent: true,
+                      roh: (j) => j.betriebsQuote, eigen: (j) => j.betriebEigen,
+                    }}
+                    canWrite={canWrite} onSatz={setzeSatz} />
+                  {/* Unterhalt hängt an der Fläche, nicht am Mietertrag — der
+                      Ansatz steht deshalb in CHF je m² Wohnfläche. */}
+                  <PosZeile label="Unterhaltskosten" einheit="CHF/m²" verlauf={verlauf}
+                    wert={(j) => j.unterhalt}
+                    satz={{
+                      feld: 'unterhaltProJahr', prozent: false,
+                      roh: (j) => j.unterhaltProM2, eigen: (j) => j.unterhaltEigen,
+                    }}
+                    canWrite={canWrite} onSatz={setzeSatz} />
+                  <PosZeile label="Liegenschaftserfolg" verlauf={verlauf}
+                    wert={(j) => j.liegenschaftserfolg} anteil={(j) => j.erfolgQuote} stark />
+                  <PosZeile label="Fremdkapital" verlauf={verlauf}
+                    wert={(j) => j.fremdkapital} anteil={(j) => j.belehnung} />
+                  <PosZeile label="1. Hypothek" verlauf={verlauf} wert={(j) => j.ersteHypothek} />
+                  <PosZeile label="2. Hypothek" verlauf={verlauf} wert={(j) => j.zweiteHypothek} />
+                  <PosZeile label="Zins 1. Hypothek" verlauf={verlauf} wert={(j) => j.zinsErste} />
+                  <PosZeile label="Zins 2. Hypothek" verlauf={verlauf} wert={(j) => j.zinsZweite} />
+                  <PosZeile label="Amortisation" verlauf={verlauf} wert={(j) => j.amortisation} />
+                  <PosZeile label="Überschuss" verlauf={verlauf}
+                    wert={(j) => j.ueberschuss} stark warnNegativ />
                 </tbody>
               </table>
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
               Die 1. Hypothek steht, amortisiert wird allein die 2. — in gleichen Raten über
-              {' '}{doc.amortisationsdauer} Jahre. Die beiden letzten Zeilen rechnen dasselbe Jahr
+              {' '}{doc.amortisationsdauer} Jahre. Die beiden letzten Spalten rechnen dasselbe Jahr
               ohne 2. Hypothek, einmal zum kalkulatorischen Satz und einmal zum tatsächlichen
-              Zins: die Probe, ob die Liegenschaft auch dann trägt.
+              Zins: die Probe, ob die Liegenschaft auch dann trägt. Leerstand und Kosten lassen
+              sich je Jahr setzen; ein gesetzter Satz gilt von dort an weiter.
             </p>
           </UnterKapitel>
 
@@ -395,106 +462,132 @@ function UnterKapitel({ titel, children }: { titel: string; children: ReactNode 
   )
 }
 
-/**
- * Eine Jahreszeile des Verlaufs. Unter den Beträgen steht, wo das Excel eine
- * Prozentspalte führt, der Anteil — am Mietertrag SOLL bei den Ertragszeilen,
- * am Ertragswert bei den Hypotheken.
+/** Die feststehende Beschriftungsspalte der quergestellten Tabelle. */
+const klebt: React.CSSProperties = {
+  position: 'sticky', left: 0, zIndex: 2, borderRight: '1px solid rgb(226 232 240)',
+}
+
+/*
+ * Spaltenmass der Verlaufstabelle. Die Jahresspalten sind so schmal gehalten,
+ * wie ein Betrag mit Tausenderzeichen und der Satz darunter es zulassen —
+ * damit möglichst die ganze Laufzeit auf einen Blick dasteht.
  */
-function JahrZeile({ jahr, nachLaufzeit, canWrite, onSatz }: {
-  jahr: TragbarkeitJahr
-  nachLaufzeit: boolean
-  canWrite: boolean
-  onSatz: (feld: 'ausfallProJahr' | 'kostenquoteProJahr', wert: number | null) => void
+const SPALTE_POS = 168
+const SPALTE_JAHR = 72
+
+/**
+ * Eine Position über alle Jahre. Unter dem Betrag steht, wo das Excel eine
+ * Prozentspalte führt, der Anteil — am SOLL-Ertrag bei den Ertragszeilen, am
+ * Ertragswert beim Fremdkapital. Bei Leerstand und Kosten ist dieser Anteil
+ * zugleich die Eingabe.
+ */
+function PosZeile({
+  label, einheit, verlauf, wert, anteil, satz, canWrite, onSatz, stark, warnNegativ,
+}: {
+  label: string
+  /** Einheit des Ansatzes unter dem Betrag, wo sie nicht Prozent ist. */
+  einheit?: string
+  verlauf: TragbarkeitJahr[]
+  wert: (j: TragbarkeitJahr) => number
+  anteil?: (j: TragbarkeitJahr) => number
+  /** Macht den Ansatz unter dem Betrag zur Eingabe. */
+  satz?: {
+    feld: 'ausfallProJahr' | 'kostenquoteProJahr' | 'unterhaltProJahr'
+    /** Der gespeicherte Ansatz — Anteil bei Prozent, Franken sonst. */
+    roh: (j: TragbarkeitJahr) => number
+    eigen: (j: TragbarkeitJahr) => boolean
+    prozent: boolean
+  }
+  canWrite?: boolean
+  onSatz?: (feld: 'ausfallProJahr' | 'kostenquoteProJahr' | 'unterhaltProJahr', jahr: number, wert: number | null) => void
+  stark?: boolean
+  /** Ein Minus ist hier ein Befund und wird farbig gesetzt. */
+  warnNegativ?: boolean
 }) {
   return (
-    <tr
-      className="border-b border-slate-100 tabular-nums"
-      style={nachLaufzeit ? { backgroundColor: HILITE } : undefined}
-    >
-      <td className={`py-1.5 pr-3 text-left ${nachLaufzeit ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
-        {jahr.label}
+    <tr>
+      <td style={{ ...klebt, backgroundColor: '#ffffff', width: SPALTE_POS, minWidth: SPALTE_POS }}
+        className={`border-b border-slate-100 px-3 py-1 text-left ${stark ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+        {label}
+        {einheit && <span className="ml-1 text-[10px] text-slate-400">{einheit}</span>}
       </td>
-      <td className="py-1.5 pr-3 text-right">{chf(jahr.mietertragSoll)}</td>
-      <SatzZelle
-        wert={jahr.ertragsausfall} anteil={jahr.ausfallQuote}
-        eigen={jahr.ausfallEigen} jahr={jahr.jahr}
-        canWrite={canWrite && !nachLaufzeit}
-        onSatz={(v) => onSatz('ausfallProJahr', v)} />
-      <MitAnteil wert={jahr.mietertragIst} anteil={1 - jahr.ausfallQuote} />
-      <SatzZelle
-        wert={jahr.kosten} anteil={jahr.kostenQuote}
-        eigen={jahr.kostenEigen} jahr={jahr.jahr}
-        canWrite={canWrite && !nachLaufzeit}
-        onSatz={(v) => onSatz('kostenquoteProJahr', v)} />
-      <MitAnteil wert={jahr.liegenschaftserfolg} anteil={jahr.erfolgQuote} />
-      <MitAnteil wert={jahr.fremdkapital} anteil={jahr.belehnung} />
-      <td className="py-1.5 pr-3 text-right">{chf(jahr.ersteHypothek)}</td>
-      <td className="py-1.5 pr-3 text-right">{chf(jahr.zweiteHypothek)}</td>
-      <td className="py-1.5 pr-3 text-right">{chf(jahr.zinsErste)}</td>
-      <td className="py-1.5 pr-3 text-right">{chf(jahr.zinsZweite)}</td>
-      <td className="py-1.5 pr-3 text-right">{chf(jahr.amortisation)}</td>
-      <td className={`py-1.5 text-right font-medium ${jahr.ueberschuss < 0 ? 'text-amber-700' : 'text-slate-900'}`}>
-        {chf(jahr.ueberschuss)}
-      </td>
+      {verlauf.map((j, i) => {
+        const nachLaufzeit = i >= verlauf.length - 2
+        const v = wert(j)
+        return (
+          <td key={j.label} className="border-b border-slate-100 px-1.5 py-1 text-right"
+            style={nachLaufzeit ? { backgroundColor: HILITE } : undefined}>
+            <div className={`text-[11px] ${stark ? 'font-semibold ' : ''}${
+              warnNegativ && v < 0 ? 'text-amber-700' : 'text-slate-900'}`}>
+              {chf(v)}
+            </div>
+            {satz && onSatz ? (
+              <JahresSatzFeld
+                roh={satz.roh(j)}
+                prozent={satz.prozent}
+                eigen={satz.eigen(j)}
+                jahr={j.jahr}
+                canWrite={!!canWrite && !nachLaufzeit}
+                onSatz={(neu) => onSatz(satz.feld, j.jahr, neu)} />
+            ) : anteil ? (
+              <div className="text-[9px] text-slate-400">{pct(anteil(j), 1)}</div>
+            ) : null}
+          </td>
+        )
+      })}
     </tr>
   )
 }
 
 /**
- * Betrag mit dem Satz darunter — und der Satz ist hier die Eingabe. Was in
- * einem Jahr gesetzt wird, gilt von dort an weiter; ein geerbter Satz steht
- * blass, ein gesetzter kräftig. Leeren löscht die Eingabe, das Jahr erbt dann
- * wieder (Jahr 1 ausgenommen, es ist der Anfang der Reihe).
+ * Der Satz unter dem Betrag — und er ist die Eingabe. Was in einem Jahr
+ * gesetzt wird, gilt von dort an weiter; ein geerbter Satz steht blass, ein
+ * gesetzter kräftig. Leeren löscht die Eingabe, das Jahr erbt dann wieder
+ * (Jahr 1 ausgenommen, es ist der Anfang der Reihe).
  */
-function SatzZelle({ wert, anteil, eigen, jahr, canWrite, onSatz }: {
-  wert: number
-  anteil: number
+function JahresSatzFeld({ roh: gespeichert, prozent, eigen, jahr, canWrite, onSatz }: {
+  /** Der gespeicherte Ansatz: Anteil (0.02) bei Prozent, sonst Franken. */
+  roh: number
+  /** Prozent wird mal hundert gezeigt und wieder geteilt gespeichert. */
+  prozent: boolean
   eigen: boolean
   jahr: number
   canWrite: boolean
   onSatz: (wert: number | null) => void
 }) {
   const [roh, setRoh] = useState<string | null>(null)
-  const anzeige = roh ?? (anteil * 100).toFixed(2).replace(/\.?0+$/, '')
+  const faktor = prozent ? 100 : 1
+  const anzeige = roh ?? (gespeichert * faktor).toFixed(2).replace(/\.?0+$/, '')
+  if (!canWrite) {
+    return (
+      <div className="text-[9px] text-slate-400">
+        {prozent ? pct(gespeichert, 1) : chf(gespeichert, 0)}
+      </div>
+    )
+  }
   return (
-    <td className="py-1.5 pr-3 text-right">
-      <div>{chf(wert)}</div>
-      {canWrite ? (
-        <div className="flex items-center justify-end gap-0.5">
-          <input
-            type="text"
-            inputMode="decimal"
-            value={anzeige}
-            title={eigen ? 'In diesem Jahr gesetzt' : 'Vom Vorjahr übernommen'}
-            onChange={(e) => setRoh(e.target.value)}
-            onBlur={() => {
-              if (roh != null) {
-                const leer = roh.trim() === ''
-                const v = Number(roh.replace(',', '.'))
-                if (leer && jahr > 1) onSatz(null)
-                else if (Number.isFinite(v)) onSatz(v / 100)
-              }
-              setRoh(null)
-            }}
-            className={`w-12 rounded border-0 bg-transparent px-0.5 py-0 text-right text-[10px] tabular-nums focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#B98C74] ${
-              eigen ? 'font-semibold text-slate-700' : 'text-slate-400'}`}
-          />
-          <span className="text-[10px] text-slate-400">%</span>
-        </div>
-      ) : (
-        <div className="text-[10px] text-slate-400">{pct(anteil, 1)}</div>
-      )}
-    </td>
-  )
-}
-
-/** Betrag mit seinem Anteil darunter — die Prozentspalte des Excel-Blatts. */
-function MitAnteil({ wert, anteil }: { wert: number; anteil: number }) {
-  return (
-    <td className="py-1.5 pr-3 text-right">
-      <div>{chf(wert)}</div>
-      <div className="text-[10px] text-slate-400">{pct(anteil, 1)}</div>
-    </td>
+    // Dieselbe graue Fläche wie bei den Annahmen — sie markiert die Eingabe.
+    <div className="ml-auto flex w-fit items-center gap-0.5 rounded bg-slate-100 px-1 focus-within:bg-white focus-within:ring-1 focus-within:ring-[#B98C74]">
+      <input
+        type="text"
+        inputMode="decimal"
+        value={anzeige}
+        title={eigen ? 'In diesem Jahr gesetzt' : 'Vom Vorjahr übernommen'}
+        onChange={(e) => setRoh(e.target.value)}
+        onBlur={() => {
+          if (roh != null) {
+            const leer = roh.trim() === ''
+            const v = Number(roh.replace(',', '.'))
+            if (leer && jahr > 1) onSatz(null)
+            else if (Number.isFinite(v)) onSatz(v / faktor)
+          }
+          setRoh(null)
+        }}
+        className={`w-8 rounded border-0 bg-transparent px-0 py-0 text-right text-[9px] tabular-nums focus:outline-none ${
+          eigen ? 'font-semibold text-slate-700' : 'text-slate-400'}`}
+      />
+      {prozent && <span className="text-[9px] text-slate-400">%</span>}
+    </div>
   )
 }
 
@@ -538,8 +631,9 @@ function KontrollZeile({ label, wert, einheit, stark, warn }: {
  * Eingabe eines Satzes in Prozent. Gespeichert wird der Anteil (0.023), gezeigt
  * die Prozentzahl — mit einem Textfeld, damit „2.3" nicht beim Punkt kippt.
  */
-function SatzFeld({ label, wert, canWrite, onChange, eigen, abgeleitetWert, onZurueck }: {
+function SatzFeld({ label, hinweis, wert, canWrite, onChange, eigen, abgeleitetWert, onZurueck }: {
   label: string
+  hinweis?: string
   wert: number
   canWrite: boolean
   onChange: (v: number) => void
@@ -549,19 +643,21 @@ function SatzFeld({ label, wert, canWrite, onChange, eigen, abgeleitetWert, onZu
   onZurueck?: () => void
 }) {
   return (
-    <FeldRahmen label={label} eigen={eigen} abgeleitet={abgeleitetWert != null ? `${(abgeleitetWert * 100).toFixed(1)} %` : undefined} onZurueck={onZurueck}>
+    <FeldRahmen label={label} hinweis={hinweis} einheit="%" eigen={eigen}
+      abgeleitet={abgeleitetWert != null ? `${(abgeleitetWert * 100).toFixed(1)} %` : undefined}
+      onZurueck={onZurueck}>
       <TextZahl
         wert={wert * 100}
         stellen={2}
         disabled={!canWrite}
         onChange={(v) => onChange(v / 100)} />
-      <span className="text-xs text-slate-500">%</span>
     </FeldRahmen>
   )
 }
 
-function ZahlFeld({ label, wert, einheit, canWrite, onChange, eigen, abgeleitetWert, onZurueck }: {
+function ZahlFeld({ label, hinweis, wert, einheit, canWrite, onChange, eigen, abgeleitetWert, onZurueck }: {
   label: string
+  hinweis?: string
   wert: number
   einheit: string
   canWrite: boolean
@@ -571,53 +667,81 @@ function ZahlFeld({ label, wert, einheit, canWrite, onChange, eigen, abgeleitetW
   onZurueck?: () => void
 }) {
   return (
-    <FeldRahmen label={label} eigen={eigen} abgeleitet={abgeleitetWert != null ? formatNumber(abgeleitetWert, 2) : undefined} onZurueck={onZurueck}>
+    <FeldRahmen label={label} hinweis={hinweis} einheit={einheit} eigen={eigen}
+      abgeleitet={abgeleitetWert != null ? formatNumber(abgeleitetWert, 2) : undefined}
+      onZurueck={onZurueck}>
       <TextZahl wert={wert} stellen={2} disabled={!canWrite} onChange={onChange} />
-      <span className="text-xs text-slate-500">{einheit}</span>
     </FeldRahmen>
   )
 }
 
-/** Eine Grösse, die aus einer anderen Rechnung kommt — nur zum Lesen. */
-function AnzeigeFeld({ label, wert, herkunft }: {
+/**
+ * Eine Grösse, die aus einer anderen Rechnung kommt — nur zum Lesen. Sie steht
+ * in derselben Zeilenform wie die Eingaben, aber ohne graue Fläche: das ist
+ * der Unterschied, den man auf einen Blick sehen soll.
+ */
+function AnzeigeFeld({ label, hinweis, wert, einheit }: {
   label: string
+  hinweis: string
   wert: string
-  herkunft: string
+  einheit: string
 }) {
   return (
-    <div className="text-xs text-slate-600">
-      <div className="mb-1 flex items-center gap-2 font-medium text-slate-700">
-        <span>{label}</span>
-        <span className="text-[10px] font-normal text-slate-400">{herkunft}</span>
+    <FeldRahmen label={label} hinweis={hinweis} einheit={einheit}>
+      <div className="w-24 px-2 py-1 text-right text-sm tabular-nums text-slate-500">{wert}</div>
+    </FeldRahmen>
+  )
+}
+
+/**
+ * Eine Gruppe der Annahmen: ein Kasten mit schmaler Überschrift. Drei davon
+ * nebeneinander ersetzen die lange Liste — jede trägt, was in der Rechnung
+ * zusammengehört.
+ */
+function Gruppe({ titel, children }: { titel: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 pb-1 pt-2">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        {titel}
       </div>
-      <div className="px-2 py-1 text-right text-sm tabular-nums text-slate-800">{wert}</div>
+      {children}
     </div>
   )
 }
 
-function FeldRahmen({ label, children, eigen, abgeleitet, onZurueck }: {
+/**
+ * Eine Zeile der Annahmen: Beschriftung links, Wert rechts, Einheit in einer
+ * eigenen schmalen Spalte. Weil die Spalten fest sind, fluchten alle Werte
+ * untereinander — unabhängig davon, wie lang die Beschriftung ist.
+ */
+function FeldRahmen({ label, hinweis, einheit, children, eigen, abgeleitet, onZurueck }: {
   label: string
+  /** Zweite Zeile unter der Beschriftung: Herkunft, Einschränkung, Lesehilfe. */
+  hinweis?: string
+  einheit: string
   children: ReactNode
   eigen?: boolean
   abgeleitet?: string
   onZurueck?: () => void
 }) {
   return (
-    <label className="block text-xs text-slate-600">
-      <div className="mb-1 flex items-center gap-2 font-medium text-slate-700">
-        <span>{label}</span>
-        {/* Wo eine Grösse aus den Mengen kommt, steht das dabei — und ein Weg
-            zurück, wenn man sie von Hand überschrieben hat. */}
+    <label className="flex items-center justify-between gap-2 border-b border-slate-100 py-1 text-xs text-slate-600 last:border-0">
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium text-slate-700">{label}</span>
+        {/* Wo eine Grösse aus den Mengen kommt, steht das darunter — und ein
+            Weg zurück, wenn man sie von Hand überschrieben hat. */}
+        {hinweis && <span className="block text-[10px] text-slate-400">{hinweis}</span>}
         {abgeleitet != null && (eigen
           ? (
             <button type="button" onClick={onZurueck}
-              className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500 hover:bg-slate-200">
+              className="mt-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500 hover:bg-slate-200">
               eigener Wert · aus Mengen: {abgeleitet}
             </button>
           )
-          : <span className="text-[10px] font-normal text-slate-400">aus den Mengen</span>)}
-      </div>
-      <div className="flex items-center gap-1.5">{children}</div>
+          : <span className="block text-[10px] text-slate-400">aus den Mengen</span>)}
+      </span>
+      <span className="shrink-0">{children}</span>
+      <span className="w-14 shrink-0 text-[10px] text-slate-400">{einheit}</span>
     </label>
   )
 }
@@ -651,7 +775,12 @@ function TextZahl({ wert, stellen, disabled, onChange }: {
         }
         setRoh(null)
       }}
-      className="w-24 rounded-md border border-slate-200 px-2 py-1 text-right text-sm tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#B98C74] disabled:opacity-60"
+      /*
+       * Leicht grau hinterlegt: wo man schreiben kann, soll man es sehen, ohne
+       * hineinzuklicken. Angezeigte Grössen stehen daneben ohne Fläche. Beim
+       * Tippen wird das Feld weiss — dann ist der Cursor die Auskunft.
+       */
+      className="w-24 rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-right text-sm tabular-nums text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#B98C74] disabled:bg-slate-50 disabled:opacity-60"
     />
   )
 }
