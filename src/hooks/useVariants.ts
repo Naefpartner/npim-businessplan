@@ -60,6 +60,50 @@ const EINFACHE_TABELLEN = [
   'variant_kapital_steuern',
 ] as const
 
+/*
+ * Felder des Stands selbst (`project_variants`), die die Kopie NICHT vom
+ * Original übernimmt: sie bekommt eine eigene Identität, Nummer und Herkunft.
+ * Alles andere — Status, MWST-Satz, Kostenmethode, Rendite-Modus, Bemerkungen,
+ * Berichtseinstellungen, Umbrüche und jede künftig angehängte Spalte — geht
+ * 1:1 mit. Name, Phase und Notizen kommen aus dem Dialog und überschreiben.
+ * `npm run check:kopie` meldet Einträge, die es als Spalte nicht (mehr) gibt.
+ */
+export const STAND_NEU_VERGEBEN = [
+  'id',
+  'project_id',
+  'variant_number',
+  'snapshot_of',
+  'snapshot_taken_at',
+  'created_by',
+  'created_at',
+  'updated_at',
+] as const
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+/**
+ * Setzt in einem gespeicherten Wert jede ID des Originals auf die der Kopie
+ * um — in Texten und in Objektschlüsseln, beliebig tief. Die JSON-Dokumente
+ * führen IDs auf vielerlei Art: als Schlüssel ('<etappe_id>|<eig>' in der
+ * Mittelfluss-Verteilung, '<mieteinheit_id>' bzw. '<mietflaeche_id>-fl' bei den
+ * Verkaufsobjekten), als Block-Schlüssel ('<etappe_id>::<eig>') oder als Liste
+ * (Etappenauswahl im Bericht). Statt jede Stelle einzeln zu kennen, wird jede
+ * UUID ersetzt, die zu einem kopierten Datensatz gehört; fremde IDs (Nutzer,
+ * Projekt) stehen nicht in der Map und bleiben.
+ */
+function remapIds<T>(wert: T, idMap: Map<string, string>): T {
+  if (typeof wert === 'string') {
+    return wert.replace(UUID_RE, (id) => idMap.get(id.toLowerCase()) ?? id) as T
+  }
+  if (Array.isArray(wert)) return wert.map((x) => remapIds(x, idMap)) as T
+  if (wert && typeof wert === 'object') {
+    const out: Row = {}
+    for (const [k, v] of Object.entries(wert as Row)) out[remapIds(k, idMap)] = remapIds(v, idMap)
+    return out as T
+  }
+  return wert
+}
+
 // Volatile Felder, die beim Kopieren neu vergeben werden.
 function stripRow(row: Row): Row {
   const rest = { ...row }
@@ -78,6 +122,9 @@ function stripRow(row: Row): Row {
  */
 export async function copyVariantContents(sourceId: string, targetId: string): Promise<string | null> {
   try {
+    // Alt → neu für alles, was kopiert wird (Grundlage für remapIds).
+    const idMap = new Map<string, string>()
+
     // 1) Etappen — id-Map für Gebäude & GSF-Allokation
     const etappeMap = new Map<string, string>()
     const etappen = (await supabase.from('variant_etappen').select('*').eq('variant_id', sourceId)).data ?? []
@@ -116,22 +163,27 @@ export async function copyVariantContents(sourceId: string, targetId: string): P
         mfMap.set(mf.id as string, (data as Row).id as string)
       }
       const eos = (await supabase.from('building_ertragsobjekte').select('*').eq('variant_building_id', oldB)).data ?? []
-      if (eos.length) {
-        const { error } = await supabase
+      for (const x of eos as Row[]) {
+        const { data, error } = await supabase
           .from('building_ertragsobjekte')
-          .insert((eos as Row[]).map((x) => ({ ...stripRow(x), variant_building_id: newB })))
+          .insert({ ...stripRow(x), variant_building_id: newB })
+          .select('id').single()
         if (error) throw error
+        idMap.set(x.id as string, (data as Row).id as string)
       }
     }
 
-    // 4) Mieteinheiten je Mietfläche
+    // 4) Mieteinheiten je Mietfläche — einzeln, damit die id-Map stimmt: die
+    //    Verkaufsobjekte der Mittelflussrechnung sind nach ihnen geschlüsselt.
     for (const [oldMf, newMf] of mfMap) {
       const mes = (await supabase.from('building_mieteinheiten').select('*').eq('mietflaeche_id', oldMf)).data ?? []
-      if (mes.length) {
-        const { error } = await supabase
+      for (const m of mes as Row[]) {
+        const { data, error } = await supabase
           .from('building_mieteinheiten')
-          .insert((mes as Row[]).map((m) => ({ ...stripRow(m), mietflaeche_id: newMf })))
+          .insert({ ...stripRow(m), mietflaeche_id: newMf })
+          .select('id').single()
         if (error) throw error
+        idMap.set(m.id as string, (data as Row).id as string)
       }
     }
 
@@ -169,13 +221,22 @@ export async function copyVariantContents(sourceId: string, targetId: string): P
       if (error) throw error
     }
 
-    // 7) Alle Tabellen, die nur an der variant_id hängen (siehe Liste oben)
+    // Alle bisher vergebenen IDs in eine Map — für die Verweise in den
+    // JSON-Dokumenten unten (siehe remapIds).
+    idMap.set(sourceId, targetId)
+    for (const m of [etappeMap, buildingMap, mfMap, customMap]) {
+      for (const [alt, neu] of m) idMap.set(alt, neu)
+    }
+
+    // 7) Alle Tabellen, die nur an der variant_id hängen (siehe Liste oben).
+    //    Ihre Dokumente und Schlüssel (z.B. block_key, Mittelfluss-Verteilung
+    //    je Etappe und je Verkaufsobjekt) zeigen danach auf die Kopie.
     for (const table of EINFACHE_TABELLEN) {
       const rows = (await supabase.from(table).select('*').eq('variant_id', sourceId)).data ?? []
       if (rows.length) {
         const { error } = await supabase
           .from(table)
-          .insert((rows as Row[]).map((r) => ({ ...stripRow(r), variant_id: targetId })))
+          .insert((rows as Row[]).map((r) => ({ ...remapIds(stripRow(r), idMap), variant_id: targetId })))
         if (error) throw error
       }
     }
@@ -193,7 +254,21 @@ export async function copyVariantContents(sourceId: string, targetId: string): P
       if (error) throw error
     }
 
-    // 9) Honorarrechner: er hängt am Projekt, seine Eingaben aber an der
+    // 9) Berichtseinstellungen und Umbrüche: kamen schon mit dem Stand, die
+    //    Etappenauswahl führt aber Etappen-IDs — auf die Kopie umsetzen.
+    const ziel = (await supabase.from('project_variants')
+      .select('bericht_einstellungen, bericht_umbrueche').eq('id', targetId).maybeSingle()).data as Row | null
+    if (ziel) {
+      const { error } = await supabase.from('project_variants')
+        .update({
+          bericht_einstellungen: remapIds(ziel.bericht_einstellungen, idMap),
+          bericht_umbrueche: remapIds(ziel.bericht_umbrueche, idMap),
+        })
+        .eq('id', targetId)
+      if (error) throw error
+    }
+
+    // 10) Honorarrechner: er hängt am Projekt, seine Eingaben aber an der
     //    Variante. Die nach Variante geschlüsselten Felder bekommen einen
     //    Eintrag für den neuen Stand — eine tiefe Kopie, damit die beiden
     //    Stände sich nachher nicht gegenseitig verändern.
@@ -211,7 +286,7 @@ export async function copyVariantContents(sourceId: string, targetId: string): P
           if (!map || typeof map !== 'object') continue
           const jeVariante = map as Record<string, unknown>
           if (!(sourceId in jeVariante)) continue
-          jeVariante[targetId] = JSON.parse(JSON.stringify(jeVariante[sourceId]))
+          jeVariante[targetId] = remapIds(JSON.parse(JSON.stringify(jeVariante[sourceId])), idMap)
           geaendert = true
         }
         if (geaendert) {
@@ -338,7 +413,7 @@ export function useVariants(projectId: string | undefined) {
   async function createVariant(input: VariantInput): Promise<ProjectVariant | null> {
     if (!projectId) return null
     const { data: { user } } = await supabase.auth.getUser()
-    const payload: Record<string, unknown> = {
+    let payload: Record<string, unknown> = {
       project_id:  projectId,
       name:        input.name,
       phase:       input.phase  ?? 'loi',
@@ -348,20 +423,21 @@ export function useVariants(projectId: string | undefined) {
       created_by:  user?.id ?? null,
     }
     if (input.snapshot_of) {
-      payload.snapshot_taken_at = new Date().toISOString()
       /*
-       * Snapshot: die Felder der Variante selbst mitnehmen, die man sonst von
-       * Hand nachstellen müsste — MWST-Satz, Berichtseinstellungen und die
-       * gesetzten Seitenumbrüche. Letztere zeigen auf Bausteine, die in der
-       * Kopie dieselben sind; sie greifen also weiter.
+       * Snapshot: ALLE Felder des Stands selbst mitnehmen, ausser denen, die
+       * die Kopie neu bekommt (STAND_NEU_VERGEBEN). Der Status kommt vom
+       * Original, sofern der Aufrufer keinen vorgibt.
        */
-      const src = (await supabase.from('project_variants')
-        .select('mwst_satz, bericht_umbrueche, bericht_einstellungen')
-        .eq('id', input.snapshot_of).maybeSingle()).data
-      if (src?.mwst_satz != null) payload.mwst_satz = src.mwst_satz
-      if (src?.bericht_umbrueche != null) payload.bericht_umbrueche = src.bericht_umbrueche
-      if (src?.bericht_einstellungen != null) {
-        payload.bericht_einstellungen = src.bericht_einstellungen
+      const { data: src, error: srcErr } = await supabase.from('project_variants')
+        .select('*').eq('id', input.snapshot_of).single()
+      if (srcErr || !src) { setError(srcErr?.message ?? 'Quell-Stand nicht gefunden'); return null }
+      const uebernommen: Row = { ...(src as Row) }
+      for (const feld of STAND_NEU_VERGEBEN) delete uebernommen[feld]
+      payload = {
+        ...uebernommen,
+        ...payload,
+        status: input.status ?? (src as Row).status ?? 'entwurf',
+        snapshot_taken_at: new Date().toISOString(),
       }
     } else {
       // Neuer Stand: anwendungsweiten Standard-MWST-Satz verwenden.

@@ -57,13 +57,61 @@ const abgedeckt = new Set(
   [...`${liste}\n${kopierfunktion}`.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
 )
 
+/**
+ * Spalten von project_variants, wie sie nach allen Migrationen bestehen.
+ * Die Kopie übernimmt sie alle ausser STAND_NEU_VERGEBEN — geprüft wird, dass
+ * diese Liste nur echte Spalten nennt und die Kopie wirklich alle Spalten liest.
+ */
+function standSpalten() {
+  const spalten = new Set()
+  for (const datei of readdirSync(migrationen).filter((f) => f.endsWith('.sql')).sort()) {
+    const sql = readFileSync(join(migrationen, datei), 'utf8')
+    const create = /CREATE TABLE (?:IF NOT EXISTS )?project_variants\s*\(([\s\S]*?)\n\);/i.exec(sql)
+    if (create) {
+      for (const z of create[1].matchAll(/^\s+([a-z_]+)\s+[a-z]/gm)) {
+        if (!['unique', 'primary', 'constraint', 'check', 'foreign'].includes(z[1])) spalten.add(z[1])
+      }
+    }
+    for (const a of sql.matchAll(/ALTER TABLE project_variants\b([\s\S]*?);/gi)) {
+      for (const z of a[1].matchAll(/ADD COLUMN (?:IF NOT EXISTS )?([a-z_]+)/gi)) spalten.add(z[1])
+      for (const z of a[1].matchAll(/DROP COLUMN (?:IF EXISTS )?([a-z_]+)/gi)) spalten.delete(z[1])
+    }
+  }
+  return spalten
+}
+
+const probleme = []
+
 const fehlend = [...variantenTabellen()].filter((t) => !abgedeckt.has(t)).sort()
-if (fehlend.length === 0) {
+if (fehlend.length) {
+  probleme.push('Diese Tabellen führen eine variant_id, werden aber nicht kopiert:')
+  for (const t of fehlend) probleme.push(`  • ${t}`)
+  probleme.push('  → Eintragen in EINFACHE_TABELLEN in src/hooks/useVariants.ts — oder, wenn die')
+  probleme.push('    Tabelle eigene Fremdschlüssel hat, in copyVariantContents einbauen.')
+}
+
+// Die Felder des Stands selbst: alles geht mit ausser STAND_NEU_VERGEBEN.
+const spalten = standSpalten()
+const neuStart = code.indexOf('export const STAND_NEU_VERGEBEN')
+const neuVergeben = [...code.slice(neuStart, code.indexOf('] as const', neuStart)).matchAll(/'([a-z_]+)'/g)]
+  .map((m) => m[1])
+const unbekannt = neuVergeben.filter((s) => !spalten.has(s))
+if (unbekannt.length) {
+  probleme.push('STAND_NEU_VERGEBEN nennt Spalten, die project_variants nicht (mehr) hat:')
+  for (const s of unbekannt) probleme.push(`  • ${s}`)
+}
+const anlegen = code.slice(code.indexOf('async function createVariant'), code.indexOf('async function updateVariant'))
+if (!/from\('project_variants'\)\s*\.select\('\*'\)/.test(anlegen)) {
+  probleme.push("createVariant liest den Quell-Stand nicht mehr mit select('*') — Felder des Stands")
+  probleme.push('gingen beim Kopieren verloren.')
+}
+
+if (probleme.length === 0) {
+  const mit = [...spalten].filter((s) => !neuVergeben.includes(s)).sort()
   console.log('Stand kopieren: alle variantengebundenen Tabellen sind abgedeckt.')
+  console.log(`Felder des Stands, die 1:1 mitgehen: ${mit.join(', ')}`)
   process.exit(0)
 }
-console.error('Stand kopieren — diese Tabellen führen eine variant_id, werden aber nicht kopiert:')
-for (const t of fehlend) console.error(`  • ${t}`)
-console.error('\nEintragen in EINFACHE_TABELLEN in src/hooks/useVariants.ts — oder, wenn die')
-console.error('Tabelle eigene Fremdschlüssel hat, in copyVariantContents einbauen.')
+console.error('Stand kopieren — unvollständig:')
+for (const z of probleme) console.error(z)
 process.exit(1)
