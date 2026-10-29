@@ -3,7 +3,7 @@ import { useAnlagekosten } from '@/hooks/useAnlagekosten'
 import { useKostenmiete } from '@/hooks/useKostenmiete'
 import { useRendite } from '@/hooks/useRendite'
 import { berechneKostenmiete, basisFromErgebnis, type ErtragNutzung, type KostenmieteParams } from '@/lib/kostenmiete'
-import { type RenditeParams } from '@/lib/rendite'
+import { berechneRendite, investitionAusErgebnis, type RenditeParams } from '@/lib/rendite'
 import { type BkpErgebnis } from '@/lib/bkpBerechnung'
 import {
   type ProjectVariant, type Eigentumsart,
@@ -50,7 +50,7 @@ const kindLabel = (k: Kind) => k === 'total' ? 'Total' : EIGENTUMSART_LABEL[k]
 interface EigMetrics {
   gf: number; gvOi: number; gvUi: number; gvTotal: number; gh: number
   vmf: number; vkf: number; gsf: number
-  nutz: Record<string, { flaeche: number; ertragA: number }>
+  nutz: Record<string, { flaeche: number; anzahl: number; ertragA: number }>
   nutzBar: [string, number][]; nutzBarTotal: number
   bkp: number[]; kostenTotal: number; ertragTotal: number
   maxMietWohnen: number; maxMietWohnenProM2: number
@@ -152,7 +152,7 @@ function computeMetrics(
     }
 
     const wohnFlTotal = [...a.nutz.values()].filter((x) => x.istWohnen).reduce((s, x) => s + x.flaeche, 0)
-    const nutzObj: Record<string, { flaeche: number; ertragA: number }> = {}
+    const nutzObj: Record<string, { flaeche: number; anzahl: number; ertragA: number }> = {}
     const barItems: [string, number][] = []
     let ertragTotal = 0
     for (const [k, val] of a.nutz) {
@@ -160,7 +160,7 @@ function computeMetrics(
       const ertragA = (eig === 'genossenschaft' && val.istWohnen)
         ? (wohnFlTotal > 0 ? maxMietWohnen * (val.flaeche / wohnFlTotal) : maxMietWohnen)
         : val.ertragA
-      nutzObj[k] = { flaeche: val.flaeche, ertragA }
+      nutzObj[k] = { flaeche: val.flaeche, anzahl: val.anzahl, ertragA }
       ertragTotal += ertragA
       if (val.flaeche > 0 && !isGarageNutzung(k)) barItems.push([k, val.flaeche])
     }
@@ -169,17 +169,15 @@ function computeMetrics(
 
     let liegenschaftserfolg = 0, bruttorendite = 0, nettorendite = 0, landwert = 0, landwertProM2 = 0
     if (eig === 'renditeobjekt' && erg) {
-      let investition = 0, erstellung = 0
-      for (let c = 0; c <= 9; c++) { investition += bkp[c]; if (c >= 1) erstellung += bkp[c] }
-      const p = renditeParams
-      const mietSoll = ertragTotal
-      const mietNetto = (mietSoll - mietSoll * p.leerstand) - mietSoll * p.betriebskosten - p.instandhaltungProM2 * a.flaeche - p.baurechtszins
-      liegenschaftserfolg = mietNetto - p.instandsetzungProM2 * a.flaeche
-      bruttorendite = investition > 0 ? mietSoll / investition : 0
-      nettorendite = investition > 0 ? liegenschaftserfolg / investition : 0
-      const ertragswert = p.nettoKapSatz > 0 ? liegenschaftserfolg / p.nettoKapSatz : 0
-      landwert = ertragswert - erstellung
-      landwertProM2 = ak.gsfTotal > 0 ? landwert / ak.gsfTotal : 0
+      // Dieselbe Rechnung wie die Renditeseite (lib/rendite): Erstellung = Anlagekosten
+      // ohne Pos. 010 (nicht ohne ganze BKP 0); GSF bei Etappenauswahl anteilig
+      // nach den Landkosten (Pos. 010) der gewählten Etappen.
+      const { investition, erstellung } = investitionAusErgebnis(erg)
+      const land = (e?: BkpErgebnis) => { const p = e?.positionen['010']; return (p?.betragNetto ?? 0) + (p?.mwstBetrag ?? 0) }
+      const gesamtLand = land(ak.konsolidiertEffektiv.get(eig))
+      const gsf = allEtappen ? ak.gsfTotal : (gesamtLand > 0 ? ak.gsfTotal * (land(erg) / gesamtLand) : 0)
+      const r = berechneRendite(renditeParams, { mietertragSoll: ertragTotal, totalVmf: a.flaeche, investition, erstellung, gsf })
+      ;({ liegenschaftserfolg, bruttorendite, nettorendite, landwert, landwertProM2 } = r)
     }
 
     perEig[eig] = {
@@ -198,16 +196,16 @@ function computeMetrics(
   // Total (Variante gesamt) = Aggregat über alle Eigentumsarten.
   let tGf = 0, tGvOi = 0, tGvUi = 0, tVmf = 0, tVkf = 0, tKosten = 0, tErtrag = 0
   const tBkp = new Array(10).fill(0)
-  const tNutz = new Map<string, { flaeche: number; ertragA: number }>()
+  const tNutz = new Map<string, { flaeche: number; anzahl: number; ertragA: number }>()
   for (const eig of eigs) {
     const m = perEig[eig]
     tGf += m.gf; tGvOi += m.gvOi; tGvUi += m.gvUi; tVmf += m.vmf; tVkf += m.vkf; tKosten += m.kostenTotal; tErtrag += m.ertragTotal
     for (let c = 0; c < 10; c++) tBkp[c] += m.bkp[c]
-    for (const [k, v] of Object.entries(m.nutz)) { const e = tNutz.get(k) ?? { flaeche: 0, ertragA: 0 }; e.flaeche += v.flaeche; e.ertragA += v.ertragA; tNutz.set(k, e) }
+    for (const [k, v] of Object.entries(m.nutz)) { const e = tNutz.get(k) ?? { flaeche: 0, anzahl: 0, ertragA: 0 }; e.flaeche += v.flaeche; e.anzahl += v.anzahl; e.ertragA += v.ertragA; tNutz.set(k, e) }
   }
   const tGvTotal = tGvOi + tGvUi
   const tFl = tVmf + tVkf
-  const tNutzObj: Record<string, { flaeche: number; ertragA: number }> = {}
+  const tNutzObj: Record<string, { flaeche: number; anzahl: number; ertragA: number }> = {}
   const tBar: [string, number][] = []
   for (const [k, v] of tNutz) { tNutzObj[k] = v; if (v.flaeche > 0 && !isGarageNutzung(k)) tBar.push([k, v.flaeche]) }
   tBar.sort((x, y) => y[1] - x[1])
@@ -224,7 +222,7 @@ function computeMetrics(
     loading: ak.loading, eigs, gsf: ak.gsfTotal,
     perEig: eigs.map((e) => {
       const m = perEig[e]
-      return [e, m.gf, m.gvTotal, m.vmf, m.vkf, m.kostenTotal, m.ertragTotal, m.maxMietWohnen, m.liegenschaftserfolg, m.landwert, m.bkp, Object.entries(m.nutz).map(([k, v]) => [k, v.flaeche, v.ertragA])]
+      return [e, m.gf, m.gvTotal, m.vmf, m.vkf, m.kostenTotal, m.ertragTotal, m.maxMietWohnen, m.liegenschaftserfolg, m.landwert, m.bkp, Object.entries(m.nutz).map(([k, v]) => [k, v.flaeche, v.anzahl, v.ertragA])]
     }),
   })
   return { loading: ak.loading, eigs, etappen: ak.etappen.map((e) => e.name), perEig, total, sig }
@@ -309,11 +307,16 @@ export function VariantenVergleich({ projectId, variants }: { projectId: string;
   const etappeKey = etappeSel ? [...etappeSel].sort().join('|') : 'all'
 
   // Spalten je Variante = [Eigentumsarten …] + Total. Übertitel = Variante.
+  // Kommt über alle Varianten nur eine Eigentumsart vor, wäre das Total eine
+  // Kopie davon — dann nur diese eine Spalte je Variante.
   type Column = { key: string; variant: ProjectVariant; kind: Kind; first: boolean }
+  const eigUnion = new Set<Eigentumsart>()
+  for (const v of chosen) { const d = data(v); if (d && !d.loading) for (const e of d.eigs) eigUnion.add(e) }
+  const mitTotal = eigUnion.size !== 1
   const allColumns: Column[] = chosen.flatMap((v): Column[] => {
     const d = data(v)
     const eigs = d && !d.loading ? d.eigs : []
-    const kinds: Kind[] = [...eigs, 'total']
+    const kinds: Kind[] = mitTotal || eigs.length === 0 ? [...eigs, 'total'] : eigs
     return kinds.map((k) => ({ key: `${v.id}::${k}`, variant: v, kind: k, first: false }))
   })
   const availableKinds = ALL_KINDS.filter((k) => allColumns.some((c) => c.kind === k))
@@ -366,12 +369,27 @@ export function VariantenVergleich({ projectId, variants }: { projectId: string;
     return { num: (row.fmtNum ?? fmtN)(n), unit: row.unit, delta }
   }
 
-  // Union aller Nutzungen (mit Fläche) über die sichtbaren Spalten + stabile Farbe.
+  // Union aller Nutzungen über die sichtbaren Spalten + stabile Farbe — auch
+  // Stück-Nutzungen ohne Fläche (Parkplätze), sonst fehlen deren Erträge in der
+  // Aufschlüsselung. Flächen-Nutzungen nach Grösse, Stück-Nutzungen danach.
   const nutzUnion = useMemo(() => {
-    const t = new Map<string, number>()
-    for (const c of columns) { const e = emOf(c); if (!e) continue; for (const [k, v] of Object.entries(e.nutz)) if (v.flaeche > 0) t.set(k, Math.max(t.get(k) ?? 0, v.flaeche)) }
-    return [...t.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k)
+    const t = new Map<string, { fl: number; stk: number }>()
+    for (const c of columns) {
+      const e = emOf(c); if (!e) continue
+      for (const [k, v] of Object.entries(e.nutz)) {
+        if (v.flaeche <= 0 && v.anzahl <= 0 && v.ertragA <= 0) continue
+        const x = t.get(k) ?? { fl: 0, stk: 0 }
+        x.fl = Math.max(x.fl, v.flaeche); x.stk = Math.max(x.stk, v.anzahl); t.set(k, x)
+      }
+    }
+    return [...t.entries()].sort((a, b) => (Number(a[1].fl <= 0) - Number(b[1].fl <= 0)) || b[1].fl - a[1].fl || b[1].stk - a[1].stk).map(([k]) => k)
   }, [dataMap, columns.map((c) => c.key).join()])
+  // Stück-Nutzung: ohne Fläche, aber mit Anzahl — Menge in Stk, Benchmark je Stk·Mt.
+  const istStk = (e: EigMetrics, n: string) => { const a = e.nutz[n]; return !!a && a.flaeche <= 0 && a.anzahl > 0 }
+  const stkIn = (n: string) => columns.some((c) => { const e = emOf(c); return !!e && istStk(e, n) })
+  // m²-Zeile nur, wenn die Nutzung in einer Spalte überhaupt Fläche hat — sonst
+  // stünde neben der Stk-Zeile eine leere zweite Zeile derselben Nutzung.
+  const flIn = (n: string) => columns.some((c) => (emOf(c)?.nutz[n]?.flaeche ?? 0) > 0)
   const nutzColor: Record<string, string> = {}
   nutzUnion.forEach((n, i) => { nutzColor[n] = CHART_PALETTE[i % CHART_PALETTE.length] })
 
@@ -391,7 +409,10 @@ export function VariantenVergleich({ projectId, variants }: { projectId: string;
 
   rows.push({ kind: 'group', label: 'Nutzungen' })
   rows.push({ kind: 'custom', label: 'Nutzungsmix (VMF/VKF)', render: (col) => customCell(col, (e) => <NutzBar items={e.nutzBar} total={e.nutzBarTotal} colorFor={(name) => nutzColor[name] ?? '#cbd5e1'} />) })
-  for (const n of nutzUnion) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => e.nutz[n]?.flaeche ?? 0, unit: 'm²', applicable: (e) => (e.nutz[n]?.flaeche ?? 0) > 0 })
+  for (const n of nutzUnion) {
+    if (flIn(n)) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => e.nutz[n]?.flaeche ?? 0, unit: 'm²', applicable: (e) => (e.nutz[n]?.flaeche ?? 0) > 0 })
+    if (stkIn(n)) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => e.nutz[n]?.anzahl ?? 0, unit: 'Stk', applicable: (e) => istStk(e, n) })
+  }
 
   rows.push({ kind: 'group', label: 'Kosten (BKP 0–9, inkl. MwSt)' })
   for (let c = 0; c <= 9; c++) rows.push({ kind: 'num', label: `BKP ${c}`, indent: true, value: (e) => e.bkp[c], unit: 'CHF' })
@@ -402,7 +423,10 @@ export function VariantenVergleich({ projectId, variants }: { projectId: string;
   for (const n of nutzUnion) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => e.nutz[n]?.ertragA ?? 0, unit: 'CHF/a', applicable: (e) => (e.nutz[n]?.ertragA ?? 0) > 0 })
 
   rows.push({ kind: 'group', label: 'Erträge – Benchmark (CHF/m²·a)' })
-  for (const n of nutzUnion) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => { const a = e.nutz[n]; return a && a.flaeche > 0 ? a.ertragA / a.flaeche : 0 }, unit: 'CHF/m²·a', applicable: (e) => (e.nutz[n]?.flaeche ?? 0) > 0 && (e.nutz[n]?.ertragA ?? 0) > 0 })
+  for (const n of nutzUnion) {
+    if (flIn(n)) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => { const a = e.nutz[n]; return a && a.flaeche > 0 ? a.ertragA / a.flaeche : 0 }, unit: 'CHF/m²·a', applicable: (e) => (e.nutz[n]?.flaeche ?? 0) > 0 && (e.nutz[n]?.ertragA ?? 0) > 0 })
+    if (stkIn(n)) rows.push({ kind: 'num', label: n, indent: true, dot: nutzColor[n], value: (e) => { const a = e.nutz[n]; return a && a.anzahl > 0 ? a.ertragA / a.anzahl / 12 : 0 }, unit: 'CHF/Stk·Mt', applicable: (e) => istStk(e, n) && (e.nutz[n]?.ertragA ?? 0) > 0 })
+  }
 
   if (anyRendite) {
     rows.push({ kind: 'group', label: 'Rendite (Renditeobjekt)' })
