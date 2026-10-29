@@ -298,8 +298,10 @@ export function AnlagekostenSection({
             if (!ergebnis) return null
             return (
               <EigentumsartBlock
-                key={eig}
+                // Je Reiter eine eigene Instanz: der Klappzustand gilt pro Etappe.
+                key={`${tabKey}:${eig}`}
                 eig={eig}
+                einzig={eigInTab.length === 1}
                 ergebnis={ergebnis}
                 aggregateFlags={aggregateFlags.get(eig) ?? EMPTY_SET}
                 scope={{ etappeId: isKons ? null : tabKey, eigentumsart: eig }}
@@ -400,11 +402,13 @@ export function AnlagekostenPage() {
 // =============================================================================
 
 function EigentumsartBlock({
-  eig, ergebnis, aggregateFlags, scope, canWrite, onUpsert, getDetail, projektId,
+  eig, einzig, ergebnis, aggregateFlags, scope, canWrite, onUpsert, getDetail, projektId,
   mwstSatz, isKons, etappeId, collapseSignal, viewKey,
   gsfTotal, gsfAlloc, defaultShare, positions, typFor, rows, custom, ertragProNutzung,
 }: {
   eig: Eigentumsart
+  /** Einzige Nutzungsart im Reiter — dann gleich offen, Zuklappen kostete nur einen Klick. */
+  einzig: boolean
   ergebnis: BkpErgebnis
   aggregateFlags: Set<string>
   scope: BkpScope
@@ -428,7 +432,8 @@ function EigentumsartBlock({
 }) {
   const scopeKey = isKons ? 'kons' : (etappeId ?? 'x')
   const [collapsed, setCollapsed] = usePersistedCollapse(
-    viewKey ? `${viewKey}:eig:${scopeKey}:${eig}` : null, true, collapseSignal, // Eigentumsart-Block startet eingeklappt
+    // Eigentumsart-Block startet eingeklappt — ausser er ist der einzige.
+    viewKey ? `${viewKey}:eig:${scopeKey}:${eig}` : null, !einzig, collapseSignal,
   )
   return (
     <div className="space-y-4">
@@ -1265,13 +1270,16 @@ function ProzentEingabe({
 }) {
   const initial = (value * 100).toFixed(2).replace(/\.?0+$/, '')
   const [draft, setDraft] = useState<string>(initial)
-  useEffect(() => { setDraft(initial) }, [initial])
+  const [getippt, setGetippt] = useState(false)
+  useEffect(() => { if (!getippt) setDraft(initial) }, [initial, getippt])
   return (
     <span className="inline-flex items-baseline gap-0.5">
       <input
         type="number" inputMode="decimal" step="any" value={draft} disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => { setDraft(e.target.value); setGetippt(true) }}
         onBlur={() => {
+          if (!getippt) return
+          setGetippt(false)
           const trimmed = draft.trim()
           if (trimmed === '') { setDraft(initial); return }
           const n = Number(trimmed.replace(',', '.'))
@@ -1303,14 +1311,20 @@ function NumInput({
   const displayOf = (v: number | null) => v == null ? '' : isProzent ? (v * 100).toFixed(2) : formatInputDisplay(wholeChf ? Math.round(v) : clean(v))
   const [focused, setFocused] = useState(false)
   const [draft, setDraft]     = useState<string>(rawOf(value))
-  useEffect(() => { if (!focused) setDraft(rawOf(value)) }, [value, isProzent, focused])
+  // Erst wer tippt, hält den Wert fest. Bis dahin folgt das Feld dem Wert auch
+  // im Fokus — sonst zeigt es nach Tab noch den Stand vor der Neuberechnung
+  // und schriebe ihn beim Verlassen zurück.
+  const [getippt, setGetippt] = useState(false)
+  useEffect(() => { if (!getippt) setDraft(rawOf(value)) }, [value, isProzent, getippt])
   return (
     <input
       type="text" inputMode="decimal" value={focused ? draft : displayOf(value)} disabled={disabled}
       onFocus={() => { setDraft(rawOf(value)); setFocused(true) }}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => { setDraft(e.target.value); setGetippt(true) }}
       onBlur={() => {
         setFocused(false)
+        if (!getippt) return
+        setGetippt(false)
         const trimmed = draft.replace(/['\s]/g, '').trim()
         if (trimmed === '') { if (value != null) onCommit(null); return }
         const n = Number(trimmed.replace(',', '.'))
