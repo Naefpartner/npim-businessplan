@@ -10,6 +10,7 @@ import { useBwo } from '@/hooks/useBwo'
 import { useUndoableSetter } from '@/contexts/UndoContext'
 import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 
 const EIG: 'genossenschaft' = 'genossenschaft'
 const HILITE = USE_TYPE_COLOR_1.genossenschaft
@@ -198,18 +199,19 @@ export function BwoBerechnung({ variantId }: { variantId: string }) {
 
 // Editierbares Zahlenfeld: ganze Zahl, rechtsbündig, mit 1000er-Trennzeichen.
 function NumInput({ value, onChange, w = 'w-full' }: { value: number; onChange: (v: number) => void; w?: string }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <input
       type="text"
       inputMode="numeric"
-      value={raw ?? formatNumber(value, 0)}
-      onFocus={() => setRaw(String(value))}
-      onChange={(e) => setRaw(e.target.value)}
+      value={eingabe.text(String(value), formatNumber(value, 0))}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
       onBlur={() => {
-        const v = parseFloat((raw ?? '').replace(/['’\s]/g, '').replace(',', '.'))
+        const raw = eingabe.verlassen()
+        if (raw == null) return
+        const v = parseFloat(raw.replace(/['’\s]/g, '').replace(',', '.'))
         onChange(Number.isFinite(v) ? v : value)
-        setRaw(null)
       }}
       className={cn('rounded border border-slate-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none focus:border-[#8B6956]', w)}
     />

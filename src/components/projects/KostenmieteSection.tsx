@@ -15,6 +15,7 @@ import { useWbfZh } from '@/hooks/useWbfZh'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3, USE_TYPE_COLOR_7 } from '@/lib/kategorieFarben'
 import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 
 const EIG: 'genossenschaft' = 'genossenschaft'
 
@@ -872,19 +873,20 @@ function SliderRow({ label, unit, value, min, max, step, scale = 1, decimals = 0
 function NumField({ value, scale, decimals, disabled, onChange }: {
   value: number; scale: number; decimals: number; disabled?: boolean; onChange: (v: number) => void
 }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={raw ?? formatNumber(value * scale, decimals)}
+      value={eingabe.text(String(+(value * scale).toFixed(decimals)), formatNumber(value * scale, decimals))}
       disabled={disabled}
-      onFocus={() => setRaw(String(+(value * scale).toFixed(decimals)))}
-      onChange={(e) => setRaw(e.target.value)}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
       onBlur={() => {
-        const n = parseFloat((raw ?? '').replace(/['’\s]/g, '').replace(',', '.'))
+        const raw = eingabe.verlassen()
+        if (raw == null) return
+        const n = parseFloat(raw.replace(/['’\s]/g, '').replace(',', '.'))
         if (Number.isFinite(n)) onChange(n / scale)
-        setRaw(null)
       }}
       className="w-28 shrink-0 rounded border border-slate-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none focus:border-[#8B6956] disabled:bg-slate-50 disabled:text-slate-400"
     />

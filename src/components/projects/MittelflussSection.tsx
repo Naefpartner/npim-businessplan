@@ -14,6 +14,7 @@ import { berechneHonorare, type HonorarInput } from '@/lib/honorar'
 import { EIGENTUMSART_LABEL, eigentumsartForBuilding, type Eigentumsart } from '@/types'
 import type { BkpErgebnis } from '@/lib/bkpBerechnung'
 import { formatNumber } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { buildUnits } from '@/lib/mengenAnalyse'
 import {
@@ -1239,7 +1240,7 @@ function NumFeld({ value, disabled, placeholder, className, negativ, onChange }:
   negativ?: boolean
   onChange: (v: number) => void
 }) {
-  const [roh, setRoh] = useState<string | null>(null)
+  const eingabe = useEingabe()
   /*
    * Ausser Gebrauch steht die Zahl gesetzt da — mit Tausenderzeichen wie
    * überall sonst in der Tabelle. Beim Tippen bleibt sie roh, sonst käme das
@@ -1251,15 +1252,16 @@ function NumFeld({ value, disabled, placeholder, className, negativ, onChange }:
     <input
       type="text"
       inputMode="decimal"
-      value={roh ?? (value || value === 0 ? gesetzt : '')}
+      value={eingabe.text(String(value), value || value === 0 ? gesetzt : '')}
       disabled={disabled}
       placeholder={placeholder}
-      onFocus={() => setRoh(String(value))}
-      onChange={(e) => setRoh(e.target.value)}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
       onBlur={() => {
-        const n = parseFloat((roh ?? '').replace(/['’\s]/g, '').replace(',', '.'))
+        const roh = eingabe.verlassen()
+        if (roh == null) return
+        const n = parseFloat(roh.replace(/['’\s]/g, '').replace(',', '.'))
         onChange(Number.isFinite(n) ? (negativ ? n : Math.max(0, n)) : 0)
-        setRoh(null)
       }}
       className={className}
     />

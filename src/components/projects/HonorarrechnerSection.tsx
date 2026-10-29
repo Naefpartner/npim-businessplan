@@ -13,6 +13,7 @@ import { useUndoableState } from '@/contexts/UndoContext'
 import { PlanerBibliothekDialog } from './PlanerBibliothekDialog'
 import { Plus, X, GripVertical, Library, Lock } from 'lucide-react'
 import { formatNumber, cn } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 
 const EMPTY: HonorarInput = { anlagekosten: {}, factors: {}, pauschal: {} }
 
@@ -788,71 +789,72 @@ function LabelInput({ value, onChange, className, placeholder, list }: { value: 
 }
 // Kompaktes %-Eingabefeld (intern 0–1, angezeigt als %) — für Nebenkosten-/MwSt-Satz.
 function PctMini({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   const disp = value ? String(+(value * 100).toFixed(1)) : ''
   return (
     <span className="inline-flex items-center gap-0.5">
-      <input type="text" inputMode="decimal" value={raw ?? disp}
-        onFocus={() => setRaw(disp)} onChange={(e) => setRaw(e.target.value)}
-        onBlur={() => { const n = parseFloat((raw ?? '').replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : value); setRaw(null) }}
+      <input type="text" inputMode="decimal" value={eingabe.text(disp, disp)}
+        onFocus={eingabe.onFocus} onChange={eingabe.onChange}
+        onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : value) }}
         className="w-12 rounded bg-slate-100 px-1 py-0.5 text-right text-[11px] tabular-nums text-slate-900 outline-none focus:bg-slate-200" />
       <span className="text-[10px] text-slate-400">%</span>
     </span>
   )
 }
 function FaktorInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
-    <input type="text" inputMode="decimal" value={raw ?? String(value)}
-      onFocus={() => setRaw(String(value))} onChange={(e) => setRaw(e.target.value)}
-      onBlur={() => { const n = parseFloat((raw ?? '').replace(',', '.')); onChange(Number.isFinite(n) ? n : value); setRaw(null) }}
+    <input type="text" inputMode="decimal" value={eingabe.text(String(value), String(value))}
+      onFocus={eingabe.onFocus} onChange={eingabe.onChange}
+      onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(',', '.')); onChange(Number.isFinite(n) ? n : value) }}
       className="w-full rounded bg-slate-100 px-1 py-0.5 text-right text-[11px] tabular-nums text-slate-900 outline-none focus:bg-slate-200" />
   )
 }
 // Faktor als Prozentzahl (intern 0–1, angezeigt/eingegeben als %). Für Teilleistungen (TL).
 function PctFaktorInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   const disp = value ? String(+(value * 100).toFixed(1)) : ''
   return (
     <span className="inline-flex w-full items-center justify-end gap-0.5">
-      <input type="text" inputMode="decimal" value={raw ?? disp}
-        onFocus={() => setRaw(disp)} onChange={(e) => setRaw(e.target.value)}
-        onBlur={() => { const n = parseFloat((raw ?? '').replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : value); setRaw(null) }}
+      <input type="text" inputMode="decimal" value={eingabe.text(disp, disp)}
+        onFocus={eingabe.onFocus} onChange={eingabe.onChange}
+        onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : value) }}
         className="w-14 rounded bg-slate-100 px-1 py-0.5 text-right text-[11px] tabular-nums text-slate-900 outline-none focus:bg-slate-200" />
       <span className="text-[10px] text-slate-400">%</span>
     </span>
   )
 }
 function ChfCell({ value, onChange, small }: { value: number; onChange: (v: number) => void; small?: boolean }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
-    <input type="text" inputMode="numeric" value={raw ?? (value ? formatNumber(value, 0) : '')}
-      onFocus={() => setRaw(value ? String(Math.round(value)) : '')} onChange={(e) => setRaw(e.target.value)}
-      onBlur={() => { const n = parseFloat((raw ?? '').replace(/['’\s]/g, '').replace(',', '.')); onChange(Number.isFinite(n) ? n : 0); setRaw(null) }}
+    <input type="text" inputMode="numeric"
+      value={eingabe.text(value ? String(Math.round(value)) : '', value ? formatNumber(value, 0) : '')}
+      onFocus={eingabe.onFocus} onChange={eingabe.onChange}
+      onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(/['’\s]/g, '').replace(',', '.')); onChange(Number.isFinite(n) ? n : 0) }}
       className={cn('w-full rounded bg-slate-100 px-1 py-0.5 text-right tabular-nums text-slate-900 outline-none focus:bg-slate-200', small ? 'text-[11px]' : 'text-xs')} />
   )
 }
 function PctCell({ value, onChange, warn, title }: { value: number; onChange: (v: number) => void; warn?: boolean; title?: string }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   const disp = value ? String(+value.toFixed(1)) : ''
   return (
     <span className="inline-flex w-full items-center justify-end gap-0.5" title={title}>
-      <input type="text" inputMode="decimal" value={raw ?? disp}
-        onFocus={() => setRaw(disp)} onChange={(e) => setRaw(e.target.value)}
-        onBlur={() => { const n = parseFloat((raw ?? '').replace(',', '.')); onChange(Number.isFinite(n) ? n : 0); setRaw(null) }}
+      <input type="text" inputMode="decimal" value={eingabe.text(disp, disp)}
+        onFocus={eingabe.onFocus} onChange={eingabe.onChange}
+        onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(',', '.')); onChange(Number.isFinite(n) ? n : 0) }}
         className={cn('w-11 rounded px-0.5 py-0.5 text-right text-[11px] tabular-nums outline-none focus:bg-slate-200', warn ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-900')} />
       <span className="text-[10px] text-slate-400">%</span>
     </span>
   )
 }
 function FacCell({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   const disp = value ? String(+(value * 100).toFixed(0)) : ''
   return (
     <span className="inline-flex w-full items-center justify-end gap-0.5">
-      <input type="text" inputMode="decimal" value={raw ?? disp}
-        onFocus={() => setRaw(disp)} onChange={(e) => setRaw(e.target.value)}
-        onBlur={() => { const n = parseFloat((raw ?? '').replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : 0); setRaw(null) }}
+      <input type="text" inputMode="decimal" value={eingabe.text(disp, disp)}
+        onFocus={eingabe.onFocus} onChange={eingabe.onChange}
+        onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : 0) }}
         className="w-8 rounded bg-slate-100 px-0.5 py-0.5 text-right text-[11px] tabular-nums text-slate-900 outline-none focus:bg-slate-200" />
       <span className="text-[10px] text-slate-400">%</span>
     </span>

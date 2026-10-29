@@ -2092,7 +2092,8 @@ function MiniWhgInput({
   onCommit: (raw: string) => void
 }) {
   const [raw, setRaw] = useState(value != null ? String(value) : '')
-  useEffect(() => { setRaw(value != null ? String(value) : '') }, [value])
+  const [getippt, setGetippt] = useState(false)
+  useEffect(() => { if (!getippt) setRaw(value != null ? String(value) : '') }, [value, getippt])
   return (
     <div className="px-1">
       <input
@@ -2102,8 +2103,8 @@ function MiniWhgInput({
         min={0}
         className="no-spinner w-full rounded border border-slate-200 bg-slate-50 px-0.5 py-0.5 text-center text-xs tabular-nums text-slate-900 outline-none focus:border-[#8B6956] focus:bg-white disabled:opacity-50"
         value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        onBlur={() => onCommit(raw)}
+        onChange={(e) => { setRaw(e.target.value); setGetippt(true) }}
+        onBlur={() => { if (!getippt) return; setGetippt(false); onCommit(raw) }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         disabled={!canWrite}
       />
@@ -2174,10 +2175,13 @@ function NumCell({
 }) {
   // Im Fokus ohne erzwungene Nullen tippen, sonst mit fixer Nachkommastellenzahl anzeigen.
   const [raw, setRaw] = useState(value != null ? formatChDisplay(value, digits, minDigits) : '')
-  const [focused, setFocused] = useState(false)
+  // Erst wer tippt, hält den Wert fest. Bis dahin folgt das Feld dem Wert auch
+  // im Fokus — sonst zeigt es nach Tab noch den Stand vor der Neuberechnung
+  // und schriebe ihn beim Verlassen zurück.
+  const [getippt, setGetippt] = useState(false)
   useEffect(() => {
-    if (!focused) setRaw(value != null ? formatChDisplay(value, digits, minDigits) : '')
-  }, [value, digits, minDigits, focused])
+    if (!getippt) setRaw(value != null ? formatChDisplay(value, digits, minDigits) : '')
+  }, [value, digits, minDigits, getippt])
 
   return (
     <div className="relative px-1">
@@ -2192,10 +2196,10 @@ function NumCell({
           !canWrite && 'border-transparent bg-transparent',
         )}
         value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        onFocus={() => setFocused(true)}
+        onChange={(e) => { setRaw(e.target.value); setGetippt(true) }}
         onBlur={() => {
-          setFocused(false)
+          if (!getippt) return
+          setGetippt(false)
           onCommit(parseChNumber(raw))
         }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}

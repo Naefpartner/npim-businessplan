@@ -21,13 +21,16 @@ export function AnsatzEingabe({
     w == null ? '' : String(istProzent ? Number((w * 100).toFixed(4)) : w)
 
   const [text, setText] = useState(() => anzeige(wert))
-  const [fokus, setFokus] = useState(false)
-  // Externe Änderungen (Laden, Rollback nach Speicherfehler) übernehmen —
-  // aber nie während der Eingabe, sonst springt der Cursor.
-  useEffect(() => { if (!fokus) setText(anzeige(wert)) }, [wert, fokus])  // eslint-disable-line react-hooks/exhaustive-deps
+  const [getippt, setGetippt] = useState(false)
+  // Externe Änderungen (Laden, Neuberechnung, Rollback nach Speicherfehler)
+  // übernehmen — auch im Fokus, solange nichts getippt ist (sonst zeigte das
+  // Feld nach Tab den alten Stand); nie aber während der Eingabe, sonst
+  // springt der Cursor.
+  useEffect(() => { if (!getippt) setText(anzeige(wert)) }, [wert, getippt])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = () => {
-    setFokus(false)
+    if (!getippt) return
+    setGetippt(false)
     const roh = text.trim().replace(/'/g, '').replace(',', '.')
     if (roh === '') { onCommit(null); return }
     const n = Number(roh)
@@ -42,8 +45,7 @@ export function AnsatzEingabe({
         inputMode="decimal"
         value={text}
         disabled={disabled}
-        onFocus={() => setFokus(true)}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { setText(e.target.value); setGetippt(true) }}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder="—"

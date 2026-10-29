@@ -12,6 +12,7 @@ import { useWbfZh } from '@/hooks/useWbfZh'
 import { useUndoableSetter } from '@/contexts/UndoContext'
 import { etappenTabs } from '@/lib/etappenTabs'
 import { cn, formatNumber } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 
 const EIG: 'genossenschaft' = 'genossenschaft'
 // Sehr heller Grünton (CI Genossenschaft, Stufe 1) für Zwischenresultate/Totale.
@@ -319,18 +320,19 @@ function PunkteKreis({ data }: { data: { label: string; nameLong: string; punkte
 // Punkte-Eingabe: immer 1 Nachkommastelle mit Punkt (z. B. 5.0), füllt die
 // Spalte und ist rechtsbündig (fluchtet mit Spaltenkopf und Ø).
 function PtInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={raw ?? value.toFixed(1)}
-      onFocus={() => setRaw(String(value))}
-      onChange={(e) => setRaw(e.target.value)}
+      value={eingabe.text(String(value), value.toFixed(1))}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
       onBlur={() => {
-        const v = parseFloat((raw ?? '').replace(',', '.'))
+        const raw = eingabe.verlassen()
+        if (raw == null) return
+        const v = parseFloat(raw.replace(',', '.'))
         onChange(Number.isFinite(v) ? v : value)
-        setRaw(null)
       }}
       className="w-full rounded border border-transparent bg-transparent px-0 text-right text-sm tabular-nums text-slate-900 outline-none transition hover:border-slate-300 focus:border-[#8B6956] focus:bg-white"
     />
@@ -339,18 +341,19 @@ function PtInput({ value, onChange }: { value: number; onChange: (v: number) => 
 
 // Editierbares Zahlenfeld: ganze Zahl, rechtsbündig, mit 1000er-Trennzeichen.
 function NumInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <input
       type="text"
       inputMode="numeric"
-      value={raw ?? formatNumber(value, 0)}
-      onFocus={() => setRaw(String(value))}
-      onChange={(e) => setRaw(e.target.value)}
+      value={eingabe.text(String(value), formatNumber(value, 0))}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
       onBlur={() => {
-        const v = parseFloat((raw ?? '').replace(/['’\s]/g, '').replace(',', '.'))
+        const raw = eingabe.verlassen()
+        if (raw == null) return
+        const v = parseFloat(raw.replace(/['’\s]/g, '').replace(',', '.'))
         onChange(Number.isFinite(v) ? v : value)
-        setRaw(null)
       }}
       className="w-full rounded border border-slate-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none focus:border-[#8B6956]"
     />

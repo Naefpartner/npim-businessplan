@@ -1,10 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { USE_TYPE_COLOR_1 } from '@/lib/kategorieFarben'
 import { useRendite } from '@/hooks/useRendite'
 import { berechneRendite, investitionAusErgebnis, sammleRenditeMengen } from '@/lib/rendite'
 import { useUndoableSetter } from '@/contexts/UndoContext'
 import { cn, formatNumber } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 
 const EIG: 'renditeobjekt' = 'renditeobjekt'
 const HILITE = USE_TYPE_COLOR_1.renditeobjekt // heller Blauton für Zwischensummen
@@ -249,16 +250,16 @@ function Kennzahl({ label, value, hint }: { label: string; value: number; hint: 
 
 // %-Eingabe (Anzeige in %, Speicherung als Anteil 0..1).
 function PctInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <span className="relative inline-block w-20">
       <input
         type="text"
         inputMode="decimal"
-        value={raw ?? (value * 100).toFixed(1)}
-        onFocus={() => setRaw((value * 100).toFixed(1))}
-        onChange={(e) => setRaw(e.target.value)}
-        onBlur={() => { const n = parseFloat((raw ?? '').replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : value); setRaw(null) }}
+        value={eingabe.text((value * 100).toFixed(1), (value * 100).toFixed(1))}
+        onFocus={eingabe.onFocus}
+        onChange={eingabe.onChange}
+        onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(',', '.')); onChange(Number.isFinite(n) ? n / 100 : value) }}
         className="w-full rounded border border-slate-300 bg-white py-0.5 pl-2 pr-5 text-right text-sm tabular-nums outline-none focus:border-[#8B6956]"
       />
       <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
@@ -270,15 +271,15 @@ function PctInput({ value, onChange }: { value: number; onChange: (v: number) =>
 function NumInput({ value, onChange, decimals = 0, w = 'w-24' }: {
   value: number; onChange: (v: number) => void; decimals?: number; w?: string
 }) {
-  const [raw, setRaw] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={raw ?? formatNumber(value, decimals)}
-      onFocus={() => setRaw(String(value))}
-      onChange={(e) => setRaw(e.target.value)}
-      onBlur={() => { const n = parseFloat((raw ?? '').replace(/['’\s]/g, '').replace(',', '.')); onChange(Number.isFinite(n) ? n : value); setRaw(null) }}
+      value={eingabe.text(String(value), formatNumber(value, decimals))}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
+      onBlur={() => { const raw = eingabe.verlassen(); if (raw == null) return; const n = parseFloat(raw.replace(/['’\s]/g, '').replace(',', '.')); onChange(Number.isFinite(n) ? n : value) }}
       className={cn('rounded border border-slate-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none focus:border-[#8B6956]', w)}
     />
   )
