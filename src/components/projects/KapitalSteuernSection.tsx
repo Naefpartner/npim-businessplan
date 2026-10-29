@@ -1,7 +1,7 @@
 import {
   Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
-import { ChevronDown, ChevronRight, Landmark, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Landmark, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUndoableState } from '@/contexts/UndoContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
@@ -14,12 +14,29 @@ import {
 import { ertragProNutzung } from '@/lib/bkpBlocks'
 import { HAUPTGRUPPEN, posSortKey } from '@/lib/bkpKatalog'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
+import { CI } from '@/lib/ci'
 import { eigentumsartForBuilding } from '@/types'
 import { cn, formatNumber } from '@/lib/utils'
+import { useEingabe } from '@/hooks/useEingabe'
 
 const EIG = 'verkaufsobjekt' as const
 const HILITE = USE_TYPE_COLOR_1.verkaufsobjekt
 const TOTALFLAECHE = USE_TYPE_COLOR_3.verkaufsobjekt
+
+/**
+ * Farben eines Kapitelteils: Kopf des Unterkapitels, Summen- und Totalzeilen,
+ * hervorgehobene Zwischenzeilen. Landprovider und Totalunternehmer tragen je
+ * eine eigene CI-Familie — Gelb und Mint sind frei, Blau/Grün/Rot stehen für
+ * die Nutzungsarten, Violett für gemischt —, damit man beim Blättern weiss,
+ * bei welcher Gesellschaft man ist.
+ */
+interface Farbe { kopf: string; summe: string; zeile: string }
+const FARBE_VERKAUF: Farbe = { kopf: TOTALFLAECHE, summe: TOTALFLAECHE, zeile: HILITE }
+const FARBE_LP: Farbe = { kopf: CI.gelb[5], summe: CI.gelb[3], zeile: CI.gelb[1] }
+const FARBE_TU: Farbe = { kopf: CI.mint[5], summe: CI.mint[3], zeile: CI.mint[1] }
+
+/** Abweichung, ab der die Kontrolle warnt (Rundung der Positionen). */
+const KONTROLLE_TOLERANZ = 1
 
 /**
  * Eine wählbare Position aus der Kostenberechnung. `sortierung` ist die
@@ -162,6 +179,36 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
     [doc.totalunternehmer, positionsBetraege, landpreis, werkerloes],
   )
   const gewinnTotal = lp.gewinnNachSteuern + tu.gewinnNachSteuern
+
+  /*
+   * Kontrolle: Landprovider und Totalunternehmer zusammen sollen genau die
+   * Anlagekosten der Verkaufsobjekte tragen — nicht mehr (Position doppelt
+   * zugeordnet) und nicht weniger (Position vergessen). Die Hinweise sagen,
+   * wo eine Abweichung herkommen kann; frei erfasste Zeilen können eine
+   * fehlende Position bewusst ersetzen, darum stehen sie nur als Hinweis da.
+   */
+  const kontrolle = useMemo(() => {
+    const anlagekosten = ak.konsolidiertEffektiv.get(EIG)?.totalBrutto ?? 0
+    const zugeteilt = lp.kostenTotal + tu.kostenTotal
+    const alle = [
+      ...doc.landprovider.landkosten, ...doc.landprovider.anlagekosten,
+      ...doc.totalunternehmer.anlagekosten,
+    ]
+    const anzahl = new Map<string, number>()
+    for (const z of alle) if (z.code) anzahl.set(z.code, (anzahl.get(z.code) ?? 0) + 1)
+    const freieZeilen = alle.filter((z) => !z.code)
+    return {
+      anlagekosten,
+      zugeteilt,
+      differenz: zugeteilt - anlagekosten,
+      doppelt: wahlpositionen.filter((p) => (anzahl.get(p.code) ?? 0) > 1),
+      offen: wahlpositionen.filter((p) => !anzahl.has(p.code)),
+      freiBetrag: freieZeilen.reduce(
+        (s, z) => s + zeilenBetrag(z, undefined, landpreis), 0),
+      freiAnzahl: freieZeilen.length,
+    }
+  }, [ak.konsolidiertEffektiv, lp.kostenTotal, tu.kostenTotal, doc.landprovider,
+    doc.totalunternehmer, wahlpositionen, landpreis])
   const kapital = useMemo(
     () => berechneKapital(doc.investoren, gewinnTotal),
     [doc.investoren, gewinnTotal],
@@ -222,13 +269,17 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
           <UnterKapitel titel="Gesellschaften">
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-xs text-slate-600">
-                <div className="mb-1 font-medium text-slate-700">Landprovider</div>
+                <div className="mb-1 flex items-center gap-1.5 font-medium text-slate-700">
+                  <Farbpunkt farbe={FARBE_LP} />Landprovider
+                </div>
                 <input type="text" value={doc.landprovider.name} disabled={!canWrite}
                   onChange={(e) => setGesellschaft('landprovider', { name: e.target.value })}
                   className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm" />
               </label>
               <label className="text-xs text-slate-600">
-                <div className="mb-1 font-medium text-slate-700">Totalunternehmer</div>
+                <div className="mb-1 flex items-center gap-1.5 font-medium text-slate-700">
+                  <Farbpunkt farbe={FARBE_TU} />Totalunternehmer
+                </div>
                 <input type="text" value={doc.totalunternehmer.name} disabled={!canWrite}
                   onChange={(e) => setGesellschaft('totalunternehmer', { name: e.target.value })}
                   className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm" />
@@ -237,9 +288,11 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
           </UnterKapitel>
 
           {/* ── Landprovider ───────────────────────────────────────────── */}
-          <UnterKapitel titel={`Kosten ${doc.landprovider.name}`}>
+          <UnterKapitel titel={`Kosten ${doc.landprovider.name}`} farbe={FARBE_LP}>
             <div className="space-y-5">
               <KostenBlock
+                farbe={FARBE_LP}
+                gruppenSchalter
                 titel="Kosten Land"
                 hinweis={`Zusammensetzung und Finanzierung des Landerwerbs. Anteile rechnen auf dem Landpreis aus den Anlagekosten (CHF ${formatNumber(landpreis)}).`}
                 zeilen={doc.landprovider.landkosten}
@@ -251,6 +304,8 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
                 onChange={(z) => setZeilen('landprovider', 'landkosten', z)}
               />
               <KostenBlock
+                farbe={FARBE_LP}
+                gruppenSchalter
                 titel="Anlagekosten aufgrund Händlertätigkeit"
                 hinweis="Positionen aus der Kostenberechnung übernehmen oder eigene Zeilen erfassen."
                 zeilen={doc.landprovider.anlagekosten}
@@ -260,12 +315,13 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
                 canWrite={canWrite}
                 onChange={(z) => setZeilen('landprovider', 'anlagekosten', z)}
               />
-              <SummenZeile label="Kosten total" betrag={lp.kostenTotal} />
+              <SummenZeile label="Kosten total" betrag={lp.kostenTotal} farbe={FARBE_LP} />
             </div>
           </UnterKapitel>
 
-          <UnterKapitel titel={`Gewinn und Steuern ${doc.landprovider.name}`}>
+          <UnterKapitel titel={`Gewinn und Steuern ${doc.landprovider.name}`} farbe={FARBE_LP}>
             <GewinnBlock
+              farbe={FARBE_LP}
               g={doc.landprovider}
               erg={lp}
               ertragVorschlag={0}
@@ -279,9 +335,11 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
           </UnterKapitel>
 
           {/* ── Totalunternehmer ───────────────────────────────────────── */}
-          <UnterKapitel titel={`Kosten ${doc.totalunternehmer.name}`}>
+          <UnterKapitel titel={`Kosten ${doc.totalunternehmer.name}`} farbe={FARBE_TU}>
             <div className="space-y-5">
               <KostenBlock
+                farbe={FARBE_TU}
+                gruppenSchalter
                 titel="Anlagekosten"
                 hinweis="Positionen aus der Kostenberechnung übernehmen oder eigene Zeilen erfassen."
                 zeilen={doc.totalunternehmer.anlagekosten}
@@ -291,12 +349,13 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
                 canWrite={canWrite}
                 onChange={(z) => setZeilen('totalunternehmer', 'anlagekosten', z)}
               />
-              <SummenZeile label="Kosten total" betrag={tu.kostenTotal} />
+              <SummenZeile label="Kosten total" betrag={tu.kostenTotal} farbe={FARBE_TU} />
             </div>
           </UnterKapitel>
 
-          <UnterKapitel titel={`Gewinn und Steuern ${doc.totalunternehmer.name}`}>
+          <UnterKapitel titel={`Gewinn und Steuern ${doc.totalunternehmer.name}`} farbe={FARBE_TU}>
             <GewinnBlockWerk
+              farbe={FARBE_TU}
               g={doc.totalunternehmer}
               erg={tu}
               verkaufserloesTotal={verkaufserloes}
@@ -306,6 +365,15 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
               onSet={(patch) => setGesellschaft('totalunternehmer', patch)}
             />
           </UnterKapitel>
+
+          {/* ── Kontrolle: Kosten der Gesellschaften = Anlagekosten ────── */}
+          <KontrolleKosten
+            kontrolle={kontrolle}
+            lpName={doc.landprovider.name}
+            tuName={doc.totalunternehmer.name}
+            lpKosten={lp.kostenTotal}
+            tuKosten={tu.kostenTotal}
+          />
 
           {/* ── Abschluss ──────────────────────────────────────────────── */}
           <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -318,13 +386,17 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
               <tbody>
                 <tr className="border-b border-slate-50">
                   <td className="px-3 py-1.5 text-slate-700">
-                    Gewinn nach Steuern · {doc.landprovider.name}
+                    <span className="inline-flex items-center gap-1.5">
+                      <Farbpunkt farbe={FARBE_LP} />Gewinn nach Steuern · {doc.landprovider.name}
+                    </span>
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(Math.round(lp.gewinnNachSteuern))}</td>
                 </tr>
                 <tr className="border-b border-slate-50">
                   <td className="px-3 py-1.5 text-slate-700">
-                    Gewinn nach Steuern · {doc.totalunternehmer.name}
+                    <span className="inline-flex items-center gap-1.5">
+                      <Farbpunkt farbe={FARBE_TU} />Gewinn nach Steuern · {doc.totalunternehmer.name}
+                    </span>
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(Math.round(tu.gewinnNachSteuern))}</td>
                 </tr>
@@ -343,10 +415,138 @@ export function KapitalSteuernSection({ variantId, defaultExpanded = false }: {
   )
 }
 
-/** Aufklappbares Unterkapitel in der Farbe der Verkaufsobjekte. */
-function UnterKapitel({ titel, badge, children }: {
+interface Kontrolle {
+  anlagekosten: number
+  zugeteilt: number
+  differenz: number
+  doppelt: Wahlposition[]
+  offen: Wahlposition[]
+  freiBetrag: number
+  freiAnzahl: number
+}
+
+/**
+ * Kontrollfeld: Stimmen die Kosten beider Gesellschaften mit den Anlagekosten
+ * der Verkaufsobjekte überein? Bei einer Abweichung ein Warnhinweis samt den
+ * wahrscheinlichen Ursachen.
+ */
+function KontrolleKosten({ kontrolle: k, lpName, tuName, lpKosten, tuKosten }: {
+  kontrolle: Kontrolle
+  lpName: string
+  tuName: string
+  lpKosten: number
+  tuKosten: number
+}) {
+  const stimmt = Math.abs(k.differenz) < KONTROLLE_TOLERANZ
+  const MAX = 8
+  const liste = (ps: Wahlposition[]) => (
+    <ul className="mt-0.5 space-y-0.5">
+      {ps.slice(0, MAX).map((p) => (
+        <li key={p.code} className="flex justify-between gap-3">
+          <span>{p.label}</span>
+          <span className="tabular-nums">{formatNumber(Math.round(p.betrag))}</span>
+        </li>
+      ))}
+      {ps.length > MAX && <li>… und {ps.length - MAX} weitere</li>}
+    </ul>
+  )
+  // Kopf wie die übrigen allgemeinen Unterkapitel; der Befund steht als
+  // Abzeichen darin, damit er auch zugeklappt sichtbar bleibt.
+  const status = (
+    <span className={cn('ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-normal',
+      stimmt ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-200 text-amber-900')}>
+      {stimmt
+        ? <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+        : <AlertTriangle className="h-3 w-3 text-amber-700" />}
+      {stimmt ? 'stimmt mit den Anlagekosten überein' : 'Abweichung zu den Anlagekosten'}
+    </span>
+  )
+  return (
+    <UnterKapitel titel="Kontrolle Kosten" status={status}>
+      <div className="space-y-3">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col />
+            <col style={{ width: '11rem' }} />
+            <col style={{ width: '2.5rem' }} />
+          </colgroup>
+          <tbody>
+            <tr className="border-b border-slate-50">
+              <td className="px-1 py-1.5 text-slate-700">
+                <span className="inline-flex items-center gap-1.5"><Farbpunkt farbe={FARBE_LP} />Kosten total {lpName}</span>
+              </td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(lpKosten))}</td>
+            </tr>
+            <tr className="border-b border-slate-50">
+              <td className="px-1 py-1.5 text-slate-700">
+                <span className="inline-flex items-center gap-1.5"><Farbpunkt farbe={FARBE_TU} />Kosten total {tuName}</span>
+              </td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(tuKosten))}</td>
+            </tr>
+            <tr className="border-t border-slate-200 font-medium">
+              <td className="px-1 py-1.5">Kosten beider Gesellschaften</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(k.zugeteilt))}</td>
+            </tr>
+            <tr className="border-b border-slate-50">
+              <td className="px-1 py-1.5 text-slate-700">Anlagekosten Verkaufsobjekte (inkl. MWST)</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(k.anlagekosten))}</td>
+            </tr>
+            <tr className={cn('font-semibold', stimmt ? 'bg-emerald-50' : 'bg-amber-50')}>
+              <td className="px-1 py-2">Differenz</td>
+              <td className={cn('py-2 pr-3 text-right tabular-nums', !stimmt && 'text-amber-800')}>
+                {k.differenz > 0 ? '+' : ''}{formatNumber(Math.round(k.differenz))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {!stimmt && (
+          <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+            <p className="font-medium">
+              {k.differenz > 0
+                ? `Die Gesellschaften tragen ${formatNumber(Math.round(k.differenz))} mehr als die Anlagekosten.`
+                : `Den Gesellschaften fehlen ${formatNumber(Math.round(-k.differenz))} gegenüber den Anlagekosten.`}
+            </p>
+            {k.doppelt.length > 0 && (
+              <div>
+                <div className="font-medium">Mehrfach zugeordnete Positionen:</div>
+                {liste(k.doppelt)}
+              </div>
+            )}
+            {k.offen.length > 0 && (
+              <div>
+                <div className="font-medium">Keiner Gesellschaft zugeordnete Positionen:</div>
+                {liste(k.offen)}
+              </div>
+            )}
+            {k.freiAnzahl > 0 && (
+              <p>
+                Frei erfasste Zeilen: {k.freiAnzahl} mit zusammen {formatNumber(Math.round(k.freiBetrag))} —
+                sie können eine Position ersetzen oder zusätzlich zählen.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </UnterKapitel>
+  )
+}
+
+/** Kleiner Farbpunkt — ordnet eine Zeile ihrer Gesellschaft zu. */
+function Farbpunkt({ farbe }: { farbe: Farbe }) {
+  return <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: farbe.kopf }} />
+}
+
+/**
+ * Aufklappbares Unterkapitel — in der Farbe der Verkaufsobjekte oder, bei den
+ * Teilen einer Gesellschaft, in deren Farbe.
+ */
+function UnterKapitel({ titel, badge, status, farbe = FARBE_VERKAUF, children }: {
   titel: string
   badge?: string
+  /** Eigenes Abzeichen im Kopf (z.B. Befund der Kontrolle). */
+  status?: ReactNode
+  farbe?: Farbe
   children: ReactNode
 }) {
   const [offen, setOffen] = useState(true)
@@ -355,7 +555,7 @@ function UnterKapitel({ titel, badge, children }: {
       <button
         type="button"
         onClick={() => setOffen((o) => !o)}
-        style={{ backgroundColor: TOTALFLAECHE }}
+        style={{ backgroundColor: farbe.kopf }}
         className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:brightness-95"
       >
         {offen ? <ChevronDown className="h-4 w-4 text-slate-700" /> : <ChevronRight className="h-4 w-4 text-slate-700" />}
@@ -365,6 +565,7 @@ function UnterKapitel({ titel, badge, children }: {
             {badge}
           </span>
         )}
+        {status}
       </button>
       {offen && <div className="bg-white p-4">{children}</div>}
     </section>
@@ -505,8 +706,10 @@ function InvestorenTabelle({ investoren, canWrite, onAdd, onSet, onDel }: {
  * nicht selbst — er kommt aus den Anlagekosten und bleibt damit aktuell.
  */
 function KostenBlock({
-  titel, hinweis, zeilen, bezug, positionen, positionsBetraege, canWrite, mitAnteil, onChange,
+  farbe, titel, hinweis, zeilen, bezug, positionen, positionsBetraege, canWrite, mitAnteil,
+  gruppenSchalter, onChange,
 }: {
+  farbe: Farbe
   titel: string
   hinweis: string
   zeilen: KsKostenZeile[]
@@ -515,6 +718,8 @@ function KostenBlock({
   positionsBetraege: Map<string, number>
   canWrite: boolean
   mitAnteil?: boolean
+  /** Knopf, der alle Hauptgruppen zu- oder aufklappt (BKP 1-stellig ↔ detailliert). */
+  gruppenSchalter?: boolean
   onChange: (zeilen: KsKostenZeile[]) => void
 }) {
   const [wahlOffen, setWahlOffen] = useState(false)
@@ -564,7 +769,10 @@ function KostenBlock({
       }))
   }, [sortierteZeilen, positionen, positionsBetraege, bezug])
 
-  const [zu, setZu] = useState<Set<number>>(new Set())
+  // Aufgeklappte Hauptgruppen. Leer = alles BKP 1-stellig — so beginnt die
+  // Tabelle; auch später hinzukommende Gruppen stehen erst zugeklappt da.
+  const [auf, setAuf] = useState<Set<number>>(new Set())
+  const alleZu = gruppen.every((g) => !auf.has(g.hg))
 
   /** Auswahl mit den bereits übernommenen Positionen vorbelegen. */
   function wahlOeffnen() {
@@ -591,13 +799,25 @@ function KostenBlock({
 
   return (
     <div className="space-y-2">
-      <h4 className="text-sm font-semibold text-slate-900">{titel}</h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-slate-900">{titel}</h4>
+        {gruppenSchalter && gruppen.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setAuf(alleZu ? new Set(gruppen.map((g) => g.hg)) : new Set())}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-600 transition hover:bg-slate-50"
+            title={alleZu ? 'Alle Positionen einzeln zeigen' : 'Nur die BKP-Hauptgruppen zeigen'}
+          >
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', alleZu && '-rotate-90')} />
+            {alleZu ? 'Detailliert' : 'BKP 1-stellig'}
+          </button>
+        )}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] table-fixed text-sm">
           <colgroup>
             <col />
             {mitAnteil && <col style={{ width: '7rem' }} />}
-            <col style={{ width: '6rem' }} />
             <col style={{ width: '11rem' }} />
             <col style={{ width: '2.5rem' }} />
           </colgroup>
@@ -605,7 +825,6 @@ function KostenBlock({
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-medium">Bezeichnung</th>
               {mitAnteil && <th className="py-2 pr-3 text-right font-medium">Anteil %</th>}
-              <th className="py-2 pr-3 text-right font-medium">Zins % p.a.</th>
               <th className="py-2 pr-3 text-right font-medium">Betrag CHF</th>
               <th />
             </tr>
@@ -613,7 +832,7 @@ function KostenBlock({
           <tbody>
             {zeilen.length === 0 && (
               <tr>
-                <td colSpan={mitAnteil ? 5 : 4} className="py-3 text-center text-xs text-slate-400">
+                <td colSpan={mitAnteil ? 4 : 3} className="py-3 text-center text-xs text-slate-400">
                   Noch keine Zeilen erfasst.
                 </td>
               </tr>
@@ -622,15 +841,15 @@ function KostenBlock({
               <Fragment key={g.hg}>
                 <tr
                   className="cursor-pointer border-b border-slate-100 bg-slate-50/80 text-xs"
-                  onClick={() => setZu((m) => {
+                  onClick={() => setAuf((m) => {
                     const neu = new Set(m)
                     if (neu.has(g.hg)) neu.delete(g.hg); else neu.add(g.hg)
                     return neu
                   })}
                 >
-                  <td className="py-1.5 pr-3 font-semibold text-slate-600" colSpan={mitAnteil ? 3 : 2}>
+                  <td className="py-1.5 pr-3 font-semibold text-slate-600" colSpan={mitAnteil ? 2 : 1}>
                     <span className="inline-flex items-center gap-1">
-                      {zu.has(g.hg)
+                      {!auf.has(g.hg)
                         ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
                         : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
                       {g.hg === 99
@@ -646,7 +865,7 @@ function KostenBlock({
                   </td>
                   <td />
                 </tr>
-                {!zu.has(g.hg) && g.zeilen.map((z) => {
+                {auf.has(g.hg) && g.zeilen.map((z) => {
               const ausKosten = z.code ? positionsBetraege.get(z.code) : undefined
               const betrag = zeilenBetrag(z, ausKosten, bezug)
               return (
@@ -674,10 +893,6 @@ function KostenBlock({
                     </td>
                   )}
                   <td className="py-1 pr-3">
-                    <ZahlFeld value={z.zinssatzPct} disabled={!canWrite} schritt={0.1}
-                      onChange={(v) => setZeile(z.id, { zinssatzPct: v })} />
-                  </td>
-                  <td className="py-1 pr-3">
                     {z.code || z.anteilPct != null ? (
                       <div className="px-1 text-right tabular-nums text-slate-500">{formatNumber(Math.round(betrag))}</div>
                     ) : (
@@ -699,8 +914,8 @@ function KostenBlock({
               })}
               </Fragment>
             ))}
-            <tr className="font-medium" style={{ backgroundColor: HILITE }}>
-              <td className="py-2 pr-3" colSpan={mitAnteil ? 3 : 2}>Total {titel}</td>
+            <tr className="font-medium" style={{ backgroundColor: farbe.zeile }}>
+              <td className="py-2 pr-3" colSpan={mitAnteil ? 2 : 1}>Total {titel}</td>
               <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(Math.round(total))}</td>
               <td />
             </tr>
@@ -716,9 +931,14 @@ function KostenBlock({
               <Plus className="h-3.5 w-3.5" /> Positionen wählen
             </button>
             <button type="button"
-              onClick={() => onChange([...zeilen, {
-                id: neueId('z'), code: null, label: '', betrag: 0, anteilPct: null, zinssatzPct: 0,
-              }])}
+              onClick={() => {
+                onChange([...zeilen, {
+                  id: neueId('z'), code: null, label: '', betrag: 0, anteilPct: null, zinssatzPct: 0,
+                }])
+                // Die neue Zeile steht unter „Weitere Zeilen" — die Gruppe
+                // öffnen, sonst sähe man nicht, was man eben angelegt hat.
+                setAuf((m) => new Set(m).add(99))
+              }}
               className="inline-flex items-center gap-1 rounded-md border border-[#B98C74] bg-[#F2D3C2]/40 px-2 py-1 text-xs font-medium text-[#5A3F2E] hover:bg-[#F2D3C2]/70">
               <Plus className="h-3.5 w-3.5" /> Eigene Zeile
             </button>
@@ -846,8 +1066,9 @@ function PositionsWahl({ positionen, markiert, onToggle, onAlle, onUebernehmen, 
 
 /** Ertrag, Kosten, Gewinn und Steuern einer Gesellschaft. */
 function GewinnBlock({
-  g, erg, ertragVorschlag, ertragLabel, kostenLabel, steuerLabel, canWrite, onSet, hinweis,
+  farbe, g, erg, ertragVorschlag, ertragLabel, kostenLabel, steuerLabel, canWrite, onSet, hinweis,
 }: {
+  farbe: Farbe
   g: KsGesellschaft
   erg: ReturnType<typeof berechneGesellschaft>
   ertragVorschlag: number
@@ -888,7 +1109,7 @@ function GewinnBlock({
             <td className="px-1 py-1.5 text-slate-700" colSpan={2}>{kostenLabel}</td>
             <td className="py-1.5 pr-3 text-right tabular-nums">−{formatNumber(Math.round(erg.kostenTotal))}</td>
           </tr>
-          <tr className="border-t border-slate-200 font-medium" style={{ backgroundColor: HILITE }}>
+          <tr className="border-t border-slate-200 font-medium" style={{ backgroundColor: farbe.zeile }}>
             <td className="px-1 py-2 text-slate-700" colSpan={2}>Gewinn vor Steuern</td>
             <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(Math.round(erg.gewinnVorSteuern))}</td>
           </tr>
@@ -912,7 +1133,7 @@ function GewinnBlock({
               {erg.gewinnVorSteuern > 0 ? `−${formatNumber(Math.round(erg.steuern))}` : '—'}
             </td>
           </tr>
-          <tr className="font-semibold" style={{ backgroundColor: TOTALFLAECHE }}>
+          <tr className="font-semibold" style={{ backgroundColor: farbe.summe }}>
             <td className="px-1 py-2" colSpan={2}>Gewinn nach Steuern</td>
             <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(Math.round(erg.gewinnNachSteuern))}</td>
           </tr>
@@ -936,8 +1157,9 @@ function GewinnBlock({
  * Landprovider verrechnet — was der eine einnimmt, zahlt der andere.
  */
 function GewinnBlockWerk({
-  g, erg, verkaufserloesTotal, landanteil, werkerloes, canWrite, onSet,
+  farbe, g, erg, verkaufserloesTotal, landanteil, werkerloes, canWrite, onSet,
 }: {
+  farbe: Farbe
   g: KsGesellschaft
   erg: ReturnType<typeof berechneGesellschaft>
   verkaufserloesTotal: number
@@ -971,7 +1193,7 @@ function GewinnBlockWerk({
             <td className="px-1 py-1.5 text-slate-700" colSpan={2}>Kosten Werk</td>
             <td className="py-1.5 pr-3 text-right tabular-nums">−{formatNumber(Math.round(erg.kostenTotal))}</td>
           </tr>
-          <tr className="border-t border-slate-200 font-medium" style={{ backgroundColor: HILITE }}>
+          <tr className="border-t border-slate-200 font-medium" style={{ backgroundColor: farbe.zeile }}>
             <td className="px-1 py-2 text-slate-700" colSpan={2}>Gewinn vor Steuern</td>
             <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(Math.round(erg.gewinnVorSteuern))}</td>
           </tr>
@@ -995,7 +1217,7 @@ function GewinnBlockWerk({
               {erg.gewinnVorSteuern > 0 ? `−${formatNumber(Math.round(erg.steuern))}` : '—'}
             </td>
           </tr>
-          <tr className="font-semibold" style={{ backgroundColor: TOTALFLAECHE }}>
+          <tr className="font-semibold" style={{ backgroundColor: farbe.summe }}>
             <td className="px-1 py-2" colSpan={2}>Gewinn nach Steuern</td>
             <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(Math.round(erg.gewinnNachSteuern))}</td>
           </tr>
@@ -1021,10 +1243,10 @@ function GewinnBlockWerk({
  * aber deren rechte Geometrie — Betragsspalte und die leere Spalte der
  * Abfalleimer —, damit die Zahl unter den Beträgen darüber steht.
  */
-function SummenZeile({ label, betrag }: { label: string; betrag: number }) {
+function SummenZeile({ label, betrag, farbe }: { label: string; betrag: number; farbe: Farbe }) {
   return (
     <div className="flex items-center rounded-lg py-2 text-sm font-semibold"
-      style={{ backgroundColor: TOTALFLAECHE }}>
+      style={{ backgroundColor: farbe.summe }}>
       <span className="flex-1 px-3">{label}</span>
       <span className="w-44 pr-3 text-right tabular-nums">{formatNumber(Math.round(betrag))}</span>
       <span className="w-10" />
@@ -1044,21 +1266,22 @@ function ZahlFeld({ value, disabled, schritt = 1, grau, onChange, onLeer }: {
   onChange: (v: number) => void
   onLeer?: () => void
 }) {
-  const [roh, setRoh] = useState<string | null>(null)
+  const eingabe = useEingabe()
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={roh ?? formatNumber(value, schritt < 1 ? 1 : 0)}
+      value={eingabe.text(String(value), formatNumber(value, schritt < 1 ? 1 : 0))}
       disabled={disabled}
-      onFocus={() => setRoh(String(value))}
-      onChange={(e) => setRoh(e.target.value)}
+      onFocus={eingabe.onFocus}
+      onChange={eingabe.onChange}
       onBlur={() => {
-        const text = (roh ?? '').trim()
-        if (text === '' && onLeer) { onLeer(); setRoh(null); return }
+        const roh = eingabe.verlassen()
+        if (roh == null) return
+        const text = roh.trim()
+        if (text === '' && onLeer) { onLeer(); return }
         const n = parseFloat(text.replace(/['’\s]/g, '').replace(',', '.'))
         onChange(Number.isFinite(n) ? n : value)
-        setRoh(null)
       }}
       className={cn(
         'w-full rounded border border-slate-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none focus:border-[#8B6956]',
