@@ -390,6 +390,30 @@ export interface TragbarkeitDoc extends TragbarkeitParams {
    */
   eigenesMietzinsniveau: boolean
   eigenerAnteilWohnen: boolean
+  /**
+   * Schieber für die Grössen, die sonst aus den Berechnungen kommen
+   * (Mengen, Anlagekosten, Wirtschaftlichkeit). `null` = berechneter Wert.
+   */
+  schieber: TragbarkeitSchieber
+  /** Rechnet mit den Schiebern statt mit den berechneten Werten. Die reinen
+   *  Annahmen (Zinsen, Belehnung, Laufzeit) gelten in beiden Fällen. */
+  schieberAktiv: boolean
+}
+
+/** Grössen, die aus den Berechnungen kommen. */
+export type BerechneteGroesse = 'mietertrag' | 'ertragswert' | 'anlagekosten' | 'vmfWohnen'
+/** Reine Annahmen — eingegeben, mit eigenem Schieberwert daneben. */
+export type AnnahmeGroesse =
+  | 'hypozins' | 'tragbarkeitszins' | 'max1' | 'max2' | 'ersteHypothekChf'
+  | 'amortisationsdauer' | 'zusaetzlicheEigenmittel'
+
+/** `null` = wie berechnet bzw. wie eingegeben. */
+export type TragbarkeitSchieber = Record<BerechneteGroesse | AnnahmeGroesse, number | null>
+
+export const SCHIEBER_LEER: TragbarkeitSchieber = {
+  mietertrag: null, ertragswert: null, anlagekosten: null, vmfWohnen: null,
+  hypozins: null, tragbarkeitszins: null, max1: null, max2: null,
+  ersteHypothekChf: null, amortisationsdauer: null, zusaetzlicheEigenmittel: null,
 }
 
 export function defaultTragbarkeitDoc(): TragbarkeitDoc {
@@ -397,6 +421,8 @@ export function defaultTragbarkeitDoc(): TragbarkeitDoc {
     ...TRAGBARKEIT_DEFAULTS,
     eigenesMietzinsniveau: false,
     eigenerAnteilWohnen: false,
+    schieber: { ...SCHIEBER_LEER },
+    schieberAktiv: false,
   }
 }
 
@@ -407,6 +433,7 @@ export function normalizeTragbarkeitDoc(
   const d = defaultTragbarkeitDoc()
   if (!raw || typeof raw !== 'object') return d
   const zahl = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+  const wahlweise = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
   /** Jahressätze einlesen: nur ganze Jahre ab 1 mit endlichem Satz. */
   const saetze = (v: unknown, fallback: JahresSaetze): JahresSaetze => {
     if (!v || typeof v !== 'object') return fallback
@@ -435,5 +462,10 @@ export function normalizeTragbarkeitDoc(
     zusaetzlicheEigenmittel: zahl(raw.zusaetzlicheEigenmittel, d.zusaetzlicheEigenmittel),
     eigenesMietzinsniveau:   raw.eigenesMietzinsniveau === true,
     eigenerAnteilWohnen:     raw.eigenerAnteilWohnen === true,
+    schieber: Object.fromEntries(
+      (Object.keys(SCHIEBER_LEER) as (keyof TragbarkeitSchieber)[])
+        .map((k) => [k, wahlweise(raw.schieber?.[k])]),
+    ) as TragbarkeitSchieber,
+    schieberAktiv: raw.schieberAktiv === true,
   }
 }

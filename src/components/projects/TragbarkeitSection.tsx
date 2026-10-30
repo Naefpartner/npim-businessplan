@@ -1,19 +1,17 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Scale } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUndoableState } from '@/contexts/UndoContext'
 import { useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { useRendite } from '@/hooks/useRendite'
-import {
-  berechneRendite, investitionAusErgebnis, sammleRenditeMengen,
-} from '@/lib/rendite'
 import { useTragbarkeit } from '@/hooks/useTragbarkeit'
+import { rechneTragbarkeit } from '@/lib/tragbarkeitRechnung'
 import { useAufklappbar } from '@/hooks/useAufklappbar'
+import { useEingabe } from '@/hooks/useEingabe'
 import {
-  berechneTragbarkeit, berechneVerlauf, defaultTragbarkeitDoc, kapSatzAus,
-  type TragbarkeitBasis, type TragbarkeitDoc, type TragbarkeitJahr,
+  defaultTragbarkeitDoc, kapSatzAus,
+  type TragbarkeitDoc, type TragbarkeitJahr, type TragbarkeitSchieber, type AnnahmeGroesse,
 } from '@/lib/tragbarkeit'
-import { isNutzungWohnen } from '@/types'
 import { EIGENTUMSART_COLOR, USE_TYPE_COLOR_1, USE_TYPE_COLOR_3 } from '@/lib/kategorieFarben'
 import { formatNumber } from '@/lib/utils'
 
@@ -35,9 +33,8 @@ function pct(v: number, stellen = 1): string {
  * Vertikal": aus Mietzinsniveau und Kapitalisierungssatz wird der Ertragswert,
  * daraus die Belehnung, und was die Belehnung nicht deckt, ist Eigenkapital.
  *
- * Zwei Spalten stehen nebeneinander: mit dem tatsächlichen Hypothekarzins und
- * mit dem kalkulatorischen Satz der Bank. Gerechnet wird je Quadratmeter
- * Wohnfläche; die Kontrolle daneben führt dieselben Grössen in Franken.
+ * Angezeigt werden der Verlauf über die Laufzeit und die Kontrolle in Franken;
+ * die Rechnung je m² Wohnfläche ist ausgeblendet.
  */
 export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
   variantId: string
@@ -83,73 +80,23 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
   // ── Grundlagen aus der Variante ───────────────────────────────────────────
   const hatRendite = ak.presentEig.includes(EIG)
 
-  /**
-   * Mietertrag und Wohnfläche der Renditeobjekte. Die Wohnnutzungen tragen die
-   * Rechnung: ihre Fläche ist die Bezugsgrösse, ihr Anteil am Gesamtertrag
-   * rechnet die übrigen Nutzungen hinein.
-   */
-  const mengen = useMemo(() => {
-    const detail = ak.ertragDetailByEig.get(EIG) ?? []
-    let total = 0, wohnen = 0, vmfWohnen = 0
-    for (const d of detail) {
-      total += d.ertrag
-      if (isNutzungWohnen(d.nutzung)) {
-        wohnen += d.ertrag
-        vmfWohnen += d.flaecheM2
-      }
-    }
-    return { total, wohnen, vmfWohnen }
-  }, [ak.ertragDetailByEig])
-
-  const anlagekosten = ak.konsolidiertEffektiv.get(EIG)?.totalBrutto ?? 0
-
-  /*
-   * Der Ertragswert kommt aus der Wirtschaftlichkeitsrechnung: derselbe
-   * kapitalisierte Liegenschaftserfolg, den der Reiter Wirtschaftlichkeit
-   * ausweist. Die Belehnung hängt damit an derselben Bewertung — und der
-   * Kapitalisierungssatz der Tragbarkeit ergibt sich daraus, statt eine zweite
-   * Annahme zu sein.
-   */
-  const ertragswert = useMemo(() => {
-    const erg = ak.konsolidiertEffektiv.get(EIG)
-    const { ertraege, totalVmf } = sammleRenditeMengen(ak.buildings, null)
-    const { investition, erstellung } = investitionAusErgebnis(erg)
-    return berechneRendite(rParams, {
-      mietertragSoll: ertraege.reduce((s, e) => s + e.ertrag, 0),
-      totalVmf,
-      investition,
-      erstellung,
+  const { berechnet, sim, aktiv, sch, annBerechnet, annSim, params, basisAus, maxErsteBerechnet, maxErsteSim, erg, verlauf } =
+    rechneTragbarkeit({
+      doc, rParams,
+      ertragDetail: ak.ertragDetailByEig.get(EIG) ?? [],
+      buildings: ak.buildings,
+      ergebnis: ak.konsolidiertEffektiv.get(EIG),
       gsf: ak.gsfTotal,
-    }).ertragswert
-  }, [ak.konsolidiertEffektiv, ak.buildings, ak.gsfTotal, rParams])
-
-  /** Aus den Mengen abgeleitet — solange die Annahme nicht von Hand gesetzt ist. */
-  const abgeleitet = useMemo(() => ({
-    mietzinsniveauWohnen: mengen.vmfWohnen > 0 ? mengen.wohnen / mengen.vmfWohnen : 0,
-    anteilWohnen: mengen.total > 0 ? mengen.wohnen / mengen.total : 1,
-  }), [mengen])
-
-  const params = useMemo(() => ({
-    ...doc,
-    mietzinsniveauWohnen: doc.eigenesMietzinsniveau
-      ? doc.mietzinsniveauWohnen
-      : abgeleitet.mietzinsniveauWohnen,
-    anteilWohnen: doc.eigenerAnteilWohnen ? doc.anteilWohnen : abgeleitet.anteilWohnen,
-  }), [doc, abgeleitet])
-
-  const basis: TragbarkeitBasis = useMemo(() => ({
-    mietertragTotal: mengen.total,
-    mietertragWohnen: mengen.wohnen,
-    vmfWohnen: mengen.vmfWohnen,
-    anlagekosten,
-    ertragswert,
-  }), [mengen, anlagekosten, ertragswert])
-
-  const erg = useMemo(() => berechneTragbarkeit(params, basis), [params, basis])
-  const verlauf = useMemo(() => berechneVerlauf(params, basis), [params, basis])
+    })
 
   const setzen = (patch: Partial<TragbarkeitDoc>, label: string, key: string) =>
     setDoc((d) => ({ ...d, ...patch }), { label, coalesceKey: `trag:${key}` })
+
+  /** Schieber einer berechneten Grösse setzen (`null` = zurück zum berechneten
+   *  Wert). Wer schiebt, will die Wirkung sehen — deshalb gleich auf Schieber. */
+  const setzeSchieber = (k: keyof TragbarkeitSchieber, v: number | null, label: string) =>
+    setDoc((d) => ({ ...d, schieberAktiv: v != null || d.schieberAktiv, schieber: { ...d.schieber, [k]: v } }),
+      { label, coalesceKey: `trag:sch:${k}` })
 
   /**
    * Einen Jahressatz setzen oder — mit `null` — wieder löschen, sodass das Jahr
@@ -168,6 +115,26 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
       : feld === 'unterhaltProJahr' ? 'Unterhaltskosten' : 'Betriebskosten',
     coalesceKey: `trag:${feld}:${jahr}`,
   })
+
+  const ANNAHME_LABEL: Record<AnnahmeGroesse, string> = {
+    hypozins: 'Hypothekarzins', tragbarkeitszins: 'Tragbarkeitszins', max1: 'Max. 1. Hypothek',
+    max2: 'Max. Hypothek total', ersteHypothekChf: '1. Hypothek', amortisationsdauer: 'Amortisationsdauer', zusaetzlicheEigenmittel: 'Eigenmittel',
+  }
+  /** Reine Annahme: links das Eingabefeld, rechts ihr Schieber. */
+  const annahmeZeile = (k: AnnahmeGroesse, label: string, hinweis: string | undefined, o: {
+    min?: number; max: number; step: number; prozent?: boolean; einheit?: string; ganz?: boolean
+  }) => {
+    const glatt = (v: number) => (o.ganz ? Math.max(1, Math.round(v)) : Math.max(0, v))
+    return (
+      <AnnahmeZeile label={label} hinweis={hinweis} einheit={o.einheit ?? ''} aktiv={aktiv} canWrite={canWrite}
+        eingabe={{ wert: annBerechnet[k], prozent: o.prozent,
+          onChange: (v) => setzen({ [k]: glatt(v) }, ANNAHME_LABEL[k], k) }}
+        regler={{ min: o.min ?? 0, max: Math.max(o.max, annSim[k], annBerechnet[k]), step: o.step, prozent: o.prozent,
+          wert: annSim[k], eigen: sch[k] != null,
+          onChange: (v) => setzeSchieber(k, glatt(v), ANNAHME_LABEL[k]),
+          onZurueck: () => setzeSchieber(k, null, `${ANNAHME_LABEL[k]} wie eingegeben`) }} />
+    )
+  }
 
   if (!hatRendite) return null
 
@@ -190,141 +157,95 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
         <div className="space-y-5 p-5">
           {/* ── Annahmen ─────────────────────────────────────────────────── */}
           <UnterKapitel titel="Annahmen">
-            {/*
-              Drei Gruppen statt einer Liste aus zwölf Feldern: was zusammen
-              gehört, steht beisammen, und in jeder Gruppe fluchten Werte und
-              Einheiten in einer Spalte. Vorher standen die Eingaben unter
-              verschieden langen Beschriftungen und damit auf verschiedener
-              Höhe — das war der Grund für den unruhigen Eindruck.
-            */}
-            <div className="grid items-start gap-4 lg:grid-cols-3">
-              <Gruppe titel="Ertrag und Bewertung">
-                <ZahlFeld
-                  label="Mietzinsniveau Wohnen"
-                  einheit="CHF/m²·a"
-                  wert={params.mietzinsniveauWohnen}
-                  eigen={doc.eigenesMietzinsniveau}
-                  abgeleitetWert={abgeleitet.mietzinsniveauWohnen}
-                  canWrite={canWrite}
-                  onChange={(v) => setzen(
-                    { mietzinsniveauWohnen: v, eigenesMietzinsniveau: true }, 'Mietzinsniveau', 'miete')}
-                  onZurueck={() => setzen({ eigenesMietzinsniveau: false }, 'Mietzinsniveau aus den Mengen', 'miete')} />
-                <SatzFeld
-                  label="Anteil Mietertrag Wohnen"
-                  wert={params.anteilWohnen}
-                  eigen={doc.eigenerAnteilWohnen}
-                  abgeleitetWert={abgeleitet.anteilWohnen}
-                  canWrite={canWrite}
-                  onChange={(v) => setzen(
-                    { anteilWohnen: v, eigenerAnteilWohnen: true }, 'Anteil Wohnen', 'anteil')}
-                  onZurueck={() => setzen({ eigenerAnteilWohnen: false }, 'Anteil Wohnen aus den Mengen', 'anteil')} />
-                <SatzFeld
-                  label="Betrieb, Unterhalt, Erneuerung"
-                  hinweis="Dauerwert für die Belehnung"
-                  wert={doc.bewirtschaftungsquote} canWrite={canWrite}
-                  onChange={(v) => setzen({ bewirtschaftungsquote: v }, 'Bewirtschaftungsquote', 'bew')} />
-                <AnzeigeFeld
-                  label="Ertragswert"
-                  hinweis="aus der Wirtschaftlichkeit"
-                  wert={chf(ertragswert)} einheit="CHF" />
-                <AnzeigeFeld
-                  label="Kapitalisierungssatz"
-                  hinweis="Mietertrag ÷ Ertragswert"
-                  wert={(kapSatzAus(basis) * 100).toFixed(2)} einheit="%" />
-              </Gruppe>
-
-              <Gruppe titel="Zinsen und Belehnung">
-                <SatzFeld
-                  label="Hypothekarzins"
-                  hinweis="effektiv"
-                  wert={doc.hypozins} canWrite={canWrite}
-                  onChange={(v) => setzen({ hypozins: v }, 'Hypothekarzins', 'hypozins')} />
-                <SatzFeld
-                  label="Tragbarkeitszinssatz"
-                  hinweis="kalkulatorisch"
-                  wert={doc.tragbarkeitszins} canWrite={canWrite}
-                  onChange={(v) => setzen({ tragbarkeitszins: v }, 'Tragbarkeitszins', 'trz')} />
-                <SatzFeld
-                  label="Max. 1. Hypothek"
-                  hinweis="des Ertragswerts"
-                  wert={doc.max1} canWrite={canWrite}
-                  onChange={(v) => setzen({ max1: v }, 'Max. 1. Hypothek', 'max1')} />
-                <SatzFeld
-                  label="Max. Hypothek total"
-                  hinweis="des Ertragswerts"
-                  wert={doc.max2} canWrite={canWrite}
-                  onChange={(v) => setzen({ max2: v }, 'Max. Hypothek total', 'max2')} />
-              </Gruppe>
-
-              <Gruppe titel="Finanzierung und Laufzeit">
-                <ZahlFeld
-                  label="Dauer Amortisation"
-                  einheit="Jahre"
-                  wert={doc.amortisationsdauer} canWrite={canWrite}
-                  onChange={(v) => setzen({ amortisationsdauer: v }, 'Amortisationsdauer', 'dauer')} />
-                <ZahlFeld
-                  label="1. Hypothek"
-                  hinweis="0 = aus der Belehnungsgrenze"
-                  einheit="CHF"
-                  wert={doc.ersteHypothekChf} canWrite={canWrite}
-                  onChange={(v) => setzen({ ersteHypothekChf: v }, '1. Hypothek', 'hyp1')} />
-                <ZahlFeld
-                  label="Zusätzliche Eigenmittel"
-                  einheit="CHF"
-                  wert={doc.zusaetzlicheEigenmittel} canWrite={canWrite}
-                  onChange={(v) => setzen({ zusaetzlicheEigenmittel: v }, 'Eigenmittel', 'ek')} />
-              </Gruppe>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <span className="text-xs text-slate-500">Rechnen mit</span>
+              <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-xs font-medium">
+                {([[false, 'Berechneten Werten'], [true, 'Schiebern']] as const).map(([wert, text]) => (
+                  <button key={text} type="button" disabled={!canWrite}
+                    onClick={() => setzen({ schieberAktiv: wert }, wert ? 'Schieber' : 'Berechnete Werte', 'modus')}
+                    className={`px-3 py-1.5 transition ${aktiv === wert
+                      ? 'bg-[#8B6956] text-white'
+                      : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    {text}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] text-slate-400">
+                {aktiv
+                  ? 'Unten wirkt, was die Schieber zeigen.'
+                  : 'Unten wirken die berechneten und eingegebenen Werte der linken Spalte.'}
+              </span>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              Leerstand, Betriebs- und Unterhaltskosten stehen als Ansätze in der Tabelle
-              unten — dort lassen sie sich Jahr für Jahr setzen. Leerstand und Betrieb als
-              Anteil des SOLL-Ertrags, der Unterhalt in CHF je m² Wohnfläche.
-            </p>
-          </UnterKapitel>
-
-          {/* ── Rechnung je m² Wohnfläche ─────────────────────────────────── */}
-          <UnterKapitel titel="Tragbare Belehnung je m² Wohnfläche">
-            <table className="w-full table-fixed text-sm">
+            <table className="w-full text-xs">
               <colgroup>
+                <col style={{ width: '13rem' }} />
+                <col style={{ width: '11.5rem' }} />
                 <col />
-                <col style={{ width: '9rem' }} />
-                <col style={{ width: '9rem' }} />
-                <col style={{ width: '6rem' }} />
+                <col style={{ width: '7.5rem' }} />
+                <col style={{ width: '4.5rem' }} />
+                <col style={{ width: '2rem' }} />
               </colgroup>
               <thead>
-                <tr className="border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500">
-                  <th className="py-2 pr-3 text-left font-medium">Grösse</th>
-                  <th className="py-2 pr-3 text-right font-medium">Effektiv</th>
-                  <th className="py-2 pr-3 text-right font-medium">Tragbarkeit</th>
-                  <th className="py-2 text-left font-medium">Einheit</th>
+                <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-400">
+                  <th className="py-1.5 pr-3 text-left font-medium">Annahme</th>
+                  <th className={`py-1.5 pr-3 text-right font-medium ${aktiv ? '' : 'text-slate-700'}`}>Berechnet / eingegeben</th>
+                  <th className={`px-3 py-1.5 text-left font-medium ${aktiv ? 'text-slate-700' : ''}`}>Schieber</th>
+                  <th />
+                  <th />
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                <Zeile label="Zinssatz" e={pct(erg.effektiv.zinssatz, 2)} t={pct(erg.tragbarkeit.zinssatz, 2)} einheit="" />
-                <Zeile label="Mietertrag je m² Wohnfläche" e={chf(erg.effektiv.ertragProM2, 2)} t={chf(erg.tragbarkeit.ertragProM2, 2)} einheit="CHF/m²·a" />
-                <Zeile label="Nettoertrag vor Finanzierung" e={chf(erg.effektiv.nettoertrag, 2)} t={chf(erg.tragbarkeit.nettoertrag, 2)} einheit="CHF/m²·a" />
-                <Zeile label="Ertragswert" e={chf(erg.effektiv.ertragswertProM2)} t={chf(erg.tragbarkeit.ertragswertProM2)} einheit="CHF/m²" />
-                <Zeile label="1. Hypothek" e={chf(erg.effektiv.ersteHypothek)} t={chf(erg.tragbarkeit.ersteHypothek)} einheit="CHF/m²" />
-                <Zeile label="Zins 1. Hypothek" e={chf(erg.effektiv.finanzierungskosten, 2)} t={chf(erg.tragbarkeit.finanzierungskosten, 2)} einheit="CHF/m²·a" />
-                <Zeile label="Maximale Amortisation" e={chf(erg.effektiv.maximaleAmortisation, 2)} t={chf(erg.tragbarkeit.maximaleAmortisation, 2)} einheit="CHF/m²·a"
-                  warnT={erg.tragbarkeit.maximaleAmortisation < 0} warnE={erg.effektiv.maximaleAmortisation < 0} />
-                <Zeile label="Belehnungsgrenze" e={chf(erg.effektiv.belehnungsgrenze)} t={chf(erg.tragbarkeit.belehnungsgrenze)} einheit="CHF/m²" />
-                <Zeile label="Tragbare Hypothek total" e={chf(erg.effektiv.maxHypothek)} t={chf(erg.tragbarkeit.maxHypothek)} einheit="CHF/m²" stark />
-                <Zeile label="Anlagekosten inkl. MWST" e={chf(erg.effektiv.baukostenProM2)} t={chf(erg.tragbarkeit.baukostenProM2)} einheit="CHF/m²" />
-                <Zeile label="Nötiges Eigenkapital" e={chf(erg.effektiv.eigenkapitalProM2)} t={chf(erg.tragbarkeit.eigenkapitalProM2)} einheit="CHF/m²" stark />
-                <Zeile
-                  label={`Nötiges Eigenkapital auf ${chf(basis.vmfWohnen)} m² Wohnfläche`}
-                  e={chf(erg.effektiv.eigenkapital)} t={chf(erg.tragbarkeit.eigenkapital)}
-                  einheit="CHF" stark />
+                <GruppenZeile titel="Aus den Berechnungen" />
+                <AnnahmeZeile label="Mietertrag SOLL" hinweis="Mengen der Renditeobjekte" einheit="CHF/a"
+                  berechnet={chf(berechnet.mietertrag)} aktiv={aktiv} canWrite={canWrite}
+                  regler={{ ...spanne(berechnet.mietertrag, sim.mietertrag), wert: sim.mietertrag, eigen: sch.mietertrag != null,
+                    onChange: (v) => setzeSchieber('mietertrag', v, 'Mietertrag'),
+                    onZurueck: () => setzeSchieber('mietertrag', null, 'Mietertrag berechnet') }} />
+                <AnnahmeZeile label="Ertragswert" hinweis={sch.ertragswert == null && sch.mietertrag != null
+                    ? 'folgt dem Mietertrag' : 'aus der Wirtschaftlichkeit'} einheit="CHF"
+                  berechnet={chf(berechnet.ertragswert)} aktiv={aktiv} canWrite={canWrite}
+                  regler={{ ...spanne(berechnet.ertragswert, sim.ertragswert), wert: sim.ertragswert, eigen: sch.ertragswert != null,
+                    onChange: (v) => setzeSchieber('ertragswert', v, 'Ertragswert'),
+                    onZurueck: () => setzeSchieber('ertragswert', null, 'Ertragswert berechnet') }} />
+                <AnnahmeZeile label="Kapitalisierungssatz" hinweis="Mietertrag ÷ Ertragswert" einheit=""
+                  berechnet={pct(kapSatzAus(basisAus(berechnet)), 2)} aktiv={aktiv} canWrite={canWrite}
+                  anzeige={pct(kapSatzAus(basisAus(sim)), 2)} />
+                <AnnahmeZeile label="Anlagekosten inkl. MWST" hinweis="aus den Anlagekosten" einheit="CHF"
+                  berechnet={chf(berechnet.anlagekosten)} aktiv={aktiv} canWrite={canWrite}
+                  regler={{ ...spanne(berechnet.anlagekosten, sim.anlagekosten), wert: sim.anlagekosten, eigen: sch.anlagekosten != null,
+                    onChange: (v) => setzeSchieber('anlagekosten', v, 'Anlagekosten'),
+                    onZurueck: () => setzeSchieber('anlagekosten', null, 'Anlagekosten berechnet') }} />
+                <AnnahmeZeile label="Wohnfläche" hinweis="Bezug der Unterhaltskosten" einheit="m²"
+                  berechnet={chf(berechnet.vmfWohnen)} aktiv={aktiv} canWrite={canWrite}
+                  regler={{ ...spanne(berechnet.vmfWohnen, sim.vmfWohnen), wert: sim.vmfWohnen, eigen: sch.vmfWohnen != null,
+                    onChange: (v) => setzeSchieber('vmfWohnen', v, 'Wohnfläche'),
+                    onZurueck: () => setzeSchieber('vmfWohnen', null, 'Wohnfläche berechnet') }} />
+
+                <GruppenZeile titel="Zinsen und Belehnung" />
+                {annahmeZeile('hypozins', 'Hypothekarzins', 'effektiv', { max: 0.08, step: 0.05, prozent: true })}
+                {annahmeZeile('tragbarkeitszins', 'Tragbarkeitszinssatz', 'kalkulatorisch', { max: 0.1, step: 0.05, prozent: true })}
+                {annahmeZeile('max1', 'Max. 1. Hypothek', 'des Ertragswerts', { max: 1, step: 1, prozent: true })}
+                {annahmeZeile('max2', 'Max. Hypothek total', 'des Ertragswerts', { max: 1, step: 1, prozent: true })}
+                {annahmeZeile('ersteHypothekChf', '1. Hypothek',
+                  `Maximum aus Belehnung: ${chf(maxErsteBerechnet)} CHF${aktiv && Math.round(maxErsteSim) !== Math.round(maxErsteBerechnet)
+                    ? ` · mit Schiebern ${chf(maxErsteSim)}` : ''}`,
+                  { ...spanne(0, Math.max(annSim.ersteHypothekChf, annBerechnet.ersteHypothekChf), Math.max(1, berechnet.anlagekosten)), einheit: 'CHF' })}
+
+                <GruppenZeile titel="Finanzierung und Laufzeit" />
+                {annahmeZeile('amortisationsdauer', 'Dauer Amortisation', undefined, { min: 1, max: 40, step: 1, einheit: 'Jahre', ganz: true })}
+                {annahmeZeile('zusaetzlicheEigenmittel', 'Zusätzliche Eigenmittel', undefined, {
+                  ...spanne(0, Math.max(doc.zusaetzlicheEigenmittel, annSim.zusaetzlicheEigenmittel), Math.max(berechnet.anlagekosten * 0.5, 1)),
+                  einheit: 'CHF' })}
               </tbody>
             </table>
             <p className="mt-2 text-[11px] text-slate-500">
-              Die 1. Hypothek trägt nur Zins; was der Nettoertrag darüber hinaus hergibt,
-              amortisiert die 2. in {doc.amortisationsdauer} Jahren. Mehr als die
-              Belehnungsgrenze gibt es auch dann nicht, wenn der Ertrag es hergäbe — in der
-              Spalte Tragbarkeit hängt die Hypothek {erg.tragbarkeit.grenze === 'amortisation'
-                ? 'an der Amortisationskraft'
-                : 'an der Belehnungsgrenze'}.
+              Links steht, was aus Mengen, Anlagekosten und Wirtschaftlichkeit kommt — es lässt
+              sich hier nicht ändern —, und was als Zinsen, Belehnung und Laufzeit eingegeben ist.
+              Die Schieber daneben spielen Werte durch, ohne die linke Spalte zu verändern. Ein
+              Doppelklick auf Schieber oder Zahl öffnet das Feld zum Eintippen (Enter übernimmt,
+              Escape verwirft); ↺ setzt den Schieber auf den linken Wert zurück.
+              Leerstand, Betriebs- und Unterhaltskosten stehen als Ansätze in der Tabelle unten.
             </p>
           </UnterKapitel>
 
@@ -407,7 +328,7 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
               Die 1. Hypothek steht, amortisiert wird allein die 2. — in gleichen Raten über
-              {' '}{doc.amortisationsdauer} Jahre. Die beiden letzten Spalten rechnen dasselbe Jahr
+              {' '}{params.amortisationsdauer} Jahre. Die beiden letzten Spalten rechnen dasselbe Jahr
               ohne 2. Hypothek, einmal zum kalkulatorischen Satz und einmal zum tatsächlichen
               Zins: die Probe, ob die Liegenschaft auch dann trägt. Leerstand und Kosten lassen
               sich je Jahr setzen; ein gesetzter Satz gilt von dort an weiter.
@@ -438,7 +359,7 @@ export function TragbarkeitSection({ variantId, defaultExpanded = false }: {
             </table>
             <p className={`mt-2 text-xs ${erg.kontrolle.tragbar ? 'text-slate-500' : 'text-amber-700'}`}>
               {erg.kontrolle.tragbar
-                ? `Das nötige Fremdkapital liegt ${chf(erg.kontrolle.spielraum)} CHF unter der Belehnungsgrenze von ${pct(doc.max2, 0)} des Ertragswerts.`
+                ? `Das nötige Fremdkapital liegt ${chf(erg.kontrolle.spielraum)} CHF unter der Belehnungsgrenze von ${pct(params.max2, 0)} des Ertragswerts.`
                 : `Das nötige Fremdkapital übersteigt die Belehnungsgrenze um ${chf(-erg.kontrolle.spielraum)} CHF — es braucht mehr Eigenmittel oder tiefere Kosten.`}
             </p>
           </UnterKapitel>
@@ -591,25 +512,6 @@ function JahresSatzFeld({ roh: gespeichert, prozent, eigen, jahr, canWrite, onSa
   )
 }
 
-function Zeile({ label, e, t, einheit, stark, warnE, warnT }: {
-  label: string
-  e: string
-  t: string
-  einheit: string
-  stark?: boolean
-  warnE?: boolean
-  warnT?: boolean
-}) {
-  return (
-    <tr className="border-b border-slate-100" style={stark ? { backgroundColor: HILITE } : undefined}>
-      <td className={`py-1.5 pr-3 ${stark ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>{label}</td>
-      <td className={`py-1.5 pr-3 text-right tabular-nums ${warnE ? 'text-amber-700' : ''} ${stark ? 'font-semibold' : ''}`}>{e}</td>
-      <td className={`py-1.5 pr-3 text-right tabular-nums ${warnT ? 'text-amber-700' : ''} ${stark ? 'font-semibold' : ''}`}>{t}</td>
-      <td className="py-1.5 text-left text-xs text-slate-400">{einheit}</td>
-    </tr>
-  )
-}
-
 function KontrollZeile({ label, wert, einheit, stark, warn }: {
   label: string
   wert: string
@@ -627,122 +529,110 @@ function KontrollZeile({ label, wert, einheit, stark, warn }: {
   )
 }
 
+/** Bereich eines Schiebers um den berechneten Wert: halb bis anderthalbfach,
+ *  erweitert, wo der eingestellte Wert darüber hinausgeht. Mit `obergrenze`
+ *  von null bis dorthin. */
+function spanne(basis: number, wert: number, obergrenze?: number) {
+  let min = obergrenze != null ? 0 : basis * 0.5
+  let max = obergrenze ?? basis * 1.5
+  min = Math.min(min, wert)
+  max = Math.max(max, wert, min + 1)
+  const roh = (max - min) / 200
+  const step = roh > 0 ? 10 ** Math.floor(Math.log10(roh)) : 1
+  return { min: Math.floor(min / step) * step, max: Math.ceil(max / step) * step, step }
+}
+
+function GruppenZeile({ titel }: { titel: string }) {
+  return (
+    <tr>
+      <td colSpan={6} className="pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{titel}</td>
+    </tr>
+  )
+}
+
 /**
- * Eingabe eines Satzes in Prozent. Gespeichert wird der Anteil (0.023), gezeigt
- * die Prozentzahl — mit einem Textfeld, damit „2.3" nicht beim Punkt kippt.
+ * Eine Annahme: links der berechnete Wert zum Lesen, rechts der Schieber mit
+ * seinem Zahlenfeld. Bei reinen Annahmen steht links statt des berechneten
+ * Werts das Eingabefeld. `step` gilt in der gezeigten Einheit
+ * (Prozent bei `prozent`), `min`/`max`/`wert` in der gespeicherten.
  */
-function SatzFeld({ label, hinweis, wert, canWrite, onChange, eigen, abgeleitetWert, onZurueck }: {
+function AnnahmeZeile({ label, hinweis, einheit, berechnet, eingabe, anzeige, regler, aktiv, canWrite }: {
   label: string
   hinweis?: string
-  wert: number
+  einheit: string
+  berechnet?: string
+  /** Eingegebener Wert links (reine Annahme) statt eines berechneten. */
+  eingabe?: { wert: number; prozent?: boolean; onChange: (v: number) => void }
+  /** Nur anzeigen statt schieben (abgeleitete Grösse). */
+  anzeige?: string
+  regler?: {
+    wert: number; min: number; max: number; step: number
+    /** Gespeichert als Anteil, gezeigt in Prozent. */
+    prozent?: boolean
+    /** Schieber weicht vom berechneten Wert ab. */
+    eigen?: boolean
+    onChange: (v: number) => void
+    onZurueck?: () => void
+  }
+  aktiv?: boolean
   canWrite: boolean
-  onChange: (v: number) => void
-  /** Von Hand gesetzt statt aus den Mengen abgeleitet. */
-  eigen?: boolean
-  abgeleitetWert?: number
-  onZurueck?: () => void
 }) {
+  const faktor = regler?.prozent ? 100 : 1
+  const schieberWirkt = !!aktiv
+  const stellen = regler && regler.step < 1 ? 2 : 0
+  // Der Schieberwert ist nur Anzeige — eintippen erst nach Doppelklick, damit
+  // man ihn nicht aus Versehen für die Eingabe links hält und überschreibt.
+  const [tippen, setTippen] = useState(false)
+  const tippenAn = () => { if (canWrite && regler) setTippen(true) }
   return (
-    <FeldRahmen label={label} hinweis={hinweis} einheit="%" eigen={eigen}
-      abgeleitet={abgeleitetWert != null ? `${(abgeleitetWert * 100).toFixed(1)} %` : undefined}
-      onZurueck={onZurueck}>
-      <TextZahl
-        wert={wert * 100}
-        stellen={2}
-        disabled={!canWrite}
-        onChange={(v) => onChange(v / 100)} />
-    </FeldRahmen>
-  )
-}
-
-function ZahlFeld({ label, hinweis, wert, einheit, canWrite, onChange, eigen, abgeleitetWert, onZurueck }: {
-  label: string
-  hinweis?: string
-  wert: number
-  einheit: string
-  canWrite: boolean
-  onChange: (v: number) => void
-  eigen?: boolean
-  abgeleitetWert?: number
-  onZurueck?: () => void
-}) {
-  return (
-    <FeldRahmen label={label} hinweis={hinweis} einheit={einheit} eigen={eigen}
-      abgeleitet={abgeleitetWert != null ? formatNumber(abgeleitetWert, 2) : undefined}
-      onZurueck={onZurueck}>
-      <TextZahl wert={wert} stellen={2} disabled={!canWrite} onChange={onChange} />
-    </FeldRahmen>
-  )
-}
-
-/**
- * Eine Grösse, die aus einer anderen Rechnung kommt — nur zum Lesen. Sie steht
- * in derselben Zeilenform wie die Eingaben, aber ohne graue Fläche: das ist
- * der Unterschied, den man auf einen Blick sehen soll.
- */
-function AnzeigeFeld({ label, hinweis, wert, einheit }: {
-  label: string
-  hinweis: string
-  wert: string
-  einheit: string
-}) {
-  return (
-    <FeldRahmen label={label} hinweis={hinweis} einheit={einheit}>
-      <div className="w-24 px-2 py-1 text-right text-sm tabular-nums text-slate-500">{wert}</div>
-    </FeldRahmen>
-  )
-}
-
-/**
- * Eine Gruppe der Annahmen: ein Kasten mit schmaler Überschrift. Drei davon
- * nebeneinander ersetzen die lange Liste — jede trägt, was in der Rechnung
- * zusammengehört.
- */
-function Gruppe({ titel, children }: { titel: string; children: ReactNode }) {
-  return (
-    <div className="rounded-lg border border-slate-200 px-3 pb-1 pt-2">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-        {titel}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-/**
- * Eine Zeile der Annahmen: Beschriftung links, Wert rechts, Einheit in einer
- * eigenen schmalen Spalte. Weil die Spalten fest sind, fluchten alle Werte
- * untereinander — unabhängig davon, wie lang die Beschriftung ist.
- */
-function FeldRahmen({ label, hinweis, einheit, children, eigen, abgeleitet, onZurueck }: {
-  label: string
-  /** Zweite Zeile unter der Beschriftung: Herkunft, Einschränkung, Lesehilfe. */
-  hinweis?: string
-  einheit: string
-  children: ReactNode
-  eigen?: boolean
-  abgeleitet?: string
-  onZurueck?: () => void
-}) {
-  return (
-    <label className="flex items-center justify-between gap-2 border-b border-slate-100 py-1 text-xs text-slate-600 last:border-0">
-      <span className="min-w-0 flex-1">
+    <tr className="border-b border-slate-100">
+      <td className="py-1.5 pr-3">
         <span className="block font-medium text-slate-700">{label}</span>
-        {/* Wo eine Grösse aus den Mengen kommt, steht das darunter — und ein
-            Weg zurück, wenn man sie von Hand überschrieben hat. */}
         {hinweis && <span className="block text-[10px] text-slate-400">{hinweis}</span>}
-        {abgeleitet != null && (eigen
-          ? (
-            <button type="button" onClick={onZurueck}
-              className="mt-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500 hover:bg-slate-200">
-              eigener Wert · aus Mengen: {abgeleitet}
-            </button>
-          )
-          : <span className="block text-[10px] text-slate-400">aus den Mengen</span>)}
-      </span>
-      <span className="shrink-0">{children}</span>
-      <span className="w-14 shrink-0 text-[10px] text-slate-400">{einheit}</span>
-    </label>
+      </td>
+      <td className={`py-1.5 pr-3 text-right tabular-nums ${schieberWirkt ? 'text-slate-400' : 'font-medium text-slate-800'}`}>
+        {eingabe ? (
+          <span className={schieberWirkt ? 'opacity-50' : ''}>
+            <TextZahl wert={eingabe.wert * (eingabe.prozent ? 100 : 1)} stellen={eingabe.prozent ? 2 : 0} prozent={eingabe.prozent} disabled={!canWrite}
+              onChange={(v) => eingabe.onChange(v / (eingabe.prozent ? 100 : 1))} />
+          </span>
+        ) : berechnet}
+        {/* Einheit auch links, damit die Spalte für sich lesbar ist. */}
+        <span className="ml-1 inline-block w-9 text-left text-[10px] font-normal text-slate-400">{einheit}</span>
+      </td>
+      <td className={`px-3 py-1.5 ${schieberWirkt ? '' : 'opacity-50'}`}>
+        {regler && (
+          <input type="range" disabled={!canWrite} onDoubleClick={tippenAn}
+            title="Doppelklick: Wert eintippen"
+            min={regler.min * faktor} max={regler.max * faktor} step={regler.step}
+            value={regler.wert * faktor}
+            onChange={(e) => regler.onChange(Number(e.target.value) / faktor)}
+            className="w-full cursor-pointer accent-[#8B6956] disabled:cursor-default" />
+        )}
+      </td>
+      <td className={`py-1.5 text-right ${schieberWirkt ? '' : 'opacity-50'}`}>
+        {regler && tippen ? (
+          <TextZahl wert={regler.wert * faktor} stellen={stellen} prozent={regler.prozent} disabled={!canWrite}
+            autoFocus onFertig={() => setTippen(false)}
+            onChange={(v) => regler.onChange(v / faktor)} />
+        ) : regler ? (
+          <span onDoubleClick={tippenAn} title={canWrite ? 'Doppelklick: Wert eintippen' : undefined}
+            className={`inline-block w-28 cursor-default select-none px-2 py-1 text-right text-sm tabular-nums ${
+              schieberWirkt ? 'font-medium text-slate-800' : 'text-slate-500'}`}>
+            {formatNumber(Number.isFinite(regler.wert) ? regler.wert * faktor : 0, stellen) + (regler.prozent ? ' %' : '')}
+          </span>
+        ) : (
+          <span className={`pr-2 tabular-nums ${schieberWirkt ? 'font-medium text-slate-800' : 'text-slate-500'}`}>{anzeige}</span>
+        )}
+      </td>
+      <td className="py-1.5 pl-2 text-[10px] text-slate-400">{einheit}</td>
+      <td className="py-1.5 text-center">
+        {regler?.eigen && regler.onZurueck && canWrite && (
+          <button type="button" onClick={regler.onZurueck} title="Auf den berechneten Wert zurück"
+            className="rounded px-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">↺</button>
+        )}
+      </td>
+    </tr>
   )
 }
 
@@ -751,36 +641,50 @@ function FeldRahmen({ label, hinweis, einheit, children, eigen, abgeleitet, onZu
  * gerechnet wird beim Verlassen. Ein `type="number"` sprang beim Dezimalpunkt
  * auf null zurück.
  */
-function TextZahl({ wert, stellen, disabled, onChange }: {
+function TextZahl({ wert, stellen, disabled, prozent, autoFocus, onFertig, onChange }: {
   wert: number
   stellen: number
   disabled: boolean
+  /** Hängt ausser Fokus « %» an. */
+  prozent?: boolean
+  autoFocus?: boolean
+  /** Nach dem Verlassen (Enter, Tab, Klick daneben, Escape). */
+  onFertig?: () => void
   onChange: (v: number) => void
 }) {
-  const [roh, setRoh] = useState<string | null>(null)
-  const anzeige = roh ?? (Number.isFinite(wert)
-    ? String(Number(wert.toFixed(stellen)))
-    : '0')
+  // Ausser Fokus mit Tausenderzeichen (und %), im Fokus roh zum Tippen.
+  const e = useEingabe()
+  const verwerfen = useRef(false)
+  const ok = Number.isFinite(wert) ? wert : 0
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={anzeige}
+      value={e.text(String(Number(ok.toFixed(stellen))), formatNumber(ok, stellen) + (prozent ? ' %' : ''))}
       disabled={disabled}
-      onChange={(e) => setRoh(e.target.value)}
+      autoFocus={autoFocus}
+      onFocus={(ev) => { e.onFocus(); if (autoFocus) ev.target.select() }}
+      onChange={e.onChange}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter') ev.currentTarget.blur()
+        if (ev.key === 'Escape') { verwerfen.current = true; ev.currentTarget.blur() }
+      }}
       onBlur={() => {
-        if (roh != null) {
-          const v = Number(roh.replace(',', '.'))
+        const t = e.verlassen()
+        const weg = verwerfen.current
+        verwerfen.current = false
+        onFertig?.()
+        if (t != null && !weg) {
+          const v = Number(t.replace(/[’'\s%]/g, '').replace(',', '.'))
           onChange(Number.isFinite(v) ? v : 0)
         }
-        setRoh(null)
       }}
       /*
        * Leicht grau hinterlegt: wo man schreiben kann, soll man es sehen, ohne
        * hineinzuklicken. Angezeigte Grössen stehen daneben ohne Fläche. Beim
        * Tippen wird das Feld weiss — dann ist der Cursor die Auskunft.
        */
-      className="w-24 rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-right text-sm tabular-nums text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#B98C74] disabled:bg-slate-50 disabled:opacity-60"
+      className="w-28 rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-right text-sm tabular-nums text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#B98C74] disabled:bg-slate-50 disabled:opacity-60"
     />
   )
 }

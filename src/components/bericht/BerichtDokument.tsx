@@ -55,6 +55,8 @@ export interface BerichtDaten {
    * erfasst sind — die beiden Gesellschaften gibt es nur dort.
    */
   kapitalSteuern?: BereichsKapitelDaten
+  /** Inhalt des Kapitels „Tragbarkeit"; fehlt, wo keine Renditeobjekte erfasst sind. */
+  tragbarkeit?: BereichsKapitelDaten
   /** Inhalt des Kapitels „Mittelflussrechnung"; fehlt ohne erfasste Kosten. */
   mittelfluss?: BereichsKapitelDaten
   /**
@@ -1587,6 +1589,10 @@ function kapitelSeiten(key: string, daten: BerichtDaten): number {
     const k = daten.kapitalSteuern
     return k ? bereichsSeiten(k, key, umbruchSet(daten)).length : 1
   }
+  if (key === 'tragbarkeit') {
+    const t = daten.tragbarkeit
+    return t ? bereichsSeiten(t, key, umbruchSet(daten), BEREICHS_FORMAT_QUER).length : 1
+  }
   if (key === 'mittelfluss') {
     const m = daten.mittelfluss
     return m
@@ -1708,6 +1714,10 @@ export function berichtUmbruchPunkte(daten: BerichtDaten): UmbruchEintrag[] {
     if (e.kapitel.key === 'kapitalsteuern' && daten.kapitalSteuern) {
       sammle(e.kapitel.label, e.seite,
         bereichsSeiten(daten.kapitalSteuern, e.kapitel.key, gesetzt))
+    }
+    if (e.kapitel.key === 'tragbarkeit' && daten.tragbarkeit) {
+      sammle(e.kapitel.label, e.seite,
+        bereichsSeiten(daten.tragbarkeit, e.kapitel.key, gesetzt, BEREICHS_FORMAT_QUER))
     }
     if (e.kapitel.key === 'mittelfluss' && daten.mittelfluss) {
       sammle(e.kapitel.label, e.seite,
@@ -3721,6 +3731,12 @@ const BEREICHS_FORMAT: SeitenFormat = 'a4'
  */
 const BEREICHS_FORMAT_BREIT: SeitenFormat = 'a3'
 
+/**
+ * Die Tragbarkeit steht auf A4 quer: ihr Verlauf führt die Jahre als Spalten,
+ * und die Übersicht setzt Grundlagen, Annahmen und Kontrolle nebeneinander.
+ */
+const BEREICHS_FORMAT_QUER: SeitenFormat = 'a4-quer'
+
 type BereichsElement = Umbruchpunkt & (
   /** Obertitel einer Sicht — nur, wenn mehr als eine gedruckt wird. */
   | { art: 'sicht'; titel: string }
@@ -4173,6 +4189,18 @@ function KapitelSeite({ kapitel, ...rest }: Kapitelseite & { kapitel: BerichtKap
           inhalt={rest.daten.kapitalSteuern}
           leerText={'Kapital und Steuern der beiden Gesellschaften gibt es nur bei '
             + 'Verkaufsobjekten; in dieser Variante sind keine erfasst.'}
+        />
+      )
+    case 'tragbarkeit':
+      return (
+        <BereichsKapitel
+          {...rest}
+          kapitelKey="tragbarkeit"
+          titel="Tragbarkeit"
+          inhalt={rest.daten.tragbarkeit}
+          leerText={'Die Tragbarkeit gibt es nur bei Renditeobjekten; '
+            + 'in dieser Variante sind keine erfasst.'}
+          format={BEREICHS_FORMAT_QUER}
         />
       )
     case 'mittelfluss':

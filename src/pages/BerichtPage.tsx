@@ -14,6 +14,7 @@ import { useAnlagekostenDaten } from '@/components/bericht/anlagekostenDaten'
 import { useWirtschaftlichkeitDaten } from '@/components/bericht/wirtschaftlichkeitDaten'
 import { useLimitenDaten } from '@/components/bericht/limitenDaten'
 import { useKapitalSteuernDaten } from '@/components/bericht/kapitalSteuernDaten'
+import { useTragbarkeitDaten } from '@/components/bericht/tragbarkeitDaten'
 import { useMittelflussDaten } from '@/components/bericht/mittelflussDaten'
 import { useProjectPhotos } from '@/hooks/useProjectPhotos'
 import { useProjectGisScreenshots } from '@/hooks/useProjectGisScreenshots'
@@ -121,6 +122,7 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
   const wirtschaftlichkeit = useWirtschaftlichkeitDaten(variantId, umfang, etappenAuswahl)
   const limiten = useLimitenDaten(variantId, umfang, etappenAuswahl)
   const kapitalSteuern = useKapitalSteuernDaten(projektId, variantId)
+  const tragbarkeit = useTragbarkeitDaten(variantId)
   const mittelfluss = useMittelflussDaten(projektId, variantId)
 
   const uebersicht = useUebersichtDaten(
@@ -156,12 +158,13 @@ function BerichtInhalt({ projektId, variantId }: { projektId?: string; variantId
       wirtschaftlichkeit,
       limiten,
       kapitalSteuern,
+      tragbarkeit,
       mittelfluss,
       umbrueche,
     }
   }, [project, variant, adresse, thumbnail, druckKapitel, anrede, umfang, kunde,
       uebersicht, mengen, nutzung, anlagekosten, wirtschaftlichkeit, limiten,
-      kapitalSteuern, mittelfluss, umbrueche])
+      kapitalSteuern, tragbarkeit, mittelfluss, umbrueche])
 
   // ── Sprungnavigation ───────────────────────────────────────────────────────
   // Die Vorschau ist ein PDF-Betrachter; angesprungen wird über die Seitenzahl.

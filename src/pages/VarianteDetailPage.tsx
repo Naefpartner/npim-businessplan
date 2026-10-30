@@ -16,12 +16,13 @@ import { WirtschaftlichkeitSection } from '@/components/projects/Wirtschaftlichk
 import { KapitalSteuernSection } from '@/components/projects/KapitalSteuernSection'
 import { TragbarkeitSection } from '@/components/projects/TragbarkeitSection'
 import { MittelflussSection } from '@/components/projects/MittelflussSection'
-import { VariantDataProvider } from '@/contexts/VariantDataContext'
+import { VariantDataProvider, useAnlagekostenShared } from '@/contexts/VariantDataContext'
 import { VariantTabContext } from '@/contexts/VariantTabContext'
 import {
   PHASE_LABEL,
   PHASE_ORDER,
   VARIANT_STATUS_LABEL,
+  type Eigentumsart,
   type Project,
   type ProjectPhase,
   type ProjectVariant,
@@ -58,6 +59,43 @@ const TABS = [
   { key: 'mittelfluss',        label: 'Mittelfluss',               icon: Waves },
   { key: 'pqm',                label: 'PQM',                       icon: ShieldAlert },
 ] as const
+
+type TabKey = (typeof TABS)[number]['key']
+
+// Reiter, die nur bei bestimmten Eigentumsarten Sinn ergeben.
+const TAB_NUR_FUER: Partial<Record<TabKey, Eigentumsart>> = {
+  kapital: 'verkaufsobjekt',
+  tragbarkeit: 'renditeobjekt',
+}
+
+/** Hauptreiter — liest die Eigentumsarten aus dem geteilten Datenstand. */
+function Hauptreiter({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (k: string) => void }) {
+  const ak = useAnlagekostenShared()
+  const tabs = TABS.filter((t) => { const eig = TAB_NUR_FUER[t.key]; return !eig || ak.presentEig.includes(eig) })
+  // Verschwindet der aktive Reiter (z.B. letztes Renditeobjekt entfernt), auf den ersten zurück.
+  const aktivWeg = !ak.loading && !tabs.some((t) => t.key === activeTab)
+  useEffect(() => { if (aktivWeg) setActiveTab(TABS[0].key) }, [aktivWeg, setActiveTab])
+  return (
+    <div className="flex flex-wrap gap-1 border-b border-slate-200">
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          onClick={() => setActiveTab(t.key)}
+          className={cn(
+            '-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition',
+            activeTab === t.key
+              ? 'border-[#8B6956] text-[#8B6956]'
+              : 'border-transparent text-slate-500 hover:text-slate-800',
+          )}
+        >
+          <t.icon className="h-4 w-4" />
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 
 export function VarianteDetailPage() {
@@ -173,27 +211,9 @@ export function VarianteDetailPage() {
         </div>
       </header>
 
-      {/* Hauptreiter */}
-      <div className="flex flex-wrap gap-1 border-b border-slate-200">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setActiveTab(t.key)}
-            className={cn(
-              '-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition',
-              activeTab === t.key
-                ? 'border-[#8B6956] text-[#8B6956]'
-                : 'border-transparent text-slate-500 hover:text-slate-800',
-            )}
-          >
-            <t.icon className="h-4 w-4" />
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       <VariantDataProvider projectId={project.id} variantId={variant.id}>
+      <Hauptreiter activeTab={activeTab} setActiveTab={setActiveTab} />
+
         {activeTab === 'mengen' && (
           <MengengeruestSection projectId={project.id} variantId={variant.id} defaultExpanded />
         )}
