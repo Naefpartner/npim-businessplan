@@ -812,7 +812,9 @@ const s = StyleSheet.create({
   // ── Kompakter Satz der Detailberechnung ───────────────────────────────────
   kompaktBlock: { marginBottom: mm(0.8), flexShrink: 0 },
   /** Der Balken trägt Zellen wie eine Zeile — die Summen der Hauptgruppe. */
-  kompaktBalken: { flexDirection: 'row' },
+  // Rechts ohne Innenabstand wie die Positionszeilen darunter — sonst
+  // stünden die Summen um den Einzug vor den Beträgen der Positionen.
+  kompaktBalken: { flexDirection: 'row', paddingRight: 0 },
   kompaktTitel: {
     fontSize: SCHRIFT.h3,
     lineHeight: SCHRIFT.h2Zeile / SCHRIFT.h2,
@@ -1264,6 +1266,10 @@ function zeilenZahl(
   grad = 1,
 ): number {
   if (!zeile) return 0
+  // Eingerückte Zeilen (Mieteinheiten) stehen kleiner (s.tabEinzug) — in
+  // Grundschrift gerechnet brächen „A01 - Geschosswohnung" und Ähnliches
+  // scheinbar um, und ein Haus würde geteilt, obwohl es auf die Seite passt.
+  if (zeile.einzug) grad = SCHRIFT.klein / SCHRIFT.grund
   const summe = breiten.reduce((a, b) => a + b, 0)
   const nutzbar = breite - EINZUG
   let zahl = 1
