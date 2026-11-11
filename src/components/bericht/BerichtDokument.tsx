@@ -797,6 +797,7 @@ const s = StyleSheet.create({
     paddingHorizontal: mm(1.4),
     paddingTop: mm(0.8),
     paddingBottom: mm(0.7),
+    // SPIEGEL.kachelAbstand — die Höhenrechnung kennt ihn.
     marginBottom: mm(1),
   },
   spiegelKachelTitel: { fontSize: 6, lineHeight: 1.2, fontWeight: 700 },
@@ -2674,6 +2675,13 @@ const SPIEGEL = {
   hinweis: 4.25,
   kopf: 10.6,
   kachel: 7.4,
+  /**
+   * Abstand unter einer Kachel (in `kachel` enthalten) und der knappere, mit
+   * dem der Spiegel noch unter den Wohnungsmix rückt, wenn er sonst eine
+   * eigene Seite bräuchte.
+   */
+  kachelAbstand: 1,
+  kachelAbstandKompakt: 0.4,
   /** Zeile ohne Kacheln: nur die Geschossbeschriftung. */
   geschoss: 3.75,
   /** Trennlinie zwischen zwei Geschossen samt Vorabstand. */
@@ -2681,11 +2689,13 @@ const SPIEGEL = {
   skala: 4.25,
 }
 
-function spiegelHoehe(m: MietspiegelDaten): number {
+function spiegelHoehe(m: MietspiegelDaten, kompakt = false): number {
+  const kachel = SPIEGEL.kachel
+    - (kompakt ? SPIEGEL.kachelAbstand - SPIEGEL.kachelAbstandKompakt : 0)
   const zeilen = m.geschosse.reduce((h, g, i) => {
     const kacheln = Math.max(...g.spalten.map((k) => k.length), 0)
     // Ab dem zweiten Geschoss die Trennlinie mit ihrem Vorabstand.
-    return h + Math.max(kacheln * SPIEGEL.kachel, SPIEGEL.geschoss)
+    return h + Math.max(kacheln * kachel, SPIEGEL.geschoss)
       + (i > 0 ? SPIEGEL.trenner : 0)
   }, 0)
   return MH.eigTitel + SPIEGEL.hinweis + SPIEGEL.kopf + zeilen + SPIEGEL.skala + MH.blockEnde
@@ -2709,10 +2719,21 @@ function wohnungsmixHoehe(sicht: MengenSicht): number {
  * Ob der Mietspiegel noch unter den Wohnungsmix passt. Sonst bekommt er eine
  * eigene Seite — geteilt werden kann er nicht, ohne den Vergleich zwischen den
  * Häusern zu zerschneiden.
+ *
+ * Reicht der Platz knapp nicht, rücken die Kacheln enger zusammen — das
+ * kostet nichts an Lesbarkeit, eine zweite Seite für einen halben Spiegel
+ * dagegen den Überblick.
  */
+function spiegelSatzAufMixseite(sicht: MengenSicht): 'normal' | 'kompakt' | null {
+  if (!sicht.mietspiegel) return null
+  const mix = MH.h1 + wohnungsmixHoehe(sicht)
+  if (mix + spiegelHoehe(sicht.mietspiegel) <= SEITENHOEHE) return 'normal'
+  if (mix + spiegelHoehe(sicht.mietspiegel, true) <= SEITENHOEHE) return 'kompakt'
+  return null
+}
+
 function spiegelAufMixseite(sicht: MengenSicht): boolean {
-  if (!sicht.mietspiegel) return false
-  return MH.h1 + wohnungsmixHoehe(sicht) + spiegelHoehe(sicht.mietspiegel) <= SEITENHOEHE
+  return spiegelSatzAufMixseite(sicht) !== null
 }
 
 /** Blattzahl der Mengentabellen einer Sicht. */
@@ -3138,7 +3159,11 @@ function AnlagekostenKapitel({ daten, seite, seitenTotal, nummer }: Kapitelseite
  * nebeneinander wie am Bildschirm — auf der schmalen Seite bliebe sonst von
  * jeder nur ein Streifen.
  */
-function Mietspiegel({ daten, ohneTitel }: { daten: MietspiegelDaten; ohneTitel?: boolean }) {
+function Mietspiegel({ daten, ohneTitel, kompakt }: {
+  daten: MietspiegelDaten; ohneTitel?: boolean
+  /** Engere Kachelabstände — siehe spiegelSatzAufMixseite(). */
+  kompakt?: boolean
+}) {
   const steg = 2
   return (
     <View style={s.feldBlock}>
@@ -3156,7 +3181,7 @@ function Mietspiegel({ daten, ohneTitel }: { daten: MietspiegelDaten; ohneTitel?
             <View style={[s.spiegelKopf, { backgroundColor: h.farbe }]}>
               <Text style={s.spiegelName}>{h.name}</Text>
               <Text style={s.spiegelKennzahl}>{h.kennzahl}</Text>
-              <Text style={s.spiegelKennzahl}>{h.unterzeile}</Text>
+              <Text style={s.spiegelKennzahl}>{h.unterzeile || ' '}</Text>
             </View>
           </View>
         ))}
@@ -3171,9 +3196,14 @@ function Mietspiegel({ daten, ohneTitel }: { daten: MietspiegelDaten; ohneTitel?
             <View key={i} style={[s.spiegelSpalte,
               ...(i < g.spalten.length - 1 ? [{ marginRight: mm(steg) }] : [])]}>
               {kacheln.map((k, j) => (
-                <View key={j} style={[s.spiegelKachel, { backgroundColor: k.farbe }]}>
+                <View key={j} style={[s.spiegelKachel, { backgroundColor: k.farbe },
+                  ...(kompakt ? [{ marginBottom: mm(SPIEGEL.kachelAbstandKompakt) }] : [])]}>
                   <Text style={[s.spiegelKachelTitel, { color: k.textFarbe }]}>{k.titel}</Text>
-                  <Text style={[s.spiegelKachelZeile, { color: k.textFarbe }]}>{k.zeile}</Text>
+                  {/* Leer bleibt sie trotzdem eine Zeile hoch — sonst wären
+                      Kacheln ohne Mietzins niedriger als ihre Nachbarn. */}
+                  <Text style={[s.spiegelKachelZeile, { color: k.textFarbe }]}>
+                    {k.zeile || ' '}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -3256,8 +3286,10 @@ function WohnungsmixSeite({
           </View>
         )
       })}
-      {sicht.mietspiegel && spiegelAufMixseite(sicht)
-        && <Mietspiegel daten={sicht.mietspiegel} />}
+      {sicht.mietspiegel && spiegelAufMixseite(sicht) && (
+        <Mietspiegel daten={sicht.mietspiegel}
+          kompakt={spiegelSatzAufMixseite(sicht) === 'kompakt'} />
+      )}
     </InhaltsSeite>
   )
 }

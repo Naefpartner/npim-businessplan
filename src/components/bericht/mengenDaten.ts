@@ -563,25 +563,51 @@ function mietspiegel(
 
   /** Ertrag je m² und Jahr; beim Verkauf der Preis je m². */
   const wert = (u: AnalyseUnit) => (u.vmf > 0 ? u.mietePa / u.vmf : 0)
-  const werte = units.map(wert)
-  const min = Math.min(...werte)
-  const max = Math.max(...werte)
-  const anteil = (v: number) => (max > min ? (v - min) / (max - min) : 0.5)
+  // Die Skala spannen nur Einheiten mit Fläche und Ertrag auf. Keller ohne
+  // Mietzins oder Parkplätze ohne Fläche zögen sonst das untere Ende auf null.
+  const werte = units.filter((u) => u.vmf > 0 && u.mietePa > 0).map(wert)
+  const min = werte.length > 0 ? Math.min(...werte) : 0
+  const max = werte.length > 0 ? Math.max(...werte) : 0
+  const anteil = (v: number) =>
+    (max > min ? Math.min(1, Math.max(0, (v - min) / (max - min))) : 0.5)
   const nurVerkauf = units.every((u) => u.eig === 'verkaufsobjekt')
   const einheit = nurVerkauf ? 'CHF/m²' : 'CHF/m²·a'
+
+  /**
+   * Ansatz einer Einheit ohne Fläche (Parkplätze und Ähnliches): je Stück und
+   * Monat, beim Verkauf der Preis je Stück — je m² gäbe es nichts zu teilen.
+   */
+  const jeStueck = (ertragJeStk: number, verkauf: boolean) => (verkauf
+    ? `${z(ertragJeStk)} CHF/Stk`
+    : `${z(ertragJeStk / 12)} CHF/Mt.`)
+
+  /** Zweite Kachelzeile: leer, wo kein Mietzins hinterlegt ist. */
+  const kachelZeile = (u: AnalyseUnit) => {
+    if (u.mietePa <= 0) return u.vmf > 0 ? `${zF(u.vmf)} m²` : ''
+    if (u.vmf <= 0) return jeStueck(u.mietePa, u.eig === 'verkaufsobjekt')
+    return `${z(u.vmf)} m² · ${z(wert(u))} ${einheit}`
+  }
 
   const haeuserIds = [...new Map(units.map((u) => [u.hausId, u.haus])).entries()]
   const haeuser = haeuserIds.map(([id, name]) => {
     const hu = units.filter((u) => u.hausId === id)
     const flaeche = sumW(hu, (u) => u.vmf)
     const ertrag = sumW(hu, (u) => u.mietePa)
+    const anzahl = countW(hu)
+    // Ohne Fläche (die Tiefgarage) zählen Stück und Ansatz je Stück.
+    const ohneFlaeche = flaeche <= 0
     return {
       name,
       farbe: EIGENTUMSART_COLOR[hu[0].eig],
-      kennzahl: `${formatNumber(countW(hu))} · ${z(flaeche)} m²`,
+      kennzahl: ohneFlaeche
+        ? `${formatNumber(anzahl)} Stk`
+        : `${formatNumber(anzahl)} · ${z(flaeche)} m²`,
       // Die Eigentumsart steht schon in der Farbe des Kopfes und in der
       // Skala darunter; im Kopf bliebe sie eine Wiederholung.
-      unterzeile: `Ø ${z(flaeche > 0 ? ertrag / flaeche : 0)} ${einheit}`,
+      unterzeile: ertrag <= 0 ? ''
+        : ohneFlaeche
+          ? `Ø ${jeStueck(anzahl > 0 ? ertrag / anzahl : 0, hu[0].eig === 'verkaufsobjekt')}`
+          : `Ø ${z(ertrag / flaeche)} ${einheit}`,
     }
   })
 
@@ -601,8 +627,11 @@ function mietspiegel(
           return {
             // Zwei Zeilen halten die Kachel schlank: oben was es ist, unten
             // wie gross und zu welchem Ansatz.
-            titel: `${u.zimmerLabel}${u.anzahl > 1 ? ` ×${u.anzahl}` : ''}`,
-            zeile: `${z(u.vmf)} m² · ${z(wert(u))} ${einheit}`,
+            // Ohne Fläche (Parkplätze und Ähnliches) sagt die Beschreibung
+            // mehr als die Nutzung: „TG-Parkplätze" statt „Parking".
+            titel: `${(u.vmf <= 0 && u.bezeichnung?.trim()) || u.zimmerLabel}`
+              + `${u.anzahl > 1 ? ` ×${u.anzahl}` : ''}`,
+            zeile: kachelZeile(u),
             farbe,
             textFarbe: readableText(farbe),
           }
